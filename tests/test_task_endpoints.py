@@ -7,7 +7,7 @@ Requires a running PostgreSQL instance (TEST_DATABASE_URL env var or default).
 import asyncio
 import base64
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -223,3 +223,136 @@ async def test_post_tasks_supervised_mode(mock_pipeline, app_with_pool):
     assert resp.status_code == 201
     body = resp.json()
     assert body["mode"] == "supervised"
+
+
+# --- Phase 9: Approval endpoint tests ---
+
+
+async def _supervised_reroute_pipeline(ctx, prompt, pool, task_id):
+    """Mock pipeline that triggers a confirm_reroute in supervised mode."""
+    await ctx.confirm_reroute("editor", "needs editing")
+
+
+@patch("src.engine.manager.orchestrate_pipeline", side_effect=_supervised_reroute_pipeline)
+async def test_approve_resumes_task(mock_pipeline, app_with_pool):
+    """POST /tasks/{id}/approve with approve decision returns 200 and resumes task."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create a supervised task that will pause at reroute
+        create_resp = await client.post(
+            "/tasks",
+            json={"prompt": "approve test", "mode": "supervised"},
+            headers=AUTH_HEADERS,
+        )
+        task_id = create_resp.json()["id"]
+
+        # Wait for the task to reach awaiting_approval
+        await asyncio.sleep(0.3)
+
+        resp = await client.post(
+            f"/tasks/{task_id}/approve",
+            json={"decision": "approve"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["decision"] == "approve"
+
+
+async def _supervised_reroute_reject(ctx, prompt, pool, task_id):
+    """Mock pipeline that triggers a confirm_reroute; rejection causes it to finish."""
+    approved = await ctx.confirm_reroute("editor", "needs editing")
+    if not approved:
+        return  # Pipeline ends early
+
+
+@patch("src.engine.manager.orchestrate_pipeline", side_effect=_supervised_reroute_reject)
+async def test_reject_stops_task(mock_pipeline, app_with_pool):
+    """POST /tasks/{id}/approve with reject decision returns 200 and task completes."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post(
+            "/tasks",
+            json={"prompt": "reject test", "mode": "supervised"},
+            headers=AUTH_HEADERS,
+        )
+        task_id = create_resp.json()["id"]
+
+        await asyncio.sleep(0.3)
+
+        resp = await client.post(
+            f"/tasks/{task_id}/approve",
+            json={"decision": "reject"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decision"] == "reject"
+
+    # Give time for task to complete
+    await asyncio.sleep(0.3)
+
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        task_resp = await client.get(f"/tasks/{task_id}", headers=AUTH_HEADERS)
+    assert task_resp.json()["status"] == "completed"
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_approve_not_awaiting(mock_pipeline, app_with_pool):
+    """POST /tasks/{id}/approve for a task not awaiting approval returns 409."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post(
+            "/tasks",
+            json={"prompt": "not awaiting test"},
+            headers=AUTH_HEADERS,
+        )
+        task_id = create_resp.json()["id"]
+
+        await asyncio.sleep(0.2)
+
+        resp = await client.post(
+            f"/tasks/{task_id}/approve",
+            json={"decision": "approve"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 409
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_approve_nonexistent(mock_pipeline, app_with_pool):
+    """POST /tasks/99999/approve returns 404."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/tasks/99999/approve",
+            json={"decision": "approve"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 404
+
+
+async def test_approve_requires_auth(app_with_pool):
+    """POST /tasks/{id}/approve without auth returns 401."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/tasks/1/approve",
+            json={"decision": "approve"},
+        )
+    assert resp.status_code == 401
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_approve_invalid_decision(mock_pipeline, app_with_pool):
+    """POST /tasks/{id}/approve with invalid decision returns 422."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/tasks/1/approve",
+            json={"decision": "invalid_value"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 422
