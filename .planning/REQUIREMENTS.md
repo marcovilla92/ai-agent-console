@@ -22,7 +22,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **AGNT-02**: EXECUTE agent produces structured output (TARGET, PROJECT STRUCTURE, FILES, CODE, COMMANDS, SETUP NOTES, HANDOFF → REVIEW)
 - [ ] **AGNT-03**: REVIEW agent produces structured output (SUMMARY, ISSUES FOUND, RISKS, IMPROVEMENTS, DECISION: APPROVED / BACK TO PLAN / BACK TO EXECUTE)
 - [x] **AGNT-04**: User sees visible handoff context between agent panels showing what data was passed
-- [ ] **AGNT-05**: New agents can be added via config file (name, system_prompt, output_contract, panel_assignment) without code changes
+- [x] **AGNT-05**: New agents can be added via config file (name, system_prompt, output_contract, panel_assignment) without code changes
 
 ### Orchestration
 
@@ -92,7 +92,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-02 | Phase 2 | Pending |
 | AGNT-03 | Phase 2 | Pending |
 | AGNT-04 | Phase 2 | Complete |
-| AGNT-05 | Phase 2 | Pending |
+| AGNT-05 | Phase 2 | Complete |
 | ORCH-01 | Phase 4 | Pending |
 | ORCH-02 | Phase 4 | Pending |
 | ORCH-03 | Phase 4 | Pending |
