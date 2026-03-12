@@ -1,12 +1,13 @@
 """
 FastAPI dependencies for dependency injection.
 
-Provides database pool, auth verification, and TaskManager access.
+Provides database pool, auth verification, WebSocket token auth, and TaskManager access.
 """
+import base64
 import secrets
 
 import asyncpg
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Query, Request, WebSocket, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.engine.manager import TaskManager
@@ -44,6 +45,41 @@ def verify_credentials(
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
+
+
+def verify_ws_token(
+    websocket: WebSocket,
+    token: str = Query(...),
+) -> str:
+    """Verify WebSocket authentication via query parameter token.
+
+    Token is base64-encoded "username:password" string (same credentials
+    as HTTP Basic Auth).
+
+    Returns the username on success.
+    Raises WebSocketException with code 1008 (Policy Violation) on failure.
+    """
+    try:
+        decoded = base64.b64decode(token).decode("utf-8")
+        username, password = decoded.split(":", 1)
+    except Exception:
+        from starlette.websockets import WebSocketClose
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+
+    settings = get_settings()
+    username_ok = secrets.compare_digest(
+        username.encode("utf-8"),
+        settings.auth_username.encode("utf-8"),
+    )
+    password_ok = secrets.compare_digest(
+        password.encode("utf-8"),
+        settings.auth_password.encode("utf-8"),
+    )
+    if not (username_ok and password_ok):
+        from fastapi.exceptions import WebSocketException
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+
+    return username
 
 
 async def get_task_manager(request: Request) -> TaskManager:

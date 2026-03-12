@@ -29,17 +29,23 @@ async def auto_commit(project_path: str, session_name: str) -> bool:
 
     async with _git_lock:
         try:
-            # Stage all changes
+            # Stage only tracked files and new files in src/tests dirs
+            # (avoid staging unrelated files like logs, .env, etc.)
+            for pattern in ["src/", "tests/"]:
+                proc = await asyncio.create_subprocess_exec(
+                    "git", "add", pattern,
+                    cwd=project_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.communicate()
+            # Also stage tracked files that were modified
             proc = await asyncio.create_subprocess_exec(
-                "git", "add", "-A",
+                "git", "add", "-u",
                 cwd=project_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await proc.communicate()
-            if proc.returncode != 0:
-                log.warning("git add failed with code %d", proc.returncode)
-                return False
 
             # Check if there are staged changes (exit 0 = nothing staged)
             proc = await asyncio.create_subprocess_exec(

@@ -219,12 +219,12 @@ async def orchestrate_pipeline(
     while not state.halted and not state.approved:
         log.info("orchestrate_pipeline: === LOOP iteration=%d agent=%s ===", state.iteration_count, state.current_agent)
 
-        # 1. Build prompt for current agent (include accumulated handoffs)
+        # 1. Build prompt for current agent (include all accumulated handoffs)
         agent_prompt = prompt
         if state.accumulated_handoffs:
             handoff_context = "\n\n".join(state.accumulated_handoffs)
             agent_prompt = f"{prompt}\n\n{handoff_context}"
-            log.info("orchestrate_pipeline: added %d handoffs to prompt", len(state.accumulated_handoffs))
+            log.info("orchestrate_pipeline: added %d handoffs to prompt, total_len=%d", len(state.accumulated_handoffs), len(agent_prompt))
 
         # 2. Run current agent (streams via TaskContext)
         log.info("orchestrate_pipeline: streaming agent=%s prompt_len=%d", state.current_agent, len(agent_prompt))
@@ -240,11 +240,22 @@ async def orchestrate_pipeline(
         )
         log.info("orchestrate_pipeline: agent=%s completed sections=%s", state.current_agent, list(sections.keys()))
 
-        # 3. Record in history
+        # 3. Record in history and build handoff for next agent
         state.history.append({
             "agent": state.current_agent,
             "sections_keys": list(sections.keys()),
         })
+
+        # Always accumulate handoff so the next agent has context
+        from src.agents.base import AgentResult
+        agent_result = AgentResult(
+            agent_name=state.current_agent,
+            raw_output="",
+            sections=sections,
+            handoff=sections.get("HANDOFF"),
+        )
+        state.accumulated_handoffs.append(build_handoff(agent_result))
+        log.info("orchestrate_pipeline: built handoff from %s, total_handoffs=%d", state.current_agent, len(state.accumulated_handoffs))
 
         # 4. If review just ran, increment iteration counter
         if state.current_agent == "review":
@@ -296,14 +307,6 @@ async def orchestrate_pipeline(
             )
             if confirmed:
                 state.current_agent = decision.next_agent
-                # Accumulate handoff context for the next iteration
-                from src.agents.base import AgentResult
-                agent_result = AgentResult(
-                    agent_name=state.history[-1]["agent"],
-                    raw_output="",
-                    sections=sections,
-                )
-                state.accumulated_handoffs.append(build_handoff(agent_result))
                 log.info("orchestrate_pipeline: reroute confirmed, now agent=%s", state.current_agent)
             else:
                 log.info("orchestrate_pipeline: reroute rejected, halting")

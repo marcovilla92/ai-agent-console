@@ -114,10 +114,10 @@ async def stream_claude(
             usage = data.get("usage", {})
             result_data = {
                 "type": "result",
-                "cost_usd": data.get("cost_usd", 0.0),
+                "cost_usd": data.get("total_cost_usd", 0.0) or data.get("cost_usd", 0.0),
                 "num_turns": data.get("num_turns", 0),
                 "session_id": data.get("session_id", ""),
-                "input_tokens": usage.get("input_tokens", 0),
+                "input_tokens": usage.get("input_tokens", 0) + usage.get("cache_read_input_tokens", 0) + usage.get("cache_creation_input_tokens", 0),
                 "output_tokens": usage.get("output_tokens", 0),
                 "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
                 "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),

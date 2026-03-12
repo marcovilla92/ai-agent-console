@@ -1,4 +1,5 @@
 import logging
+import os
 
 logging.basicConfig(
     filename="/tmp/agent-console.log",
@@ -8,4 +9,4 @@ logging.basicConfig(
 
 from src.tui.app import AgentConsoleApp
 
-AgentConsoleApp().run()
+AgentConsoleApp(project_path=os.getcwd()).run()

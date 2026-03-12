@@ -51,22 +51,18 @@ class TuiTaskContext:
 
     async def confirm_reroute(self, next_agent: str, reasoning: str) -> bool:
         log.info("confirm_reroute: next_agent=%s reasoning=%s", next_agent, reasoning)
-        from src.tui.confirm_dialog import ConfirmDialog
+        from src.tui.confirm_dialog import RerouteConfirmDialog
 
-        message = f"Re-route to {next_agent.upper()}?\n{reasoning}"
-        confirmed = await self._app.push_screen_wait(ConfirmDialog(message))
+        confirmed = await self._app.push_screen_wait(
+            RerouteConfirmDialog(next_agent, reasoning)
+        )
         log.info("confirm_reroute result: %s", confirmed)
         return confirmed
 
     async def handle_halt(self, iteration_count: int) -> str:
         log.info("handle_halt: iteration_count=%d", iteration_count)
-        from src.tui.confirm_dialog import ConfirmDialog
+        from src.tui.confirm_dialog import HaltDialog
 
-        message = (
-            f"Iteration limit reached ({iteration_count}).\n"
-            "Continue (3 more), approve as-is, or stop?"
-        )
-        result = await self._app.push_screen_wait(ConfirmDialog(message))
-        choice = "continue" if result else "stop"
-        log.info("handle_halt result: %s", choice)
-        return choice
+        result = await self._app.push_screen_wait(HaltDialog(iteration_count))
+        log.info("handle_halt result: %s", result)
+        return result
