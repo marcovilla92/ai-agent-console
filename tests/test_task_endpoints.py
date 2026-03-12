@@ -4,6 +4,7 @@ Integration tests for task REST endpoints with HTTP Basic Auth.
 Tests auth dependency, TaskManager lifespan wiring, and task CRUD endpoints.
 Requires a running PostgreSQL instance (TEST_DATABASE_URL env var or default).
 """
+import asyncio
 import base64
 import os
 from unittest.mock import AsyncMock, patch
@@ -96,3 +97,129 @@ async def test_task_manager_in_lifespan(app_with_pool):
     from src.engine.manager import TaskManager
     assert hasattr(app_with_pool.state, "task_manager")
     assert isinstance(app_with_pool.state.task_manager, TaskManager)
+
+
+# --- Task 2 tests: REST endpoints for task CRUD and cancel ---
+
+
+async def _slow_pipeline(ctx, prompt, pool, task_id):
+    """Mock pipeline that sleeps to simulate a long-running task."""
+    await asyncio.sleep(60)
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_post_tasks_no_auth(mock_pipeline, app_with_pool):
+    """POST /tasks without auth returns 401."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/tasks", json={"prompt": "hello"})
+    assert resp.status_code == 401
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_post_tasks_creates_task(mock_pipeline, app_with_pool):
+    """POST /tasks with auth creates task, returns 201 with TaskResponse."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/tasks",
+            json={"prompt": "build a website"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["prompt"] == "build a website"
+    assert body["mode"] == "autonomous"
+    assert body["id"] is not None
+    assert body["status"] in ("queued", "running")
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_get_tasks_list(mock_pipeline, app_with_pool):
+    """GET /tasks with auth returns list of tasks with count."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create a task first
+        await client.post(
+            "/tasks",
+            json={"prompt": "list test task"},
+            headers=AUTH_HEADERS,
+        )
+        resp = await client.get("/tasks", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "tasks" in body
+    assert "count" in body
+    assert body["count"] >= 1
+    assert isinstance(body["tasks"], list)
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_get_task_by_id(mock_pipeline, app_with_pool):
+    """GET /tasks/{id} with auth returns single task."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post(
+            "/tasks",
+            json={"prompt": "get by id test"},
+            headers=AUTH_HEADERS,
+        )
+        task_id = create_resp.json()["id"]
+        resp = await client.get(f"/tasks/{task_id}", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == task_id
+    assert body["prompt"] == "get by id test"
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_get_task_not_found(mock_pipeline, app_with_pool):
+    """GET /tasks/{id} with invalid id returns 404."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/tasks/999999", headers=AUTH_HEADERS)
+    assert resp.status_code == 404
+
+
+@patch("src.engine.manager.orchestrate_pipeline", side_effect=_slow_pipeline)
+async def test_cancel_running_task(mock_pipeline, app_with_pool):
+    """POST /tasks/{id}/cancel with auth cancels a running task."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_resp = await client.post(
+            "/tasks",
+            json={"prompt": "cancel test"},
+            headers=AUTH_HEADERS,
+        )
+        task_id = create_resp.json()["id"]
+        # Give the task a moment to start running
+        await asyncio.sleep(0.1)
+        resp = await client.post(f"/tasks/{task_id}/cancel", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == task_id
+    assert body["status"] == "cancelled"
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_cancel_not_found(mock_pipeline, app_with_pool):
+    """POST /tasks/{id}/cancel with invalid id returns 404."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/tasks/999999/cancel", headers=AUTH_HEADERS)
+    assert resp.status_code == 404
+
+
+@patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock)
+async def test_post_tasks_supervised_mode(mock_pipeline, app_with_pool):
+    """POST /tasks with mode='supervised' stores mode correctly."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/tasks",
+            json={"prompt": "supervised task", "mode": "supervised"},
+            headers=AUTH_HEADERS,
+        )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["mode"] == "supervised"
