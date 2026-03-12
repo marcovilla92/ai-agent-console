@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 ## Current Position
 
 Phase: 1 of 5 (Foundation)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-03-11 -- Roadmap created
+Plan: 1 of 3 in current phase
+Status: Executing
+Last activity: 2026-03-12 -- Completed plan 01-01 (test scaffolding)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 7%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 2min
+- Total execution time: 0.03 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-foundation | 1 | 2min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 01-01 (2min)
+- Trend: Starting
 
 *Updated after each plan completion*
 
@@ -44,6 +44,8 @@ Recent decisions affecting current work:
 
 - [Roadmap]: Build bottom-up (infra -> agents -> TUI -> orchestrator -> polish) per research recommendation
 - [Roadmap]: Rule-based pipeline first in Phase 2, AI-driven routing deferred to Phase 4
+- [01-01]: Used Python venv for dependency isolation (pip not available system-wide)
+- [01-01]: pytest-asyncio asyncio_mode=auto eliminates per-test @pytest.mark.asyncio decorators
 
 ### Pending Todos
 
@@ -56,6 +58,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11
-Stopped at: Roadmap and state files created
+Last session: 2026-03-12
+Stopped at: Completed 01-01-PLAN.md (test scaffolding)
 Resume file: None

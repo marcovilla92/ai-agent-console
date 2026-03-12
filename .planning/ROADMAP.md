@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: TBD
 
 Plans:
-- [ ] 01-01: TBD
+- [x] 01-01: Test scaffolding and project bootstrap
 - [ ] 01-02: TBD
 - [ ] 01-03: TBD
 
@@ -109,7 +109,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Not started | - |
+| 1. Foundation | 1/3 | In progress | - |
 | 2. Agent Pipeline | 0/3 | Not started | - |
 | 3. TUI Shell | 0/3 | Not started | - |
 | 4. Orchestrator Intelligence | 0/2 | Not started | - |
