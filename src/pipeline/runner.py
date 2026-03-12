@@ -10,12 +10,11 @@ from datetime import datetime, timezone
 import aiosqlite
 
 from src.agents.base import AgentResult
+from src.agents.config import resolve_pipeline_order
 from src.agents.factory import create_agent
 from src.db.repository import SessionRepository
 from src.db.schema import Session
 from src.pipeline.handoff import build_handoff
-
-PIPELINE_STEPS = ["plan", "execute", "review"]
 
 
 @dataclass
@@ -47,14 +46,15 @@ async def run_pipeline(
 
     result = PipelineResult(session_id=session_id)
     current_prompt = prompt
+    pipeline_steps = resolve_pipeline_order()
 
-    for step_name in PIPELINE_STEPS:
+    for step_name in pipeline_steps:
         agent = create_agent(step_name, db, project_path)
         step_result = await agent.run(current_prompt, session_id)
         result.steps.append(step_result)
 
         # Build handoff for next agent
-        if step_name != PIPELINE_STEPS[-1]:
+        if step_name != pipeline_steps[-1]:
             handoff_context = build_handoff(step_result)
             current_prompt = f"{prompt}\n\n{handoff_context}"
 

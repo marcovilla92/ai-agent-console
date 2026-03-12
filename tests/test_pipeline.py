@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.pipeline.runner import run_pipeline, PipelineResult, PIPELINE_STEPS
+from src.agents.config import resolve_pipeline_order, AgentConfig
+from src.pipeline.runner import run_pipeline, PipelineResult
 
 
 PLAN_OUTPUT = """GOAL:
@@ -116,4 +117,45 @@ async def test_pipeline_steps_match_pipeline_order(db_with_schema, tmp_path):
         result = await run_pipeline("Build an API", str(tmp_path), db_with_schema)
 
     step_names = [s.agent_name for s in result.steps]
-    assert step_names == PIPELINE_STEPS
+    assert step_names == resolve_pipeline_order()
+
+
+DEPLOY_OUTPUT = """SUMMARY:
+Deployment complete.
+
+DECISION:
+APPROVED -- Deployed successfully.
+"""
+
+
+async def test_pipeline_uses_dynamic_steps(db_with_schema, tmp_path):
+    """Adding a 4th agent to AGENT_REGISTRY dynamically extends the pipeline."""
+    deploy_config = AgentConfig(
+        name="deploy",
+        system_prompt_file="deploy.txt",
+        output_sections=["SUMMARY", "DECISION"],
+        next_agent=None,
+    )
+    # Patch review to point to deploy, and add deploy to registry
+    patched_review = AgentConfig(
+        name="review",
+        system_prompt_file=str(
+            __import__("src.agents.config", fromlist=["PROMPTS_DIR"]).PROMPTS_DIR
+            / "review_system.txt"
+        ),
+        output_sections=["SUMMARY", "ISSUES", "RISKS", "IMPROVEMENTS", "DECISION"],
+        next_agent="deploy",
+    )
+    registry_patch = {
+        "review": patched_review,
+        "deploy": deploy_config,
+    }
+
+    with patch.dict("src.agents.config.AGENT_REGISTRY", registry_patch):
+        with patch("src.agents.base.invoke_claude_with_retry", new_callable=AsyncMock) as mock:
+            mock.side_effect = [PLAN_OUTPUT, EXECUTE_OUTPUT, REVIEW_OUTPUT, DEPLOY_OUTPUT]
+            result = await run_pipeline("Build an API", str(tmp_path), db_with_schema)
+
+    assert len(result.steps) == 4
+    step_names = [s.agent_name for s in result.steps]
+    assert step_names == ["plan", "execute", "review", "deploy"]
