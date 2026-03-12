@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-03-12T12:57:51Z"
-last_activity: 2026-03-12 -- Completed plan 03-01 (TUI layout and theme)
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-03-12T12:59:19Z"
+last_activity: 2026-03-12 -- Completed plan 03-03 (streaming display and status bar)
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 8
-  percent: 80
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -21,21 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management.
-**Current focus:** Phase 3 TUI Shell in progress
+**Current focus:** Phase 3 TUI Shell complete
 
 ## Current Position
 
 Phase: 3 of 5 (TUI Shell)
-Plan: 1 of 3 in phase 3
-Status: Plan 03-01 complete
-Last activity: 2026-03-12 -- Completed plan 03-01 (TUI layout and theme)
+Plan: 3 of 3 in phase 3
+Status: Phase 3 complete
+Last activity: 2026-03-12 -- Completed plan 03-03 (streaming display and status bar)
 
-Progress: [████████░░] 80% (Overall)
+Progress: [█████████░] 90% (Overall)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: ~2min
 - Total execution time: ~0.30 hours
 
@@ -51,6 +51,7 @@ Progress: [████████░░] 80% (Overall)
 | Phase 02 P03 | 1min | 4 tasks | 7 files |
 | Phase 02-04 P04 | 3min | 2 tasks | 4 files |
 | Phase 03-01 P01 | 1min | 4 tasks | 6 files |
+| Phase 03-03 P03 | 2min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,7 @@ Progress: [████████░░] 80% (Overall)
 - [Phase 03]: Textual 8.x API (theme="textual-dark", no .dark attribute), StatusBar with display_text property
 - [Phase 03]: Textual run_test() for headless testing, action methods for focus cycling
 - [Phase 03]: stream_claude chunks piped directly to RichLog panel for real-time display
+- [Phase 03-03]: Action handlers separated into actions.py for testability and concern separation
 - [Phase 02-03]: Handoff is visible structured text, not hidden internal state
 - [Phase 02-03]: Pipeline creates session automatically, returns PipelineResult with decision
 - [Phase 02-04]: resolve_pipeline_order uses seen-set O(1) cycle detection; pipeline order derived from AGENT_REGISTRY
@@ -77,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T12:57:51Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-03-12T12:59:19Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None

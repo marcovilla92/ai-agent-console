@@ -12,7 +12,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **TUI-01**: User sees 4-panel layout (Prompt editor, Plan output, Execute output, Review collapsible)
 - [ ] **TUI-02**: User navigates between panels with Tab key
 - [ ] **TUI-03**: User triggers actions via keyboard shortcuts (Ctrl+Enter send prompt, Ctrl+P regenerate plan, Ctrl+E execute, Ctrl+R review)
-- [ ] **TUI-04**: User sees status bar with current agent name, state, step description, next action
+- [x] **TUI-04**: User sees status bar with current agent name, state, step description, next action
 - [ ] **TUI-05**: User can resize and collapse panels via keyboard or mouse
 - [x] **TUI-06**: Interface uses dark theme by default
 
@@ -34,7 +34,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Infrastructure
 
 - [x] **INFR-01**: Claude CLI invoked via asyncio.create_subprocess_exec with streaming stdout
-- [ ] **INFR-02**: Streaming output displays line-by-line in real-time in TUI panels
+- [x] **INFR-02**: Streaming output displays line-by-line in real-time in TUI panels
 - [x] **INFR-03**: Sessions persisted in SQLite database (prompts, plans, execute outputs, reviews, orchestrator decisions)
 - [x] **INFR-04**: User creates new project by entering name, system creates dedicated folder under workspace
 - [x] **INFR-05**: Retry logic with 3 attempts and exponential backoff on Claude CLI errors
@@ -85,7 +85,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TUI-01 | Phase 3 | Complete |
 | TUI-02 | Phase 3 | Pending |
 | TUI-03 | Phase 3 | Pending |
-| TUI-04 | Phase 3 | Pending |
+| TUI-04 | Phase 3 | Complete |
 | TUI-05 | Phase 5 | Pending |
 | TUI-06 | Phase 3 | Complete |
 | AGNT-01 | Phase 2 | Pending |
@@ -98,7 +98,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORCH-03 | Phase 4 | Pending |
 | ORCH-04 | Phase 4 | Pending |
 | INFR-01 | Phase 1 | Complete |
-| INFR-02 | Phase 3 | Pending |
+| INFR-02 | Phase 3 | Complete |
 | INFR-03 | Phase 1 | Complete |
 | INFR-04 | Phase 2 | Complete |
 | INFR-05 | Phase 1 | Complete |
