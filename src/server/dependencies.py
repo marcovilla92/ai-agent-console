@@ -8,6 +8,7 @@ import secrets
 
 import asyncpg
 from fastapi import Depends, HTTPException, Query, Request, WebSocket, status
+from fastapi.exceptions import WebSocketException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.engine.manager import TaskManager
@@ -63,7 +64,6 @@ def verify_ws_token(
         decoded = base64.b64decode(token).decode("utf-8")
         username, password = decoded.split(":", 1)
     except Exception:
-        from starlette.websockets import WebSocketClose
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
     settings = get_settings()
@@ -76,7 +76,6 @@ def verify_ws_token(
         settings.auth_password.encode("utf-8"),
     )
     if not (username_ok and password_ok):
-        from fastapi.exceptions import WebSocketException
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
     return username

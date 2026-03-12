@@ -134,24 +134,41 @@ def test_ws_rejects_missing_auth(sync_app):
             pass  # Expected: connection rejected
 
 
-def test_disconnect_cleanup(sync_app):
-    """After WebSocket disconnect, ConnectionManager cleans up."""
-    with TestClient(sync_app) as client:
-        with client.websocket_connect(f"/ws/tasks/99?token={VALID_TOKEN}") as ws:
-            pass  # Connect and disconnect
-        # After disconnect, connection should be cleaned up
-        mgr = sync_app.state.connection_manager
-        assert not mgr.has_connections(99)
+async def test_disconnect_cleanup():
+    """ConnectionManager.disconnect removes socket and cleans up empty sets."""
+    from src.server.connection_manager import ConnectionManager
+
+    mgr = ConnectionManager()
+    ws1 = AsyncMock()
+    ws2 = AsyncMock()
+
+    await mgr.connect(1, ws1)
+    await mgr.connect(1, ws2)
+    assert mgr.has_connections(1)
+
+    mgr.disconnect(1, ws1)
+    assert mgr.has_connections(1)  # ws2 still there
+
+    mgr.disconnect(1, ws2)
+    assert not mgr.has_connections(1)
+    # Internal dict key should be cleaned up
+    assert 1 not in mgr._connections
 
 
-def test_heartbeat_sends_ping(sync_app):
-    """Connected WebSocket receives ping message within heartbeat interval."""
-    with TestClient(sync_app) as client:
-        with client.websocket_connect(
-            f"/ws/tasks/1?token={VALID_TOKEN}",
-            # We'll test with a short heartbeat interval
-        ) as ws:
-            # The endpoint uses default 25s heartbeat, but we'll
-            # patch it in the endpoint for testing. For now, just verify
-            # the connection works.
-            pass
+async def test_heartbeat_sends_ping():
+    """Heartbeat coroutine sends ping messages at the configured interval."""
+    from src.server.routers.ws import _heartbeat
+
+    ws = AsyncMock()
+    # Run heartbeat with very short interval
+    task = asyncio.create_task(_heartbeat(ws, interval=0.05))
+    await asyncio.sleep(0.15)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    # Should have sent at least 2 pings in 0.15s with 0.05s interval
+    assert ws.send_json.call_count >= 2
+    ws.send_json.assert_called_with({"type": "ping"})
