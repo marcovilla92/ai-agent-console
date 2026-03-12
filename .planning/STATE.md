@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-12T14:13:15.228Z"
-last_activity: 2026-03-12 -- Completed plan 04-01 (orchestrator core)
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-12T14:40:22.310Z"
+last_activity: 2026-03-12 -- Completed plan 04-02 (orchestrator TUI wiring)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management.
-**Current focus:** Phase 4 Orchestrator Intelligence
+**Current focus:** Phase 4 complete. Ready for Phase 5 Polish.
 
 ## Current Position
 
-Phase: 4 of 5 (Orchestrator Intelligence)
-Plan: 1 of 2 in phase 4
-Status: Plan 04-01 complete (orchestrator core)
-Last activity: 2026-03-12 -- Completed plan 04-01 (orchestrator core)
+Phase: 4 of 5 (Orchestrator Intelligence) -- COMPLETE
+Plan: 2 of 2 in phase 4 (all done)
+Status: Phase 4 complete, ready for Phase 5
+Last activity: 2026-03-12 -- Completed plan 04-02 (orchestrator TUI wiring)
 
-Progress: [█████████░] 92% (Overall)
+Progress: [██████████] 100% (Overall)
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [█████████░] 92% (Overall)
 | Phase 03 P02 | 2min | 3 tasks | 3 files |
 | Phase 03-tui-shell P04 | 3min | 2 tasks | 4 files |
 | Phase 04-01 P01 | 5min | 2 tasks | 7 files |
+| Phase 04 P02 | 8min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Progress: [█████████░] 92% (Overall)
 - [Phase 04-01]: Dedicated call_orchestrator_claude (non-streaming) instead of extending collect_claude
 - [Phase 04-01]: Text fallback defaults to "review" for unknown orchestrator output
 - [Phase 04-01]: Stub modal functions for Plan 02 to replace with real Textual ModalScreen
+- [Phase 04-02]: asyncio.Event bridge pattern to await modal results from call_from_thread
+- [Phase 04-02]: Unset CLAUDECODE env var in runner to allow nested Claude CLI calls
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T14:13:15.223Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-12T14:40:22.307Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

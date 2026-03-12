@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Data models, async subprocess runner, SQLite persistence, output parser with fallbacks (completed 2026-03-12)
 - [ ] **Phase 2: Agent Pipeline** - PLAN/EXECUTE/REVIEW agents with structured contracts, project creation, rule-based sequential flow (gap closure in progress)
 - [x] **Phase 3: TUI Shell** - 4-panel Textual layout, streaming display, keyboard shortcuts, status bar, dark theme (gap closure in progress) (completed 2026-03-12)
-- [ ] **Phase 4: Orchestrator Intelligence** - AI-driven routing via Claude CLI, iterative review cycles, cycle detection, decision visibility
+- [x] **Phase 4: Orchestrator Intelligence** - AI-driven routing via Claude CLI, iterative review cycles, cycle detection, decision visibility (completed 2026-03-12)
 - [ ] **Phase 5: Polish** - Resizable panels, git auto-commit, token tracking, session history browser
 
 ## Phase Details
@@ -114,5 +114,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 1. Foundation | 3/3 | Complete   | 2026-03-12 |
 | 2. Agent Pipeline | 4/4 | Complete | 2026-03-12 |
 | 3. TUI Shell | 4/4 | Complete   | 2026-03-12 |
-| 4. Orchestrator Intelligence | 1/2 | In Progress|  |
+| 4. Orchestrator Intelligence | 2/2 | Complete   | 2026-03-12 |
 | 5. Polish | 0/2 | Not started | - |
