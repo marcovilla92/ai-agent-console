@@ -153,12 +153,12 @@ async def get_orchestrator_decision(
 
     try:
         response = json.loads(raw)
-        # Claude CLI wraps structured output in {"result": "..."}
-        result_str = response.get("result", raw)
-        if isinstance(result_str, str):
-            data = json.loads(result_str)
-        else:
-            data = result_str
+        # Claude CLI returns structured output in "structured_output" field
+        data = response.get("structured_output") or response.get("result")
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not data or not isinstance(data, dict):
+            return parse_decision_from_text(raw)
 
         return OrchestratorDecision(
             next_agent=data["next_agent"],
