@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-12T15:10:05.361Z"
-last_activity: 2026-03-12 -- Completed plan 05-01 (git autocommit + usage tracking)
+stopped_at: Completed 05-03-PLAN.md
+last_updated: "2026-03-12T15:18:59.406Z"
+last_activity: 2026-03-12 -- Completed plan 05-03 (session browser + auto-commit wiring)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
-  percent: 94
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management.
-**Current focus:** Phase 5 Polish in progress.
+**Current focus:** All phases complete.
 
 ## Current Position
 
-Phase: 5 of 5 (Polish) -- IN PROGRESS
-Plan: 2 of 3 in phase 5 (05-01, 05-02 complete)
-Status: Executing phase 5 polish plans
-Last activity: 2026-03-12 -- Completed plan 05-01 (git autocommit + usage tracking)
+Phase: 5 of 5 (Polish) -- COMPLETE
+Plan: 3 of 3 in phase 5 (all complete)
+Status: All plans executed
+Last activity: 2026-03-12 -- Completed plan 05-03 (session browser + auto-commit wiring)
 
-Progress: [█████████░] 94% (Overall)
+Progress: [██████████] 100% (Overall)
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [█████████░] 94% (Overall)
 | Phase 04 P02 | 8min | 2 tasks | 7 files |
 | Phase 05-02 P02 | 4min | 2 tasks | 2 files |
 | Phase 05 P01 | 8min | 2 tasks | 11 files |
+| Phase 05-polish P03 | 5min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Progress: [█████████░] 94% (Overall)
 - [Phase 05-02]: Resize uses independent row/column ratio tracking with fr units, clamped 1-4
 - [Phase 05]: stream_claude yields result events as dict (isinstance check distinguishes text from metadata)
 - [Phase 05]: auto_commit uses asyncio.Lock to prevent concurrent git operations
+- [Phase 05-polish]: SessionBrowser accepts pre-loaded sessions list via async worker before push_screen
+- [Phase 05-polish]: Auto-commit hook placed after orchestrate_pipeline while loop, guarded by state.approved
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T15:10:05.358Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-12T15:18:59.403Z
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None
