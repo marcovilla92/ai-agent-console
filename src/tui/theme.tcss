@@ -1,0 +1,42 @@
+/* Dark theme for AI Agent Workflow Console */
+
+Screen {
+    background: $surface;
+}
+
+#app-grid {
+    layout: grid;
+    grid-size: 2 2;
+    grid-gutter: 1;
+    padding: 1;
+}
+
+PromptPanel {
+    border: solid $accent;
+    background: $surface-darken-1;
+}
+
+OutputPanel {
+    border: solid $secondary;
+    background: $surface-darken-1;
+}
+
+#prompt-panel {
+    column-span: 1;
+}
+
+#plan-panel {
+    column-span: 1;
+}
+
+#execute-panel {
+    column-span: 1;
+}
+
+#review-panel {
+    column-span: 1;
+}
+
+Footer {
+    background: $primary-darken-2;
+}
