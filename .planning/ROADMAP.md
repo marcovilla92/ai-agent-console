@@ -13,7 +13,7 @@ This roadmap takes the project from zero to a working terminal-based multi-agent
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Data models, async subprocess runner, SQLite persistence, output parser with fallbacks (completed 2026-03-12)
-- [x] **Phase 2: Agent Pipeline** - PLAN/EXECUTE/REVIEW agents with structured contracts, project creation, rule-based sequential flow (completed 2026-03-12)
+- [ ] **Phase 2: Agent Pipeline** - PLAN/EXECUTE/REVIEW agents with structured contracts, project creation, rule-based sequential flow (gap closure in progress)
 - [x] **Phase 3: TUI Shell** - 4-panel Textual layout, streaming display, keyboard shortcuts, status bar, dark theme (completed 2026-03-12)
 - [ ] **Phase 4: Orchestrator Intelligence** - AI-driven routing via Claude CLI, iterative review cycles, cycle detection, decision visibility
 - [ ] **Phase 5: Polish** - Resizable panels, git auto-commit, token tracking, session history browser
@@ -48,12 +48,13 @@ Plans:
   4. Handoff data passed between agents is visible and inspectable (not hidden internal state)
   5. A new agent can be added by creating a config entry (name, system_prompt, output_contract, panel_assignment) without modifying existing code
   6. User can create a new project by entering a name, and the system creates a dedicated workspace folder
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
 - [x] 02-01: Agent config registry & base agent class
 - [x] 02-02: PLAN/EXECUTE/REVIEW agent implementations with system prompts
 - [x] 02-03: Pipeline runner, handoffs & project creation
+- [ ] 02-04: Gap closure -- derive pipeline order from next_agent chain (AGNT-05)
 
 ### Phase 3: TUI Shell
 **Goal**: Users interact with the agent pipeline through a 4-panel terminal interface with real-time streaming and keyboard-driven workflow
@@ -110,7 +111,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-03-12 |
-| 2. Agent Pipeline | 3/3 | Complete | 2026-03-12 |
+| 2. Agent Pipeline | 3/4 | Gap closure | - |
 | 3. TUI Shell | 3/3 | Complete | 2026-03-12 |
 | 4. Orchestrator Intelligence | 0/2 | Not started | - |
 | 5. Polish | 0/2 | Not started | - |
