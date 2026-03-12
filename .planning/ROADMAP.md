@@ -83,11 +83,11 @@ Plans:
   2. When REVIEW decides BACK TO PLAN or BACK TO EXECUTE, the system re-routes to that agent with user confirmation before proceeding
   3. After 3 consecutive iterations without APPROVED, the system halts and asks the user whether to continue or stop
   4. The orchestrator's reasoning (why it chose the next agent) and current workflow state are visible in the status area
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md -- Orchestrator core: state management, Claude CLI routing, iteration limits, DB logging
+- [ ] 04-02-PLAN.md -- TUI integration: modal dialogs, status bar wiring, orchestrator-driven pipeline
 
 ### Phase 5: Polish
 **Goal**: Daily-use quality improvements: resizable panels, automatic git commits, cost visibility, and session history
