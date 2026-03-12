@@ -12,7 +12,9 @@ import asyncpg
 from fastapi import APIRouter, FastAPI, Request
 
 from src.db.migrations import apply_schema
+from src.engine.manager import TaskManager
 from src.server.config import get_settings
+from src.server.routers.tasks import task_router
 
 log = logging.getLogger(__name__)
 
@@ -41,9 +43,12 @@ async def lifespan(app: FastAPI):
     )
     try:
         await apply_schema(app.state.pool)
-        log.info("Schema applied, server ready")
+        app.state.task_manager = TaskManager(pool=app.state.pool, max_concurrent=2)
+        log.info("Schema applied, TaskManager created, server ready")
         yield
     finally:
+        await app.state.task_manager.shutdown()
+        log.info("TaskManager shut down")
         await app.state.pool.close()
         log.info("asyncpg pool closed")
 
@@ -52,4 +57,5 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="AI Agent Console", lifespan=lifespan)
     app.include_router(health_router)
+    app.include_router(task_router)
     return app

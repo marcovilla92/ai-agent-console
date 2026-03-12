@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     pool_max_size: int = 5
     host: str = "0.0.0.0"
     port: int = 8000
+    auth_username: str = "admin"
+    auth_password: str = "changeme"
+    project_path: str = "."
 
     model_config = {"env_prefix": "APP_"}
 
