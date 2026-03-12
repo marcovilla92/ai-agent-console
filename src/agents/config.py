@@ -54,3 +54,25 @@ def get_agent_config(name: str) -> AgentConfig:
     if name not in AGENT_REGISTRY:
         raise KeyError(f"Unknown agent: {name!r}. Available: {list(AGENT_REGISTRY)}")
     return AGENT_REGISTRY[name]
+
+
+def resolve_pipeline_order(start_agent: str = "plan") -> list[str]:
+    """Walk the next_agent chain from start_agent, returning ordered agent names.
+
+    Raises KeyError if start_agent is not in AGENT_REGISTRY.
+    Raises ValueError if a circular next_agent chain is detected.
+    """
+    order: list[str] = []
+    seen: set[str] = set()
+    current: str | None = start_agent
+
+    while current is not None:
+        if current in seen:
+            raise ValueError("Circular next_agent chain detected")
+        if current not in AGENT_REGISTRY:
+            raise KeyError(f"Unknown agent: {current!r}. Available: {list(AGENT_REGISTRY)}")
+        seen.add(current)
+        order.append(current)
+        current = AGENT_REGISTRY[current].next_agent
+
+    return order
