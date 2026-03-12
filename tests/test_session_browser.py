@@ -18,15 +18,29 @@ def test_session_browser_instantiation():
     assert browser.sessions == SAMPLE_SESSIONS
 
 
-def test_session_browser_compose_has_data_table():
-    """SessionBrowser.compose yields a DataTable widget."""
-    browser = SessionBrowser(SAMPLE_SESSIONS)
+@pytest.mark.asyncio
+async def test_session_browser_compose_has_data_table():
+    """SessionBrowser.compose yields a DataTable and buttons."""
+    from textual.app import App, ComposeResult
     from textual.widgets import DataTable, Button
-    widgets = list(browser.compose())
-    # Flatten: compose yields containers, need to check children
-    # Instead check that the class has expected structure
-    assert hasattr(browser, 'sessions')
-    assert len(browser.sessions) == 3
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield from []
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        browser = SessionBrowser(SAMPLE_SESSIONS)
+        await app.push_screen(browser)
+        await pilot.pause()
+        # Verify DataTable exists
+        table = browser.query_one("#session-table", DataTable)
+        assert table is not None
+        # Verify buttons exist
+        resume = browser.query_one("#resume", Button)
+        cancel = browser.query_one("#cancel", Button)
+        assert resume is not None
+        assert cancel is not None
 
 
 def test_session_browser_empty_sessions():
@@ -134,5 +148,6 @@ def test_app_has_ctrl_b_binding():
     """AgentConsoleApp has a Ctrl+B binding for browse_sessions."""
     from src.tui.app import AgentConsoleApp
     app = AgentConsoleApp()
-    binding_keys = [b.key for b in app._bindings]
-    assert "ctrl+b" in binding_keys
+    # _bindings.keys is a dict of key -> Binding
+    keys = list(app._bindings.key_to_bindings.keys())
+    assert "ctrl+b" in keys

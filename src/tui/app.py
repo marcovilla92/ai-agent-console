@@ -40,6 +40,7 @@ class AgentConsoleApp(App):
         ("ctrl+down", "resize_row('down')", "Grow Bottom"),
         ("ctrl+left", "resize_col('left')", "Grow Left"),
         ("ctrl+right", "resize_col('right')", "Grow Right"),
+        ("ctrl+b", "browse_sessions", "Sessions"),
         ("ctrl+q", "quit", "Quit"),
     ]
 
@@ -48,6 +49,7 @@ class AgentConsoleApp(App):
         self.project_path = project_path
         self._panel_ids = ["prompt-panel", "plan-panel", "execute-panel", "review-panel"]
         self._focus_index = 0
+        self._db = None  # aiosqlite.Connection, set externally if available
         self._row_top: int = 1
         self._row_bottom: int = 1
         self._col_left: int = 1
@@ -136,6 +138,63 @@ class AgentConsoleApp(App):
         """Toggle visibility of a panel (collapse/expand)."""
         panel = self.query_one(f"#{panel_id}")
         panel.display = not panel.display
+
+    def action_browse_sessions(self) -> None:
+        """Open session browser modal (Ctrl+B)."""
+        if self._db is None:
+            self.notify("No database connection", severity="warning")
+            return
+
+        async def _load_and_show() -> None:
+            from src.db.repository import SessionRepository
+            from src.tui.session_browser import SessionBrowser
+
+            repo = SessionRepository(self._db)
+            sessions = await repo.list_all()
+            self.push_screen(
+                SessionBrowser(sessions), callback=self._on_session_selected
+            )
+
+        self.run_worker(_load_and_show, exclusive=False)
+
+    def _on_session_selected(self, session_id: int | None) -> None:
+        """Callback after session browser dismisses."""
+        if session_id is None:
+            return
+
+        from src.tui.actions import AGENT_PANEL_MAP
+
+        async def _load_session() -> None:
+            from src.db.repository import AgentOutputRepository, SessionRepository
+
+            if self._db is None:
+                return
+
+            # Load session info
+            session_repo = SessionRepository(self._db)
+            session = await session_repo.get(session_id)
+
+            # Load agent outputs
+            output_repo = AgentOutputRepository(self._db)
+            outputs = await output_repo.get_by_session(session_id)
+
+            for output in outputs:
+                panel_id = AGENT_PANEL_MAP.get(output.agent_type)
+                if panel_id:
+                    panel = self.get_panel(panel_id)
+                    panel.clear_output()
+                    panel.write(output.raw_output)
+
+            # Update status
+            session_name = session.name if session else f"#{session_id}"
+            self.status_bar.set_status(
+                agent="session",
+                state="resumed",
+                step=f"Session #{session_id}: {session_name}",
+                next_action="Session loaded",
+            )
+
+        self.run_worker(_load_session, exclusive=False)
 
     def run_agent(self, agent_name: str) -> None:
         """Run a specific agent via action handlers."""
