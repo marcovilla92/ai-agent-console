@@ -144,7 +144,7 @@ class TestSendPromptOrchestrator:
         app.prompt_panel.text = "Build something cool"
         app.get_panel.return_value = MagicMock()
 
-        with patch("src.tui.actions.start_orchestrator_worker") as mock_worker:
+        with patch("src.tui.streaming.start_orchestrator_worker") as mock_worker:
             result = send_prompt(app)
             assert result == "Build something cool"
             mock_worker.assert_called_once()
@@ -172,7 +172,7 @@ class TestOrchestratorStatusBar:
         decision_json = '{"result": "{\\"next_agent\\": \\"approved\\", \\"reasoning\\": \\"All good\\", \\"confidence\\": 0.9}"}'
 
         with patch(
-            "src.pipeline.orchestrator.stream_agent_to_panel",
+            "src.tui.streaming.stream_agent_to_panel",
             new_callable=AsyncMock,
             return_value={"PLAN": "some plan output"},
         ), patch(
@@ -207,28 +207,29 @@ class TestOrchestratorRerouteIntegration:
         app.status_bar = MagicMock()
         app.project_path = "/tmp"
 
-        # First call: review decides "plan" (re-route)
-        # Second call: plan decides "approved" (end)
+        # Flow: plan -> execute -> review -> (re-route to plan) -> approved
         call_count = 0
         async def fake_get_decision(state, sections):
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
+            if state.current_agent == "plan" and call_count == 1:
                 return OrchestratorDecision(
-                    next_agent="plan",
-                    reasoning="Needs revision",
-                    confidence=0.8,
-                    full_response="{}",
+                    next_agent="execute", reasoning="Proceed", confidence=0.9, full_response="{}",
+                )
+            if state.current_agent == "execute":
+                return OrchestratorDecision(
+                    next_agent="review", reasoning="Code ready", confidence=0.9, full_response="{}",
+                )
+            if state.current_agent == "review" and call_count <= 4:
+                return OrchestratorDecision(
+                    next_agent="plan", reasoning="Needs revision", confidence=0.8, full_response="{}",
                 )
             return OrchestratorDecision(
-                next_agent="approved",
-                reasoning="All good now",
-                confidence=0.95,
-                full_response="{}",
+                next_agent="approved", reasoning="All good now", confidence=0.95, full_response="{}",
             )
 
         with patch(
-            "src.pipeline.orchestrator.stream_agent_to_panel",
+            "src.tui.streaming.stream_agent_to_panel",
             new_callable=AsyncMock,
             return_value={"OUTPUT": "content"},
         ), patch(
@@ -245,14 +246,8 @@ class TestOrchestratorRerouteIntegration:
             from src.pipeline.orchestrator import orchestrate_pipeline
 
             state = await orchestrate_pipeline(app, "test", MagicMock(), 1)
-            # The pipeline starts at plan, then needs to reach review for re-routing
-            # So we need to set current_agent to review first
-            # Actually the orchestrator loop handles forward progression too
-            # Let's verify confirmation was called when re-route happened from review
-
-        # Since the orchestrator starts at "plan" and first decision is "plan" (not from review),
-        # it would just set current_agent to plan. The re-route confirmation only happens when
-        # current_agent == "review". Let's adjust test to have proper flow.
+            # Confirmation dialog should have been called when review re-routed
+            mock_confirm.assert_called()
 
     @pytest.mark.asyncio
     async def test_halt_dialog_called_at_iteration_limit(self):
@@ -281,7 +276,7 @@ class TestOrchestratorRerouteIntegration:
             )
 
         with patch(
-            "src.pipeline.orchestrator.stream_agent_to_panel",
+            "src.tui.streaming.stream_agent_to_panel",
             new_callable=AsyncMock,
             return_value={"OUTPUT": "content"},
         ), patch(

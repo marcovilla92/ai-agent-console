@@ -53,22 +53,30 @@ def prepare_agent_run(app: AgentConsoleApp, agent_name: str) -> str | None:
 
 def send_prompt(app: AgentConsoleApp) -> str | None:
     """
-    Handle Ctrl+S: validate prompt and kick off the full pipeline.
+    Handle Ctrl+S: validate prompt and kick off the orchestrator pipeline.
 
-    Starts with the PLAN agent; the pipeline continues automatically
-    through execute and review via streaming workers.
+    Clears all output panels and launches the AI-driven orchestrator
+    which routes agents through iterative cycles.
     Returns the prompt text or None if empty.
     """
     prompt = get_prompt_text(app)
     if prompt is None:
         return None
 
-    # Start with plan agent - pipeline will chain through execute/review
-    prepare_agent_run(app, "plan")
+    # Clear all output panels before starting
+    for panel_id in AGENT_PANEL_MAP.values():
+        app.get_panel(panel_id).clear_output()
+
+    app.status_bar.set_status(
+        agent="orchestrator",
+        state="starting",
+        step="preparing pipeline",
+        next_action="Starting orchestrator...",
+    )
 
     # Local import to avoid circular dependency (streaming imports from actions)
-    from src.tui.streaming import start_agent_worker
-    start_agent_worker(app, "plan", prompt)
+    from src.tui.streaming import start_orchestrator_worker
+    start_orchestrator_worker(app, prompt)
 
     return prompt
 

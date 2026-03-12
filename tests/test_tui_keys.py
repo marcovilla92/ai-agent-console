@@ -85,8 +85,8 @@ async def test_send_prompt_with_content():
         app.prompt_panel.load_text("Build an API")
         result = send_prompt(app)
         assert result == "Build an API"
-        # send_prompt starts with plan agent
-        assert "PLAN" in app.status_bar.display_text
+        # send_prompt now starts the orchestrator pipeline
+        assert "ORCHESTRATOR" in app.status_bar.display_text
 
 
 async def test_send_prompt_empty_returns_none():
@@ -125,13 +125,13 @@ async def test_run_agent_calls_start_agent_worker(mock_worker):
         mock_worker.assert_called_once_with(app, "plan", "Build something")
 
 
-@patch("src.tui.streaming.start_agent_worker")
-async def test_send_prompt_calls_start_agent_worker(mock_worker):
+@patch("src.tui.streaming.start_orchestrator_worker")
+async def test_send_prompt_calls_start_orchestrator_worker(mock_worker):
     async with AgentConsoleApp().run_test() as pilot:
         app = pilot.app
         app.prompt_panel.load_text("Build an API")
         send_prompt(app)
-        mock_worker.assert_called_once_with(app, "plan", "Build an API")
+        mock_worker.assert_called_once_with(app, "Build an API")
 
 
 async def test_status_bar_default_hint_says_ctrl_s():

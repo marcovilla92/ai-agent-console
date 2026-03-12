@@ -101,3 +101,55 @@ def start_agent_worker(
         return sections
 
     return app.run_worker(_run_agent, exclusive=True)
+
+
+def start_orchestrator_worker(
+    app: AgentConsoleApp,
+    prompt: str,
+    db: aiosqlite.Connection | None = None,
+    session_id: int | None = None,
+) -> Worker:
+    """
+    Launch the orchestrator pipeline as a Textual background worker.
+
+    Runs orchestrate_pipeline which handles the full agent routing loop
+    including re-route confirmations and halt dialogs.
+    """
+
+    async def _run_orchestrator() -> None:
+        # Local import to avoid circular dependency
+        from src.pipeline.orchestrator import orchestrate_pipeline
+
+        app.status_bar.set_status(
+            agent="orchestrator",
+            state="starting",
+            step="initializing pipeline",
+            next_action="Starting orchestrator...",
+        )
+
+        try:
+            state = await orchestrate_pipeline(app, prompt, db, session_id)
+
+            if state.approved:
+                app.status_bar.set_status(
+                    agent="orchestrator",
+                    state="complete",
+                    step="pipeline approved",
+                    next_action="Pipeline complete",
+                )
+            elif state.halted:
+                app.status_bar.set_status(
+                    agent="orchestrator",
+                    state="halted",
+                    step="pipeline halted by user",
+                    next_action="Enter a new prompt",
+                )
+        except Exception as exc:
+            app.status_bar.set_status(
+                agent="orchestrator",
+                state="error",
+                step=str(exc)[:80],
+                next_action="Fix and retry Ctrl+S",
+            )
+
+    return app.run_worker(_run_orchestrator, exclusive=True)

@@ -193,16 +193,53 @@ async def log_decision(
     return await repo.create(record)
 
 
-# --- Stub modal functions (Plan 02 wires real Textual modals) ---
+# --- Modal dialog bridge functions ---
 
-async def _stub_reroute_confirmation(app: AgentConsoleApp, decision: OrchestratorDecision) -> bool:
-    """Stub: always confirms re-routing. Plan 02 replaces with real modal."""
-    return True
+async def show_reroute_confirmation(app: AgentConsoleApp, decision: OrchestratorDecision) -> bool:
+    """
+    Push RerouteConfirmDialog modal and await user response.
+
+    Uses asyncio.Event to bridge between Textual's callback-based
+    push_screen and the async orchestration loop.
+    """
+    import asyncio
+
+    from src.tui.confirm_dialog import RerouteConfirmDialog
+
+    result_event = asyncio.Event()
+    result_holder: dict[str, bool] = {}
+
+    def on_result(confirmed: bool) -> None:
+        result_holder["value"] = confirmed
+        result_event.set()
+
+    dialog = RerouteConfirmDialog(decision.next_agent, decision.reasoning)
+    app.call_from_thread(app.push_screen, dialog, on_result)
+    await result_event.wait()
+    return result_holder["value"]
 
 
-async def _stub_halt_dialog(app: AgentConsoleApp, state: OrchestratorState) -> str:
-    """Stub: always returns 'continue'. Plan 02 replaces with real modal."""
-    return "continue"
+async def show_halt_dialog(app: AgentConsoleApp, state: OrchestratorState) -> str:
+    """
+    Push HaltDialog modal and await user choice.
+
+    Returns "continue", "approve", or "stop".
+    """
+    import asyncio
+
+    from src.tui.confirm_dialog import HaltDialog
+
+    result_event = asyncio.Event()
+    result_holder: dict[str, str] = {}
+
+    def on_result(choice: str) -> None:
+        result_holder["value"] = choice
+        result_event.set()
+
+    dialog = HaltDialog(state.iteration_count)
+    app.call_from_thread(app.push_screen, dialog, on_result)
+    await result_event.wait()
+    return result_holder["value"]
 
 
 # --- Main orchestration loop ---
@@ -277,7 +314,7 @@ async def orchestrate_pipeline(
         elif decision.next_agent in ("plan", "execute") and state.current_agent == "review":
             # Re-routing: check iteration limit
             if state.iteration_count >= state.max_iterations:
-                user_choice = await _stub_halt_dialog(app, state)
+                user_choice = await show_halt_dialog(app, state)
                 if user_choice == "continue":
                     state.iteration_count = 0  # Reset for 3 more
                 elif user_choice == "approve":
@@ -287,8 +324,8 @@ async def orchestrate_pipeline(
                     state.halted = True
                     break
 
-            # User confirmation for re-routing (stub always confirms)
-            confirmed = await _stub_reroute_confirmation(app, decision)
+            # User confirmation for re-routing
+            confirmed = await show_reroute_confirmation(app, decision)
             if confirmed:
                 state.current_agent = decision.next_agent
                 # Accumulate handoff context for the next iteration
