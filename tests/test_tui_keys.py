@@ -1,5 +1,6 @@
 """Tests for TUI keyboard bindings and actions."""
 import pytest
+from unittest.mock import patch, MagicMock
 
 from src.tui.app import AgentConsoleApp
 from src.tui.actions import get_prompt_text, prepare_agent_run, complete_agent_run, send_prompt, AGENT_PANEL_MAP
@@ -113,3 +114,28 @@ async def test_agent_panel_map_complete():
     assert "plan" in AGENT_PANEL_MAP
     assert "execute" in AGENT_PANEL_MAP
     assert "review" in AGENT_PANEL_MAP
+
+
+@patch("src.tui.app.start_agent_worker")
+async def test_run_agent_calls_start_agent_worker(mock_worker):
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        app.prompt_panel.load_text("Build something")
+        app.run_agent("plan")
+        mock_worker.assert_called_once_with(app, "plan", "Build something")
+
+
+@patch("src.tui.streaming.start_agent_worker")
+async def test_send_prompt_calls_start_agent_worker(mock_worker):
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        app.prompt_panel.load_text("Build an API")
+        send_prompt(app)
+        mock_worker.assert_called_once_with(app, "plan", "Build an API")
+
+
+async def test_status_bar_default_hint_says_ctrl_s():
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        assert "Ctrl+S" in app.status_bar.display_text
+        assert "Ctrl+Enter" not in app.status_bar.display_text
