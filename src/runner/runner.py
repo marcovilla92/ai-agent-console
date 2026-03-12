@@ -47,6 +47,7 @@ async def stream_claude(
     claude = _resolve_claude()
     cmd = [
         claude, "-p",
+        "--verbose",
         "--output-format", "stream-json",
         "--dangerously-skip-permissions",
     ]
@@ -64,6 +65,7 @@ async def stream_claude(
 
     # Drain stderr concurrently -- never block on it
     stderr_task = asyncio.create_task(proc.stderr.read())
+    got_deltas = False
 
     async for raw_line in proc.stdout:
         line = raw_line.decode().strip()
@@ -75,7 +77,17 @@ async def stream_claude(
             log.warning("non-JSON line from claude: %s", line[:120])
             continue
 
-        if data.get("type") == "assistant":
+        msg_type = data.get("type")
+
+        # Incremental text deltas — real-time streaming
+        if msg_type == "content_block_delta":
+            delta = data.get("delta", {})
+            if delta.get("type") == "text_delta" and delta.get("text"):
+                got_deltas = True
+                yield delta["text"]
+
+        # Final assistant message — fallback only if no deltas were received
+        elif msg_type == "assistant" and not got_deltas:
             for block in data.get("message", {}).get("content", []):
                 if block.get("type") == "text" and block.get("text"):
                     yield block["text"]
