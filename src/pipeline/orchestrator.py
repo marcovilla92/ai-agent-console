@@ -247,8 +247,8 @@ async def show_halt_dialog(app: AgentConsoleApp, state: OrchestratorState) -> st
 async def orchestrate_pipeline(
     app: AgentConsoleApp,
     prompt: str,
-    db: aiosqlite.Connection,
-    session_id: int,
+    db: aiosqlite.Connection | None = None,
+    session_id: int | None = None,
 ) -> OrchestratorState:
     """
     AI-driven orchestration loop replacing the fixed sequential pipeline.
@@ -305,8 +305,9 @@ async def orchestrate_pipeline(
             next_action=f"-> {decision.next_agent.upper()}",
         )
 
-        # 7. Log decision to DB
-        await log_decision(db, session_id, decision, state.iteration_count)
+        # 7. Log decision to DB (skip if no DB connection)
+        if db is not None and session_id is not None:
+            await log_decision(db, session_id, decision, state.iteration_count)
 
         # 8. Handle the decision
         if decision.next_agent == "approved":
