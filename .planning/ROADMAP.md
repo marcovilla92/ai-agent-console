@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Data models, async subprocess runner, SQLite persistence, output parser with fallbacks (completed 2026-03-12)
 - [ ] **Phase 2: Agent Pipeline** - PLAN/EXECUTE/REVIEW agents with structured contracts, project creation, rule-based sequential flow (gap closure in progress)
-- [x] **Phase 3: TUI Shell** - 4-panel Textual layout, streaming display, keyboard shortcuts, status bar, dark theme (completed 2026-03-12)
+- [ ] **Phase 3: TUI Shell** - 4-panel Textual layout, streaming display, keyboard shortcuts, status bar, dark theme (gap closure in progress)
 - [ ] **Phase 4: Orchestrator Intelligence** - AI-driven routing via Claude CLI, iterative review cycles, cycle detection, decision visibility
 - [ ] **Phase 5: Polish** - Resizable panels, git auto-commit, token tracking, session history browser
 
@@ -66,12 +66,13 @@ Plans:
   3. User navigates between panels with Tab and triggers actions with Ctrl+Enter (send), Ctrl+P (plan), Ctrl+E (execute), Ctrl+R (review)
   4. Status bar at the bottom shows the current agent name, workflow state, step description, and suggested next action
   5. Interface renders with a dark theme by default
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
 - [x] 03-01: TUI layout with 4 panels and dark theme
 - [x] 03-02: Keyboard navigation and shortcuts
 - [x] 03-03: Streaming display and status bar
+- [ ] 03-04: Gap closure -- wire streaming worker to keyboard actions
 
 ### Phase 4: Orchestrator Intelligence
 **Goal**: An AI-driven orchestrator autonomously decides which agent runs next, enabling iterative improvement cycles with safety limits
@@ -112,6 +113,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-03-12 |
 | 2. Agent Pipeline | 4/4 | Complete | 2026-03-12 |
-| 3. TUI Shell | 3/3 | Complete   | 2026-03-12 |
+| 3. TUI Shell | 3/4 | Gap closure | - |
 | 4. Orchestrator Intelligence | 0/2 | Not started | - |
 | 5. Polish | 0/2 | Not started | - |

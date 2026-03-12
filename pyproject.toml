@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     "aiosqlite>=0.20",
     "tenacity>=8.0",
+    "textual>=0.50",
 ]
 
 [project.optional-dependencies]
