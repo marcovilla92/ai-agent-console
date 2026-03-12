@@ -36,6 +36,10 @@ class AgentConsoleApp(App):
         ("ctrl+2", "toggle_panel('plan-panel')", "Toggle Plan"),
         ("ctrl+3", "toggle_panel('execute-panel')", "Toggle Execute"),
         ("ctrl+4", "toggle_panel('review-panel')", "Toggle Review"),
+        ("ctrl+up", "resize_row('up')", "Grow Top"),
+        ("ctrl+down", "resize_row('down')", "Grow Bottom"),
+        ("ctrl+left", "resize_col('left')", "Grow Left"),
+        ("ctrl+right", "resize_col('right')", "Grow Right"),
         ("ctrl+q", "quit", "Quit"),
     ]
 
@@ -44,6 +48,10 @@ class AgentConsoleApp(App):
         self.project_path = project_path
         self._panel_ids = ["prompt-panel", "plan-panel", "execute-panel", "review-panel"]
         self._focus_index = 0
+        self._row_top: int = 1
+        self._row_bottom: int = 1
+        self._col_left: int = 1
+        self._col_right: int = 1
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -101,6 +109,28 @@ class AgentConsoleApp(App):
     def action_run_review(self) -> None:
         """Trigger REVIEW agent."""
         self.run_agent("review")
+
+    def action_resize_row(self, direction: str) -> None:
+        """Resize grid row proportions (Ctrl+Up/Down)."""
+        if direction == "up":
+            self._row_top = min(self._row_top + 1, 4)
+            self._row_bottom = max(self._row_bottom - 1, 1)
+        elif direction == "down":
+            self._row_bottom = min(self._row_bottom + 1, 4)
+            self._row_top = max(self._row_top - 1, 1)
+        grid = self.query_one("#app-grid")
+        grid.styles.grid_rows = f"{self._row_top}fr {self._row_bottom}fr"
+
+    def action_resize_col(self, direction: str) -> None:
+        """Resize grid column proportions (Ctrl+Left/Right)."""
+        if direction == "left":
+            self._col_left = min(self._col_left + 1, 4)
+            self._col_right = max(self._col_right - 1, 1)
+        elif direction == "right":
+            self._col_right = min(self._col_right + 1, 4)
+            self._col_left = max(self._col_left - 1, 1)
+        grid = self.query_one("#app-grid")
+        grid.styles.grid_columns = f"{self._col_left}fr {self._col_right}fr"
 
     def action_toggle_panel(self, panel_id: str) -> None:
         """Toggle visibility of a panel (collapse/expand)."""
