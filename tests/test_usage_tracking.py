@@ -1,4 +1,8 @@
 """Tests for AgentUsage dataclass and UsageRepository."""
+import asyncio
+import json
+from unittest.mock import patch
+
 import pytest
 
 from src.db.schema import AgentUsage, Session
@@ -93,3 +97,115 @@ async def test_usage_repository_get_by_session(db_conn):
     # Different session returns empty
     empty = await repo.get_by_session(999)
     assert len(empty) == 0
+
+
+# --- Task 2: stream_claude result event + StatusBar usage ---
+
+
+class _MockStdout:
+    def __init__(self, lines):
+        self._lines = iter(lines)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._lines)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+class _FakeStderr:
+    async def read(self):
+        return b""
+
+
+class _MockProc:
+    def __init__(self, lines, returncode=0):
+        self.stdout = _MockStdout(lines)
+        self.stderr = _FakeStderr()
+        self.returncode = returncode
+
+    async def wait(self):
+        return self.returncode
+
+
+@pytest.mark.asyncio
+async def test_stream_claude_yields_result_dict(monkeypatch):
+    """stream_claude yields a dict with type 'result' and cost_usd for result events."""
+    import src.runner.runner as runner_mod
+
+    lines = [
+        b'{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}\n',
+        b'{"type":"result","subtype":"success","result":"hello","cost_usd":0.005,"usage":{"input_tokens":100,"output_tokens":50}}\n',
+    ]
+    mock_proc = _MockProc(lines)
+
+    async def fake_exec(*args, **kwargs):
+        return mock_proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(runner_mod, "_CLAUDE_BIN", "claude")
+
+    results = []
+    async for chunk in runner_mod.stream_claude("test"):
+        results.append(chunk)
+
+    # Should have text chunk + result dict
+    assert results[0] == "hello"
+    assert isinstance(results[1], dict)
+    assert results[1]["type"] == "result"
+    assert results[1]["cost_usd"] == 0.005
+    assert results[1]["input_tokens"] == 100
+    assert results[1]["output_tokens"] == 50
+
+
+@pytest.mark.asyncio
+async def test_stream_claude_text_only_without_result(monkeypatch):
+    """stream_claude still yields only text strings for content_block_delta events."""
+    import src.runner.runner as runner_mod
+
+    lines = [
+        b'{"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}\n',
+    ]
+    mock_proc = _MockProc(lines)
+
+    async def fake_exec(*args, **kwargs):
+        return mock_proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(runner_mod, "_CLAUDE_BIN", "claude")
+
+    results = []
+    async for chunk in runner_mod.stream_claude("test"):
+        results.append(chunk)
+
+    assert len(results) == 1
+    assert results[0] == "world"
+    assert isinstance(results[0], str)
+
+
+def test_status_bar_set_usage():
+    """StatusBar.set_usage updates display_text to include token counts and cost."""
+    from src.tui.status_bar import StatusBar
+
+    bar = StatusBar()
+    bar._refresh_text()  # Initialize
+    bar.set_usage(input_tokens=100, output_tokens=50, cost_usd=0.005)
+    text = bar.display_text
+    assert "100" in text
+    assert "50" in text
+    assert "0.005" in text or "$0.01" in text or "0.00" in text
+
+
+def test_status_bar_set_usage_zero_cost():
+    """StatusBar.set_usage with cost_usd=0 shows graceful display."""
+    from src.tui.status_bar import StatusBar
+
+    bar = StatusBar()
+    bar._refresh_text()
+    bar.set_usage(input_tokens=0, output_tokens=0, cost_usd=0.0)
+    text = bar.display_text
+    # Should not crash, should show something graceful
+    assert isinstance(text, str)
