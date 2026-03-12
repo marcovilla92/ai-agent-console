@@ -64,7 +64,13 @@ def send_prompt(app: AgentConsoleApp) -> str | None:
         return None
 
     # Start with plan agent - pipeline will chain through execute/review
-    return prepare_agent_run(app, "plan")
+    prepare_agent_run(app, "plan")
+
+    # Local import to avoid circular dependency (streaming imports from actions)
+    from src.tui.streaming import start_agent_worker
+    start_agent_worker(app, "plan", prompt)
+
+    return prompt
 
 
 def complete_agent_run(app: AgentConsoleApp, agent_name: str, success: bool = True) -> None:

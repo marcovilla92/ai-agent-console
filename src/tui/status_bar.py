@@ -24,7 +24,7 @@ class StatusBar(Static):
         self._agent = "none"
         self._state = "idle"
         self._step = ""
-        self._next_action = "Enter a prompt and press Ctrl+Enter"
+        self._next_action = "Enter a prompt and press Ctrl+S"
         self._display_text = ""
 
     def set_status(

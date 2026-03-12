@@ -12,6 +12,7 @@ from textual.containers import Container
 from textual.widgets import Footer, Header
 
 from src.tui.actions import prepare_agent_run, send_prompt
+from src.tui.streaming import start_agent_worker
 from src.tui.panels import OutputPanel, PromptPanel
 from src.tui.status_bar import StatusBar
 
@@ -102,4 +103,4 @@ class AgentConsoleApp(App):
         prompt = prepare_agent_run(self, agent_name)
         if prompt is None:
             return
-        # Actual agent execution is handled by streaming worker (Plan 03-03)
+        start_agent_worker(self, agent_name, prompt)
