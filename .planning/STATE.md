@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in-progress
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-03-12T15:05:00Z"
-last_activity: 2026-03-12 -- Completed plan 05-02 (resizable/collapsible panels)
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-03-12T15:10:05.361Z"
+last_activity: 2026-03-12 -- Completed plan 05-01 (git autocommit + usage tracking)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 16
-  completed_plans: 14
-  percent: 88
+  completed_plans: 15
+  percent: 94
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-11)
 ## Current Position
 
 Phase: 5 of 5 (Polish) -- IN PROGRESS
-Plan: 2 of 3 in phase 5 (05-02 complete)
+Plan: 2 of 3 in phase 5 (05-01, 05-02 complete)
 Status: Executing phase 5 polish plans
-Last activity: 2026-03-12 -- Completed plan 05-02 (resizable/collapsible panels)
+Last activity: 2026-03-12 -- Completed plan 05-01 (git autocommit + usage tracking)
 
-Progress: [█████████░] 88% (Overall)
+Progress: [█████████░] 94% (Overall)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [█████████░] 88% (Overall)
 | Phase 04-01 P01 | 5min | 2 tasks | 7 files |
 | Phase 04 P02 | 8min | 2 tasks | 7 files |
 | Phase 05-02 P02 | 4min | 2 tasks | 2 files |
+| Phase 05 P01 | 8min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Progress: [█████████░] 88% (Overall)
 - [Phase 04-02]: Unset CLAUDECODE env var in runner to allow nested Claude CLI calls
 - [Phase 05-02]: Textual grid auto-reflow handles collapse without CSS changes
 - [Phase 05-02]: Resize uses independent row/column ratio tracking with fr units, clamped 1-4
+- [Phase 05]: stream_claude yields result events as dict (isinstance check distinguishes text from metadata)
+- [Phase 05]: auto_commit uses asyncio.Lock to prevent concurrent git operations
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T15:05:00Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-03-12T15:10:05.358Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
