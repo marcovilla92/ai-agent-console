@@ -158,12 +158,15 @@ def start_orchestrator_worker(
             state = await orchestrate_pipeline(app, prompt, db, session_id)
 
             if state.approved:
-                app.status_bar.set_status(
-                    agent="orchestrator",
-                    state="complete",
-                    step="pipeline approved",
-                    next_action="Pipeline complete",
-                )
+                # Only update status if orchestrator hasn't already set "committed"
+                current = getattr(app.status_bar, '_state', '')
+                if current != "committed":
+                    app.status_bar.set_status(
+                        agent="orchestrator",
+                        state="complete",
+                        step="pipeline approved",
+                        next_action="Pipeline complete",
+                    )
             elif state.halted:
                 app.status_bar.set_status(
                     agent="orchestrator",

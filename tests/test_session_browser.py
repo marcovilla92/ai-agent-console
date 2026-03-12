@@ -144,6 +144,42 @@ class TestSessionBrowserApp:
             assert results == [None]
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_calls_auto_commit_on_approval():
+    """orchestrate_pipeline calls auto_commit when state.approved is True."""
+    from unittest.mock import AsyncMock, patch, MagicMock
+
+    # Mock the app
+    mock_app = MagicMock()
+    mock_app.project_path = "/fake/project"
+    mock_status = MagicMock()
+    mock_status._state = ""
+    mock_app.status_bar = mock_status
+
+    # Mock stream_agent_to_panel to return immediately
+    mock_sections = {"output": "test output"}
+
+    # Mock get_orchestrator_decision to approve immediately
+    from src.pipeline.orchestrator import OrchestratorDecision
+
+    decision = OrchestratorDecision(
+        next_agent="approved",
+        reasoning="looks good",
+        confidence=0.9,
+        full_response="{}",
+    )
+
+    with patch("src.tui.streaming.stream_agent_to_panel", new_callable=AsyncMock, return_value=mock_sections), \
+         patch("src.pipeline.orchestrator.get_orchestrator_decision", new_callable=AsyncMock, return_value=decision), \
+         patch("src.git.autocommit.auto_commit", new_callable=AsyncMock, return_value=True) as mock_commit:
+
+        from src.pipeline.orchestrator import orchestrate_pipeline
+        state = await orchestrate_pipeline(mock_app, "test prompt", db=None, session_id=None)
+
+        assert state.approved is True
+        mock_commit.assert_called_once_with("/fake/project", "unnamed")
+
+
 def test_app_has_ctrl_b_binding():
     """AgentConsoleApp has a Ctrl+B binding for browse_sessions."""
     from src.tui.app import AgentConsoleApp

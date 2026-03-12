@@ -343,4 +343,28 @@ async def orchestrate_pipeline(
             # Normal forward progression: plan->execute->review
             state.current_agent = decision.next_agent
 
+    # Auto-commit to git if pipeline was approved
+    if state.approved:
+        try:
+            from src.git.autocommit import auto_commit
+            from src.db.repository import SessionRepository
+
+            session_name = "unnamed"
+            if db and session_id:
+                repo = SessionRepository(db)
+                session = await repo.get(session_id)
+                if session:
+                    session_name = session.name
+
+            committed = await auto_commit(app.project_path, session_name)
+            if committed:
+                app.status_bar.set_status(
+                    agent="orchestrator",
+                    state="committed",
+                    step="auto-committed to git",
+                    next_action="Pipeline complete",
+                )
+        except Exception:
+            log.exception("auto_commit failed in orchestrator")
+
     return state
