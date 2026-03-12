@@ -54,7 +54,7 @@ Plans:
 - [x] 02-01: Agent config registry & base agent class
 - [x] 02-02: PLAN/EXECUTE/REVIEW agent implementations with system prompts
 - [x] 02-03: Pipeline runner, handoffs & project creation
-- [ ] 02-04: Gap closure -- derive pipeline order from next_agent chain (AGNT-05)
+- [x] 02-04: Gap closure -- derive pipeline order from next_agent chain (AGNT-05)
 
 ### Phase 3: TUI Shell
 **Goal**: Users interact with the agent pipeline through a 4-panel terminal interface with real-time streaming and keyboard-driven workflow
@@ -111,7 +111,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-03-12 |
-| 2. Agent Pipeline | 3/4 | Gap closure | - |
+| 2. Agent Pipeline | 4/4 | Complete | 2026-03-12 |
 | 3. TUI Shell | 3/3 | Complete | 2026-03-12 |
 | 4. Orchestrator Intelligence | 0/2 | Not started | - |
 | 5. Polish | 0/2 | Not started | - |
