@@ -32,6 +32,10 @@ class AgentConsoleApp(App):
         ("ctrl+p", "run_plan", "Plan"),
         ("ctrl+e", "run_execute", "Execute"),
         ("ctrl+r", "run_review", "Review"),
+        ("ctrl+1", "toggle_panel('prompt-panel')", "Toggle Prompt"),
+        ("ctrl+2", "toggle_panel('plan-panel')", "Toggle Plan"),
+        ("ctrl+3", "toggle_panel('execute-panel')", "Toggle Execute"),
+        ("ctrl+4", "toggle_panel('review-panel')", "Toggle Review"),
         ("ctrl+q", "quit", "Quit"),
     ]
 
@@ -97,6 +101,11 @@ class AgentConsoleApp(App):
     def action_run_review(self) -> None:
         """Trigger REVIEW agent."""
         self.run_agent("review")
+
+    def action_toggle_panel(self, panel_id: str) -> None:
+        """Toggle visibility of a panel (collapse/expand)."""
+        panel = self.query_one(f"#{panel_id}")
+        panel.display = not panel.display
 
     def run_agent(self, agent_name: str) -> None:
         """Run a specific agent via action handlers."""

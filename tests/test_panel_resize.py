@@ -43,7 +43,7 @@ async def test_bindings_include_toggle_keys():
     """Ctrl+1 through Ctrl+4 are bound to toggle_panel actions."""
     async with AgentConsoleApp().run_test() as pilot:
         app = pilot.app
-        binding_keys = [b.key for b in app.BINDINGS]
+        binding_keys = [b[0] if isinstance(b, tuple) else b.key for b in app.BINDINGS]
         assert "ctrl+1" in binding_keys
         assert "ctrl+2" in binding_keys
         assert "ctrl+3" in binding_keys
