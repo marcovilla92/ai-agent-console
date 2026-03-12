@@ -1,5 +1,6 @@
 import pytest
 import subprocess
+from unittest.mock import patch
 from src.runner.runner import stream_claude, collect_claude
 
 
@@ -54,11 +55,36 @@ async def test_stream_terminates(mock_claude_proc, monkeypatch):
     assert isinstance(chunks, list)
 
 
-@pytest.mark.skip(reason="retry wrapper tested in plan 03 (test_runner.py retry tests)")
+# --- Retry tests (INFR-05) ---
+
+
 async def test_retry_behavior():
-    pass
+    """INFR-05: invoke_claude_with_retry retries on CalledProcessError, succeeds on 3rd attempt."""
+    from src.runner.retry import invoke_claude_with_retry
+
+    call_count = 0
+
+    async def flaky_collect(prompt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise subprocess.CalledProcessError(1, "claude")
+        return "success output"
+
+    with patch("src.runner.retry.collect_claude", side_effect=flaky_collect):
+        result = await invoke_claude_with_retry("test prompt")
+
+    assert result == "success output"
+    assert call_count == 3
 
 
-@pytest.mark.skip(reason="retry wrapper tested in plan 03 (test_runner.py retry tests)")
 async def test_retry_exhausted():
-    pass
+    """INFR-05: after 3 failures CalledProcessError is re-raised (not swallowed)."""
+    from src.runner.retry import invoke_claude_with_retry
+
+    async def always_fail(prompt, **kwargs):
+        raise subprocess.CalledProcessError(1, "claude", stderr="rate limited")
+
+    with patch("src.runner.retry.collect_claude", side_effect=always_fail):
+        with pytest.raises(subprocess.CalledProcessError):
+            await invoke_claude_with_retry("test prompt")
