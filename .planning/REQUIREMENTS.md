@@ -10,7 +10,7 @@ Requirements for web platform release. Each maps to roadmap phases.
 ### Dashboard
 
 - [x] **DASH-01**: User can view list of all tasks with status indicators (queued/running/awaiting_approval/completed/failed/cancelled)
-- [ ] **DASH-02**: User can view detailed agent output log for any task with step labels
+- [x] **DASH-02**: User can view detailed agent output log for any task with step labels
 - [x] **DASH-03**: User can create a new task with prompt input and mode selection
 - [x] **DASH-04**: User can access tasks from any device via browser
 
@@ -67,7 +67,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DASH-01 | Phase 10 | Complete |
-| DASH-02 | Phase 10 | Pending |
+| DASH-02 | Phase 10 | Complete |
 | DASH-03 | Phase 10 | Complete |
 | DASH-04 | Phase 10 | Complete |
 | STRM-01 | Phase 8 | Complete |

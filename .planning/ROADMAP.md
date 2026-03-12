@@ -26,7 +26,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 7: Task Engine and API** - TaskManager with concurrency control, REST endpoints, HTTP Basic Auth (completed 2026-03-12)
 - [ ] **Phase 8: WebSocket Streaming** - Real-time Claude CLI output streamed to browser via WebSocket
 - [ ] **Phase 9: Approval Gates** - Supervised mode with per-task autonomy selection and approval/reject flow
-- [ ] **Phase 10: Dashboard Frontend** - Alpine.js browser UI consuming all REST and WebSocket APIs
+- [x] **Phase 10: Dashboard Frontend** - Alpine.js browser UI consuming all REST and WebSocket APIs (completed 2026-03-12)
 - [ ] **Phase 11: Docker Deployment** - Containerized application deployed on Coolify with Traefik proxy
 
 ## Phase Details
@@ -136,5 +136,5 @@ Phases execute in numeric order: 6 -> 7 -> 8 -> 9 -> 10 -> 11
 | 7. Task Engine and API | 2/2 | Complete   | 2026-03-12 | - |
 | 8. WebSocket Streaming | v2.0 | 0/1 | Not started | - |
 | 9. Approval Gates | v2.0 | 0/1 | Not started | - |
-| 10. Dashboard Frontend | 1/2 | In Progress|  | - |
+| 10. Dashboard Frontend | 2/2 | Complete   | 2026-03-12 | - |
 | 11. Docker Deployment | v2.0 | 0/1 | Not started | - |
