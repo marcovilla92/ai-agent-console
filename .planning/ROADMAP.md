@@ -56,7 +56,7 @@ Plans:
   3. User can cancel a running task and its Claude CLI subprocess is terminated cleanly
   4. Two tasks can execute concurrently; a third task queues until a slot opens
   5. All endpoints reject unauthenticated requests with 401
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 07-01: TaskManager service with asyncio.Semaphore concurrency and task lifecycle
