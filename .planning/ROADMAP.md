@@ -100,11 +100,11 @@ Plans:
   3. User can create a new task with a prompt input field and mode selector (supervised/autonomous)
   4. User can approve or reject pending actions from the task detail view
   5. Dashboard is accessible from any device with a browser at the configured URL
-**Plans**: 1 plan
+**Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: Jinja2 templates, Alpine.js components, and Pico CSS layout for task list and creation
-- [ ] 10-02: Task detail view with streaming log, step labels, and approval UI
+- [ ] 10-01-PLAN.md -- Views router, base template, task list page with create form, and integration tests
+- [ ] 10-02-PLAN.md -- Task detail template with streaming log, approval UI, and detail page tests
 
 ### Phase 11: Docker Deployment
 **Goal**: Application runs as a Docker container on Coolify, accessible at console.amcsystem.uk behind Traefik
