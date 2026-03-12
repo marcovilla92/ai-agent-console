@@ -4,7 +4,7 @@ Task management REST endpoints.
 Provides CRUD and cancel operations for tasks, protected by HTTP Basic Auth.
 """
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -43,6 +43,17 @@ class TaskListResponse(BaseModel):
     """Response model for listing tasks."""
     tasks: list[TaskResponse]
     count: int
+
+
+class ApprovalRequest(BaseModel):
+    """Request body for approving or rejecting a task decision point."""
+    decision: Literal["approve", "reject", "continue"]
+
+
+class ApprovalResponse(BaseModel):
+    """Response for approval endpoint."""
+    status: str
+    decision: str
 
 
 @task_router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskResponse)
@@ -118,6 +129,33 @@ async def get_task(
         completed_at=task.completed_at,
         error=task.error,
     )
+
+
+@task_router.post("/{task_id}/approve", response_model=ApprovalResponse)
+async def approve_task(
+    task_id: int,
+    body: ApprovalRequest,
+    manager: TaskManager = Depends(get_task_manager),
+):
+    """Approve or reject a task awaiting approval.
+
+    Returns 404 if task does not exist, 409 if task exists but is not
+    awaiting approval, 200 with decision on success.
+    """
+    # Check if task exists at all
+    task = await manager.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Try to relay the approval
+    relayed = await manager.approve(task_id, body.decision)
+    if not relayed:
+        raise HTTPException(
+            status_code=409,
+            detail="Task not awaiting approval",
+        )
+
+    return ApprovalResponse(status="ok", decision=body.decision)
 
 
 @task_router.post("/{task_id}/cancel", response_model=TaskResponse)
