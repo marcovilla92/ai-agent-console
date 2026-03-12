@@ -98,11 +98,12 @@ Plans:
   2. After a successful execution cycle, the system auto-commits generated files to git with a descriptive commit message
   3. Token usage and estimated cost per agent per cycle are displayed in the status bar
   4. User can browse past sessions and resume any previous session from the session list
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md -- Git auto-commit and token/cost tracking infrastructure
+- [ ] 05-02-PLAN.md -- Resizable and collapsible panels
+- [ ] 05-03-PLAN.md -- Session history browser and orchestrator wiring
 
 ## Progress
 
@@ -115,4 +116,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Agent Pipeline | 4/4 | Complete | 2026-03-12 |
 | 3. TUI Shell | 4/4 | Complete   | 2026-03-12 |
 | 4. Orchestrator Intelligence | 2/2 | Complete   | 2026-03-12 |
-| 5. Polish | 0/2 | Not started | - |
+| 5. Polish | 0/3 | Not started | - |
