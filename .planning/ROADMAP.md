@@ -85,10 +85,10 @@ Plans:
   2. User can approve or reject via REST endpoint, and execution resumes or stops accordingly
   3. Approval request includes context about what the agent wants to do next
   4. In autonomous mode, tasks run without pausing
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 09-01: ApprovalGate service with asyncio.Event, approval REST endpoints, and WebSocket event integration
+- [ ] 09-01-PLAN.md -- asyncio.Event approval gates in WebTaskContext, POST /tasks/{id}/approve endpoint, WebSocket approval_required events
 
 ### Phase 10: Dashboard Frontend
 **Goal**: Users can manage all tasks from a browser-based dashboard accessible from any device
@@ -100,7 +100,7 @@ Plans:
   3. User can create a new task with a prompt input field and mode selector (supervised/autonomous)
   4. User can approve or reject pending actions from the task detail view
   5. Dashboard is accessible from any device with a browser at the configured URL
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 10-01: Jinja2 templates, Alpine.js components, and Pico CSS layout for task list and creation
@@ -115,7 +115,7 @@ Plans:
   2. Container deploys on Coolify with auto-deploy from GitHub push
   3. Dashboard is accessible at console.amcsystem.uk via HTTPS through Traefik proxy
   4. WebSocket connections survive long tasks (Traefik timeouts configured, Gzip disabled)
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
 - [ ] 11-01: Dockerfile, volume mounts for Claude CLI auth, Coolify configuration, and Traefik proxy settings
