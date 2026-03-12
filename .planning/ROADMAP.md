@@ -22,7 +22,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 ### v2.0 Web Platform
 
-- [ ] **Phase 6: Database and Server Foundation** - PostgreSQL persistence, FastAPI shell, orchestrator decoupled from TUI via TaskContext Protocol
+- [x] **Phase 6: Database and Server Foundation** - PostgreSQL persistence, FastAPI shell, orchestrator decoupled from TUI via TaskContext Protocol (completed 2026-03-12)
 - [ ] **Phase 7: Task Engine and API** - TaskManager with concurrency control, REST endpoints, HTTP Basic Auth
 - [ ] **Phase 8: WebSocket Streaming** - Real-time Claude CLI output streamed to browser via WebSocket
 - [ ] **Phase 9: Approval Gates** - Supervised mode with per-task autonomy selection and approval/reject flow
@@ -132,7 +132,7 @@ Phases execute in numeric order: 6 -> 7 -> 8 -> 9 -> 10 -> 11
 | 3. TUI Shell | v1.0 | 4/4 | Complete | 2026-03-12 |
 | 4. Orchestrator Intelligence | v1.0 | 2/2 | Complete | 2026-03-12 |
 | 5. Polish | v1.0 | 3/3 | Complete | 2026-03-12 |
-| 6. Database and Server Foundation | v2.0 | 0/2 | Not started | - |
+| 6. Database and Server Foundation | 2/2 | Complete   | 2026-03-12 | - |
 | 7. Task Engine and API | v2.0 | 0/2 | Not started | - |
 | 8. WebSocket Streaming | v2.0 | 0/1 | Not started | - |
 | 9. Approval Gates | v2.0 | 0/1 | Not started | - |
