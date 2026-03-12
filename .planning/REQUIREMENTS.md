@@ -10,8 +10,8 @@ Requirements for initial release. Each maps to roadmap phases.
 ### TUI & Interface
 
 - [x] **TUI-01**: User sees 4-panel layout (Prompt editor, Plan output, Execute output, Review collapsible)
-- [ ] **TUI-02**: User navigates between panels with Tab key
-- [ ] **TUI-03**: User triggers actions via keyboard shortcuts (Ctrl+Enter send prompt, Ctrl+P regenerate plan, Ctrl+E execute, Ctrl+R review)
+- [x] **TUI-02**: User navigates between panels with Tab key
+- [x] **TUI-03**: User triggers actions via keyboard shortcuts (Ctrl+Enter send prompt, Ctrl+P regenerate plan, Ctrl+E execute, Ctrl+R review)
 - [x] **TUI-04**: User sees status bar with current agent name, state, step description, next action
 - [ ] **TUI-05**: User can resize and collapse panels via keyboard or mouse
 - [x] **TUI-06**: Interface uses dark theme by default
@@ -83,8 +83,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TUI-01 | Phase 3 | Complete |
-| TUI-02 | Phase 3 | Pending |
-| TUI-03 | Phase 3 | Pending |
+| TUI-02 | Phase 3 | Complete |
+| TUI-03 | Phase 3 | Complete |
 | TUI-04 | Phase 3 | Complete |
 | TUI-05 | Phase 5 | Pending |
 | TUI-06 | Phase 3 | Complete |
