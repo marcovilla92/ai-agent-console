@@ -7,7 +7,7 @@ Use a single shared connection for the app lifetime to avoid lock contention.
 import aiosqlite
 from typing import Optional
 
-from src.db.schema import Session, AgentOutput, OrchestratorDecisionRecord
+from src.db.schema import Session, AgentOutput, AgentUsage, OrchestratorDecisionRecord
 
 
 class SessionRepository:
@@ -97,6 +97,49 @@ class OrchestratorDecisionRepository:
                 OrchestratorDecisionRecord(
                     id=r[0], session_id=r[1], next_agent=r[2], reasoning=r[3],
                     confidence=r[4], full_response=r[5], iteration_count=r[6], created_at=r[7],
+                )
+                for r in rows
+            ]
+
+
+class UsageRepository:
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def create(self, usage: AgentUsage) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO agent_usage "
+            "(session_id, agent_type, input_tokens, output_tokens, "
+            "cache_read_tokens, cache_creation_tokens, cost_usd, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                usage.session_id,
+                usage.agent_type,
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_read_tokens,
+                usage.cache_creation_tokens,
+                usage.cost_usd,
+                usage.created_at,
+            ),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_by_session(self, session_id: int) -> list[AgentUsage]:
+        async with self._db.execute(
+            "SELECT id, session_id, agent_type, input_tokens, output_tokens, "
+            "cache_read_tokens, cache_creation_tokens, cost_usd, created_at "
+            "FROM agent_usage WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                AgentUsage(
+                    id=r[0], session_id=r[1], agent_type=r[2],
+                    input_tokens=r[3], output_tokens=r[4],
+                    cache_read_tokens=r[5], cache_creation_tokens=r[6],
+                    cost_usd=r[7], created_at=r[8],
                 )
                 for r in rows
             ]
