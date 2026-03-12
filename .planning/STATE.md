@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 4 context gathered
-last_updated: "2026-03-12T13:48:30.764Z"
-last_activity: 2026-03-12 -- Completed plan 03-04 (streaming worker wiring)
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-12T14:13:15.228Z"
+last_activity: 2026-03-12 -- Completed plan 04-01 (orchestrator core)
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_plans: 13
+  completed_plans: 12
+  percent: 92
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management.
-**Current focus:** Phase 3 TUI Shell complete
+**Current focus:** Phase 4 Orchestrator Intelligence
 
 ## Current Position
 
-Phase: 3 of 5 (TUI Shell)
-Plan: 4 of 4 in phase 3
-Status: Phase 3 complete (including gap closure plan 04)
-Last activity: 2026-03-12 -- Completed plan 03-04 (streaming worker wiring)
+Phase: 4 of 5 (Orchestrator Intelligence)
+Plan: 1 of 2 in phase 4
+Status: Plan 04-01 complete (orchestrator core)
+Last activity: 2026-03-12 -- Completed plan 04-01 (orchestrator core)
 
-Progress: [██████████] 100% (Overall)
+Progress: [█████████░] 92% (Overall)
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [██████████] 100% (Overall)
 | Phase 03-03 P03 | 2min | 3 tasks | 3 files |
 | Phase 03 P02 | 2min | 3 tasks | 3 files |
 | Phase 03-tui-shell P04 | 3min | 2 tasks | 4 files |
+| Phase 04-01 P01 | 5min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Progress: [██████████] 100% (Overall)
 - [Phase 03]: Ctrl+S instead of Ctrl+Enter for send (Textual limitation)
 - [Phase 03]: Action handlers in separate actions.py module for TUI-pipeline decoupling
 - [Phase 03-tui-shell]: Local import of start_agent_worker inside send_prompt() to avoid circular dependency with streaming.py
+- [Phase 04-01]: Dedicated call_orchestrator_claude (non-streaming) instead of extending collect_claude
+- [Phase 04-01]: Text fallback defaults to "review" for unknown orchestrator output
+- [Phase 04-01]: Stub modal functions for Plan 02 to replace with real Textual ModalScreen
 
 ### Pending Todos
 
@@ -84,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T13:48:30.760Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-orchestrator-intelligence/04-CONTEXT.md
+Last session: 2026-03-12T14:13:15.223Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None

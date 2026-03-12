@@ -26,10 +26,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Orchestration
 
-- [ ] **ORCH-01**: AI-driven orchestrator calls Claude CLI to analyze agent outputs and decide next agent
+- [x] **ORCH-01**: AI-driven orchestrator calls Claude CLI to analyze agent outputs and decide next agent
 - [ ] **ORCH-02**: REVIEW decision triggers re-PLAN or re-EXECUTE with user confirmation before proceeding
-- [ ] **ORCH-03**: Cycle detection prevents infinite loops via hard iteration limit and repeated-state detection
-- [ ] **ORCH-04**: Orchestrator shows decision reasoning and current workflow state in status area
+- [x] **ORCH-03**: Cycle detection prevents infinite loops via hard iteration limit and repeated-state detection
+- [x] **ORCH-04**: Orchestrator shows decision reasoning and current workflow state in status area
 
 ### Infrastructure
 
@@ -93,10 +93,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-03 | Phase 2 | Pending |
 | AGNT-04 | Phase 2 | Complete |
 | AGNT-05 | Phase 2 | Complete |
-| ORCH-01 | Phase 4 | Pending |
+| ORCH-01 | Phase 4 | Complete |
 | ORCH-02 | Phase 4 | Pending |
-| ORCH-03 | Phase 4 | Pending |
-| ORCH-04 | Phase 4 | Pending |
+| ORCH-03 | Phase 4 | Complete |
+| ORCH-04 | Phase 4 | Complete |
 | INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 3 | Complete |
 | INFR-03 | Phase 1 | Complete |
