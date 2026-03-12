@@ -1,210 +1,208 @@
 # Feature Research
 
-**Domain:** Terminal-based multi-agent AI coding console (TUI orchestrator)
-**Researched:** 2026-03-11
-**Confidence:** HIGH
+**Domain:** AI agent workflow web platform (v2.0 TUI-to-web migration)
+**Researched:** 2026-03-12
+**Confidence:** HIGH (core patterns well-documented across industry)
+
+## Context
+
+This research covers the NEW web-specific features for v2.0. The existing v1.0 TUI features (3-agent pipeline, AI orchestrator, streaming, session persistence, git auto-commit, token tracking) are already validated and ~70% of core modules are reusable. This document focuses on: REST API, WebSocket streaming, task parallelism, approval gates, GitHub integration, and Docker deployment.
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = product feels incomplete.
+Features users assume exist in a web-based agent console. Missing these = product feels broken.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Real-time streaming output | Every competitor streams (Claude Code, aider, OpenCode, Toad). Waiting for full response with no feedback is unacceptable | MEDIUM | Subprocess stdout streaming into Textual widgets. Claude CLI supports streaming natively |
-| Session persistence | OpenCode, Conduit, Ralph TUI all persist sessions via SQLite. Users expect to close terminal and resume later | MEDIUM | SQLite is the standard choice (OpenCode, project spec already chose this) |
-| Keyboard-driven workflow | Terminal users demand keyboard-first UX. Toad, Conduit, OpenCode all have extensive keybindings | LOW | Textual has built-in keybinding support. Map Ctrl+shortcuts to agent actions |
-| Multi-file context awareness | Aider, Claude Code, OpenCode all track multiple files in context. Agent must know what files exist and what they contain | MEDIUM | Workspace scanning + file list passed in system prompts. Context window management is the hard part |
-| Status/progress indicators | Every tool shows current state: what agent is running, token usage, cost. Conduit shows real-time token tracking in status bar | LOW | Textual status bar widget. Show agent name, step count, token usage |
-| Error handling with retry | Claude CLI can fail (rate limits, network). Users expect graceful recovery, not crashes. Ralph TUI has exponential backoff and agent failover | LOW | Already spec'd: 3-attempt retry. Add exponential backoff |
-| Dark theme terminal UI | Every modern TUI tool uses dark theme by default (OpenCode, Toad, Conduit). Light theme in terminal is jarring | LOW | Textual supports themes natively. Ship dark-only initially |
-| Git integration (basic) | Aider auto-commits changes. Claude Code manages git. Users expect at minimum: show git status, auto-commit agent outputs | MEDIUM | Auto-commit after successful EXECUTE cycle. Show diff in REVIEW panel |
-| Structured agent output | Claude Code uses structured outputs. OpenCode separates Build/Plan agents with contracts. Predictable output is essential for orchestration | MEDIUM | Already spec'd: GOAL/TASKS/ARCHITECTURE/FILES/HANDOFF contracts via system prompts |
-| Project/workspace isolation | Every tool scopes to a project directory. OpenCode auto-detects projects. Goose creates isolated workspaces | LOW | Already spec'd: project creation flow with dedicated folders |
+| Task list with status indicators | Every web dashboard shows running/completed/failed at a glance. This is the home screen. | LOW | REST endpoint returning task list from PostgreSQL. Status enum: `queued`, `running`, `awaiting_approval`, `completed`, `failed`, `cancelled`. Adapt v1.0 session persistence logic. |
+| Real-time streaming output | v1.0 already streams Claude CLI output; removing this in the web version would be a regression. Users will not wait for a task to finish to see output. | MEDIUM | WebSocket per-task channel. FastAPI `WebSocket` endpoint + `ConnectionManager` class tracking connections per `task_id`. Existing `stream_claude` generator yields dicts -- pipe these into WebSocket JSON frames. |
+| Task creation with prompt input | The core interaction: type a prompt, choose a mode, launch a task. | LOW | REST POST endpoint. Alpine.js form with textarea + mode selector (supervised/autonomous). |
+| Task detail view with full log | Click a task, see everything that happened -- each agent step, output, timing. | LOW | REST GET endpoint returning all steps/logs. Render step-by-step with agent labels (Plan/Execute/Review). Store in PostgreSQL `task_steps` table. |
+| Cross-device persistence | The entire reason for moving to web. Start task on laptop, check result on phone. | LOW | PostgreSQL handles this automatically. No special feature needed beyond correct data modeling. All task state in DB, not in-process memory. |
+| Basic auth protection | A web-accessible agent console without auth is a security incident. The VPS is public. | LOW | FastAPI `HTTPBasic` dependency. Single user/password from env vars. Apply to all REST routes and WebSocket upgrade handshake. |
+| Task cancellation | Users must be able to stop a runaway agent. Without this, the only option is SSH + kill. | MEDIUM | Send SIGTERM to Claude CLI subprocess. Set task status to `cancelled`. Clean up asyncio task. Release semaphore slot. Save partial output to DB. |
+| Error display with context | When a task fails, show why -- without requiring SSH to read server logs. | LOW | Store error messages and tracebacks in `task_steps` table. Display in UI with the failing agent step highlighted. Existing retry logic (3 attempts, exponential backoff) already captures errors. |
+| Docker deployment | The platform must be deployable on Coolify with zero manual server setup. | MEDIUM | Dockerfile with Python + Claude CLI. Docker Compose for local dev. Coolify deployment via git push. Volume mounts for workspace repos. Environment variables for auth, DB connection, GitHub tokens. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set the product apart. Not required, but valuable.
+Features that set this apart from "just run Claude CLI in a terminal."
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| AI-driven orchestrator (not rule-based) | Most tools use simple sequential pipelines or manual agent switching (Conduit). An AI deciding "what next" based on output quality is genuinely novel for a personal TUI tool. Ralph TUI uses algorithmic task selection; this project uses LLM-driven orchestration | HIGH | Core differentiator. The orchestrator itself calls Claude CLI to analyze outputs and decide next action. No other personal TUI tool does autonomous multi-step orchestration this way |
-| 4-panel collapsible layout (PROMPT/PLAN/EXECUTE/REVIEW) | Most tools are single-pane chat (aider, Claude Code) or tabbed (Conduit). A dedicated panel per workflow stage gives visibility into the full pipeline simultaneously. Similar to Ralph TUI's "mission control" concept but with richer per-stage views | MEDIUM | Textual supports collapsible panels, splitters, docking. The 4-panel metaphor maps to the agent pipeline naturally |
-| Iterative review cycles with AI decision loop | Aider has a simple edit-test loop. Claude Code runs once per prompt. This project's REVIEW agent can trigger re-PLAN or re-EXECUTE autonomously, creating quality-driven iteration without user babysitting | HIGH | The REVIEW agent output includes a DECISION field (APPROVE/REVISE/REJECT). Orchestrator acts on it. This is the "keep going until it's right" UX that most tools lack |
-| Visible agent handoff contracts | No competitor shows the structured handoff between agents visibly in the UI. Seeing PLAN output flow into EXECUTE input builds trust and debuggability | LOW | Display HANDOFF sections prominently between panels. Users see exactly what context each agent received |
-| Pluggable agent architecture | Goose has MCP extensions. Aider has modes. But few TUI tools let you define new agents with just a system prompt and output contract. This enables future DEBUG/TEST/DEPLOY agents without code changes | MEDIUM | Agent = (name, system_prompt, output_contract, panel_assignment). Registry pattern. New agents are config, not code |
-| Cost/token tracking per agent per cycle | Conduit tracks tokens. But showing cost breakdown per agent per iteration cycle (PLAN cost vs EXECUTE cost vs REVIEW cost) helps users understand where money goes | LOW | Parse Claude CLI output for token counts. Aggregate per agent per cycle. Display in status bar and session history |
+| Hybrid autonomy modes (supervised/autonomous per-task) | The killer feature. Devin runs fully autonomous (you find out it went sideways after 30 minutes). Claude Code CLI is fully supervised (approve every tool call). This platform lets you choose per-task. "Update the README" runs autonomous; "refactor the auth system" pauses for approval. Matches the "supervised autonomy" pattern recognized as industry best practice in 2026. | MEDIUM | `asyncio.Event` per approval gate. In supervised mode, after each pipeline stage (Plan/Execute/Review), set task status to `awaiting_approval` and `await event.wait()`. REST endpoint or WebSocket message calls `event.set()`. In autonomous mode, events are pre-set (never block). Store mode choice in task record. |
+| Late-join WebSocket replay | Open a task on your phone that has been running for 10 minutes and immediately see all prior output -- not a blank "connected, waiting..." screen. Industry-validated pattern: circular buffer per task. Discord uses this at scale with pre-allocated ring buffers. | MEDIUM | Bounded `collections.deque(maxlen=500)` per active task in memory. On WebSocket connect, burst-send entire buffer, then switch to live streaming. Also send current task status + step info for UI hydration. Clear buffer on task completion (full logs are in PostgreSQL). |
+| Approval gate UI with step context | When a task pauses, show WHAT it wants to do next -- the plan output, the proposed code changes -- so you make an informed approve/reject decision. Not a bare "continue?" prompt. | LOW | The pipeline already produces structured handoffs between agents. Display the last agent's output alongside approve/reject buttons. WebSocket pushes `awaiting_approval` event with the handoff payload. |
+| GitHub integration (clone, commit, push, PR) | Tasks that produce code should commit and PR without manual git commands. Sweep.dev and GitHub Agentic Workflows set this expectation for AI coding tools in 2026. | HIGH | GitPython for repo operations (clone to workspace volume, commit, push). GitHub PAT for authentication (stored in env var). PR creation via GitHub REST API or `gh` CLI subprocess. Security: validate repo URLs against allowlist, sandbox workspace paths, never accept tokens from user input. This is the most complex feature -- repo lifecycle management, branch strategy, conflict detection, auth token management. |
+| Token/cost tracking dashboard | Already built in v1.0 but trapped in TUI. Surfacing per-task and aggregate cost in a web view is genuinely useful vs. raw CLI output. | LOW | Existing token tracking logic ports directly. REST endpoint for cost summary. Alpine.js table: per-task cost, per-day aggregate, running total. |
+| Task parallelism with queue visualization | Run 2 tasks concurrently (semaphore-limited by VPS RAM), queue additional ones. Show queue position in UI. Most AI agent tools run one task at a time. | MEDIUM | `asyncio.Semaphore(2)` gates task execution. `asyncio.Queue` for pending tasks. WebSocket broadcasts queue position changes. UI shows: running (up to 2), queued (with position number), completed history. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems.
+Features that seem good but create problems for this specific project.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Direct API calls instead of CLI subprocess | "CLI is a hack, API is proper" | CLI handles auth, model selection, tool use, MCP servers, permissions. Reimplementing all that is massive scope. CLI is how Anthropic ships Claude Code itself | Use Claude CLI via subprocess. Benefit from all CLI improvements for free. Parse structured output from stdout |
-| Web UI / browser dashboard | "Terminal is limiting, web is more visual" | Doubles the codebase. Splits focus. TUI-first is the identity of this tool. Toad proves Textual can be visually rich | Invest in Textual's rich rendering: markdown, syntax highlighting, collapsible sections. TUI can look great |
-| Multi-model support (OpenAI, Gemini, etc.) | "Don't lock me to one provider" | Each model has different output formats, capabilities, token limits. Orchestrator prompts are tuned for Claude. Multi-model support means testing matrix explodes | Ship Claude-only. Claude CLI already supports model selection within Anthropic's lineup. If needed later, add via pluggable agent architecture where different agents can use different CLI backends |
-| Real-time collaboration / multi-user | "Teams need to share sessions" | Massively increases complexity: auth, sync, conflict resolution. This is a personal productivity tool | Stay single-user. Export session summaries as markdown for sharing |
-| GUI file tree / visual file browser | "Show me the project structure visually" | Reinventing what the terminal already does well. Adds widget complexity for marginal value | Show file list in context panel. User can `ls` in their own terminal. Focus on what files the agent is working on, not browsing |
-| Auto-run generated code | "Just execute what the agent writes" | Dangerous without review. Even Claude Code requires `--dangerously-skip-permissions` for a reason | Show generated code in EXECUTE panel. User confirms before any execution. REVIEW agent checks code quality first |
-| Plugin marketplace / ecosystem | "Let the community build extensions" | Premature. Need core stability first. Plugin APIs are expensive to maintain and get wrong | Pluggable agent architecture is sufficient. JSON config for new agents. No need for a package manager |
-| Voice input | "Aider supports voice, we should too" | Adds audio dependency, speech-to-text complexity. Niche usage in terminal context | Defer entirely. Keyboard-first is the value prop. If needed, external speech-to-text can pipe into the prompt field |
+| Multi-user / team features | "Other devs should use it too" | Massively increases complexity: per-user task isolation, RBAC, workspace separation, concurrent git conflicts, upgrade from Basic Auth to OAuth/JWT. Single-user is a constraint, not a bug -- keeps the system simple and the VPS resource budget manageable (5GB RAM margin for everything). | Keep single-user. If team access needed, deploy separate instances per developer. |
+| Message broker (Celery/Redis/RabbitMQ) | "You need a proper queue" | Overkill for 2-3 concurrent tasks on a single VPS. Adds another service to manage in Coolify, memory overhead (~100MB for Redis), and deployment complexity. asyncio primitives handle this workload perfectly for single-user. | `asyncio.Queue` + `asyncio.Semaphore`. In-process, zero-dependency, sufficient for single-user with max 2 concurrent tasks. |
+| React/Vue/Svelte frontend | "You need a proper frontend framework" | Build step, node_modules, bundler config, HMR setup -- all for a single-user dashboard that displays task lists and log streams. The UI has maybe 5 views total. | Alpine.js (inline in HTML, no build step) + Pico CSS (classless styling). Ship HTML files directly from FastAPI static mount. |
+| WebSocket for everything (replace REST) | "Just use WebSocket for all communication" | WebSocket is stateful, harder to debug/cache/test. REST is better for CRUD (create task, list tasks, get detail). Mixing concerns makes both harder to maintain. | Hybrid: REST for CRUD operations, WebSocket exclusively for streaming output and real-time events (approval requests, status changes, queue updates). |
+| Automatic merge conflict resolution | "The system should handle merge conflicts" | Merge conflicts require human judgment about code intent. Auto-resolution produces broken code silently. | Create branches, commit, push, open PRs. Let the human resolve conflicts through normal PR review. If needed, AI agents can attempt resolution as a separate task -- but never auto-merge to main. |
+| SSE instead of WebSocket | "SSE is simpler for streaming" | SSE is unidirectional (server to client only). This platform needs bidirectional communication: client sends approval decisions, cancellation signals, and mode changes during streaming. Using SSE would require a separate REST channel for client-to-server messages, splitting the real-time connection into two protocols. | WebSocket for all real-time communication. The bidirectional requirement (approval gates, cancel, mode switch) makes WebSocket the correct choice despite slightly higher implementation cost. |
+| Plugin/extension system for custom agents | "Let users add their own agents via web UI" | v1.0 already has a config-driven agent registry. A web-based plugin system (upload code, hot-reload, sandboxing) is a massive security and complexity surface for a single-user tool. | Keep config-driven agent registry from v1.0. Add new agents by editing config and redeploying. |
+| Real-time collaborative prompt editing | "Like Google Docs for prompts" | CRDT/OT complexity for zero concurrent users. Single-user system. The prompt is typed once and submitted. | Simple textarea with draft auto-save to localStorage. |
 
 ## Feature Dependencies
 
 ```
-[Streaming Output]
-    └──requires──> [Claude CLI Subprocess Management]
-                       └──requires──> [Process Lifecycle (spawn, kill, retry)]
+[PostgreSQL Persistence]
+    |-- required by --> [Task List / Detail Views]
+    |-- required by --> [Task Creation]
+    |-- required by --> [Token/Cost Dashboard]
+    |-- required by --> [Cross-device Access]
 
-[AI-Driven Orchestrator]
-    └──requires──> [Structured Agent Output Contracts]
-                       └──requires──> [System Prompt Templates]
-    └──requires──> [Agent Registry]
-    └──requires──> [Session State Management]
+[WebSocket Streaming]
+    |-- required by --> [Late-Join Replay Buffer]
+    |-- required by --> [Approval Gate UI]
+    |-- required by --> [Real-time Status Updates]
+    |-- required by --> [Queue Position Updates]
 
-[4-Panel Layout]
-    └──requires──> [Textual Widget Tree]
-    └──requires──> [Streaming Output] (to populate panels in real-time)
+[Basic Auth]
+    |-- required by --> [All REST endpoints]
+    |-- required by --> [WebSocket upgrade handshake]
 
-[Iterative Review Cycles]
-    └──requires──> [AI-Driven Orchestrator]
-    └──requires──> [REVIEW Agent with DECISION output]
-    └──requires──> [Session Persistence] (to track iteration history)
+[Task Runner (asyncio)]
+    |-- required by --> [Hybrid Autonomy (supervised/autonomous)]
+    |-- required by --> [Task Parallelism + Queue]
+    |-- required by --> [Task Cancellation]
 
-[Session Persistence]
-    └──requires──> [SQLite Schema]
-    └──requires──> [Agent Output Serialization]
+[Hybrid Autonomy]
+    |-- requires --> [WebSocket Streaming] (push approval requests to browser)
+    |-- requires --> [Task Runner] (asyncio.Event gates in pipeline)
 
-[Git Integration]
-    └──requires──> [Project/Workspace Isolation]
-    └──enhances──> [REVIEW Agent] (show diffs for review)
+[GitHub Integration]
+    |-- requires --> [Task Runner] (git ops execute as task steps)
+    |-- requires --> [PostgreSQL] (store repo metadata, PR links)
+    |-- enhances --> [Task Detail View] (show commit hashes, PR links)
 
-[Pluggable Agent Architecture]
-    └──requires──> [Agent Registry]
-    └──requires──> [Structured Agent Output Contracts]
-    └──enhances──> [AI-Driven Orchestrator]
+[Late-Join Replay]
+    |-- requires --> [WebSocket Streaming]
+    |-- enhances --> [Cross-device Access] (open phone, see full history)
 
-[Cost/Token Tracking]
-    └──requires──> [Claude CLI Output Parsing]
-    └──enhances──> [Status Bar]
-    └──enhances──> [Session Persistence]
+[Task Parallelism]
+    |-- requires --> [Task Runner]
+    |-- requires --> [PostgreSQL] (persist queue state across restarts)
+    |-- enhances --> [Task List] (queue position display)
+
+[Docker Deployment]
+    |-- requires --> [PostgreSQL] (external service connection)
+    |-- requires --> [All features complete] (deploy what works)
 ```
 
 ### Dependency Notes
 
-- **AI-Driven Orchestrator requires Structured Contracts:** The orchestrator can only decide "what next" if agent outputs are predictable and parseable. Contracts must be built and tested before orchestration logic.
-- **Iterative Review requires Orchestrator:** The review loop is the orchestrator's primary workflow. Without the orchestrator, review is manual.
-- **4-Panel Layout requires Streaming:** Panels without live-updating content are just static text boxes. Streaming is what makes the layout feel alive.
-- **Pluggable Agents enhance Orchestrator:** New agents only matter if the orchestrator knows how to invoke them and interpret their output.
-- **Git Integration enhances Review:** Showing file diffs in the REVIEW panel is far more useful than raw code output.
+- **PostgreSQL is foundational.** Every read/write feature depends on it. Must be the first thing wired up. The existing Coolify-managed PostgreSQL 16 instance is ready.
+- **WebSocket streaming enables the differentiators.** Late-join replay, approval gate UI, and queue updates all depend on WebSocket infrastructure. Get this right early.
+- **Hybrid autonomy requires both WebSocket and Task Runner.** The approval flow needs WebSocket to push gate notifications and REST/WebSocket to receive approve/reject. The task runner needs `asyncio.Event` to pause/resume. These must be built together.
+- **GitHub integration is independent and complex.** It enhances the platform but blocks nothing else. Build it last -- highest complexity, most security surface, and the platform is fully usable without it.
+- **Docker deployment wraps everything.** It depends on features being done but is simple to add incrementally (Dockerfile early, refine as features land).
 
 ## MVP Definition
 
-### Launch With (v1)
+### Launch With (v2.0 Core)
 
-Minimum viable product -- what's needed to validate the concept.
+Minimum viable web platform -- what replaces the TUI and validates web-based agent management.
 
-- [ ] Claude CLI subprocess with streaming output -- foundation for everything
-- [ ] 4-panel TUI layout (Prompt, Plan, Execute, Review) -- the visual identity
-- [ ] PLAN agent with structured output contract -- first agent in the pipeline
-- [ ] EXECUTE agent with structured output contract -- produces the actual code
-- [ ] REVIEW agent with DECISION output (APPROVE/REVISE/REJECT) -- closes the loop
-- [ ] AI-driven orchestrator (decides next agent based on output) -- the core differentiator
-- [ ] Session persistence via SQLite -- resume work across sessions
-- [ ] Keyboard shortcuts for all actions -- terminal-first UX
-- [ ] Project folder creation and workspace isolation -- one project = one folder
-- [ ] Basic status bar (current agent, state, step count) -- know what's happening
+- [ ] PostgreSQL persistence (tasks, steps, logs, tokens) -- foundation for everything
+- [ ] REST API for task CRUD (create, list, get detail, cancel) -- basic operations
+- [ ] Task runner with asyncio pipeline execution -- reuses v1.0 pipeline core (~70% of modules)
+- [ ] WebSocket streaming of Claude CLI output per task -- core UX, replaces TUI streaming
+- [ ] Basic Auth on all endpoints -- security baseline for public VPS
+- [ ] Alpine.js dashboard: task list, task detail with streaming log, task creation form -- the UI
+- [ ] Hybrid autonomy: supervised (approval gates) and autonomous modes per task -- the differentiator
+- [ ] Docker deployment on Coolify -- ship it to console.amcsystem.uk
 
-### Add After Validation (v1.x)
+### Add After Core Works (v2.1)
 
-Features to add once core is working.
+Features to add once the core platform is stable and used daily.
 
-- [ ] Git auto-commit after successful cycles -- when orchestrator loop is proven stable
-- [ ] Token/cost tracking per agent -- when users start caring about spend
-- [ ] Iterative review cycles (auto-retry on REVISE) -- when single-pass quality is validated
-- [ ] Visible handoff contracts between panels -- when users want to debug agent decisions
-- [ ] Resizable/collapsible panels -- when layout preferences emerge from usage
-- [ ] Session history browser (past sessions list) -- when session count grows
+- [ ] Late-join WebSocket replay buffer -- needed once cross-device usage reveals "connected, no output" pain
+- [ ] Task parallelism with queue visualization -- needed once single-task bottleneck becomes frustrating
+- [ ] Token/cost tracking dashboard view -- data exists from v1.0, just needs a web UI
+- [ ] Rich approval gate context (show plan details alongside approve/reject) -- enhance basic approval UX
 
-### Future Consideration (v2+)
+### Add When Core Is Solid (v2.2+)
 
-Features to defer until product-market fit is established.
+Features that require the platform to be reliable before adding complexity.
 
-- [ ] Pluggable agent architecture (add agents via config) -- when PLAN/EXECUTE/REVIEW prove the pattern
-- [ ] Parallel agent execution -- when sequential is proven too slow for specific workflows
-- [ ] DEBUG/TEST/DEPLOY agents -- when the core three agents are rock solid
-- [ ] Export session as markdown report -- when sharing becomes a need
-- [ ] Customizable themes -- when dark-only gets complaints
-- [ ] MCP server integration -- when external tool access becomes necessary
+- [ ] GitHub integration (clone, commit, push, PR creation) -- highest complexity, build on stable foundation
+- [ ] Mobile-responsive layout polish -- once desktop version works well
+- [ ] Task templates / saved prompts -- once common patterns emerge from usage
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Claude CLI streaming subprocess | HIGH | MEDIUM | P1 |
-| 4-panel TUI layout | HIGH | MEDIUM | P1 |
-| PLAN agent + contract | HIGH | LOW | P1 |
-| EXECUTE agent + contract | HIGH | LOW | P1 |
-| REVIEW agent + DECISION | HIGH | LOW | P1 |
-| AI-driven orchestrator | HIGH | HIGH | P1 |
-| Session persistence (SQLite) | HIGH | MEDIUM | P1 |
-| Keyboard shortcuts | HIGH | LOW | P1 |
-| Project workspace isolation | MEDIUM | LOW | P1 |
-| Status bar | MEDIUM | LOW | P1 |
-| Error handling + retry | HIGH | LOW | P1 |
-| Git auto-commit | MEDIUM | MEDIUM | P2 |
-| Token/cost tracking | MEDIUM | LOW | P2 |
-| Iterative auto-retry | HIGH | MEDIUM | P2 |
-| Visible handoff contracts | MEDIUM | LOW | P2 |
-| Resizable panels | LOW | LOW | P2 |
-| Session history browser | MEDIUM | MEDIUM | P2 |
-| Pluggable agent architecture | MEDIUM | HIGH | P3 |
-| Parallel agent execution | LOW | HIGH | P3 |
-| Additional agents (DEBUG, TEST) | MEDIUM | MEDIUM | P3 |
-| Export as markdown | LOW | LOW | P3 |
+| PostgreSQL persistence | HIGH | MEDIUM | P1 |
+| REST API (task CRUD) | HIGH | LOW | P1 |
+| Task runner (asyncio pipeline) | HIGH | MEDIUM | P1 |
+| WebSocket streaming | HIGH | MEDIUM | P1 |
+| Basic Auth | HIGH | LOW | P1 |
+| Alpine.js dashboard | HIGH | MEDIUM | P1 |
+| Hybrid autonomy modes | HIGH | MEDIUM | P1 |
+| Docker/Coolify deployment | HIGH | LOW | P1 |
+| Task cancellation | MEDIUM | MEDIUM | P1 |
+| Late-join replay buffer | MEDIUM | LOW | P2 |
+| Task parallelism + queue | MEDIUM | MEDIUM | P2 |
+| Token/cost dashboard | MEDIUM | LOW | P2 |
+| Rich approval gate context | MEDIUM | LOW | P2 |
+| GitHub integration | HIGH | HIGH | P3 |
+| Mobile-responsive polish | LOW | LOW | P3 |
+| Task templates | LOW | LOW | P3 |
 
 **Priority key:**
-- P1: Must have for launch
-- P2: Should have, add when possible
-- P3: Nice to have, future consideration
+- P1: Must have for launch (replaces TUI, validates web platform concept)
+- P2: Should have, add once core is stable (enhances daily use)
+- P3: Nice to have, build on solid foundation (high complexity or polish)
 
 ## Competitor Feature Analysis
 
-| Feature | Aider | Claude Code | OpenCode | Toad | Conduit | Ralph TUI | Our Approach |
-|---------|-------|-------------|----------|------|---------|-----------|--------------|
-| TUI (not just CLI) | No (CLI chat) | No (CLI chat) | Yes (themed TUI) | Yes (Textual) | Yes (tabbed TUI) | Yes (dashboard) | Yes (4-panel Textual TUI) |
-| Multi-agent orchestration | No (single agent, architect+editor) | Yes (Agent Teams, experimental) | No (dual agent, manual) | No (frontend only) | No (manual tab switching) | Yes (task loop, algorithmic) | Yes (AI-driven, autonomous) |
-| Structured pipeline (Plan/Execute/Review) | No | No | Partial (Build/Plan separation) | No | No | Partial (task-based) | Yes (explicit 3-stage pipeline) |
-| AI decides next step | No (user-driven) | Partial (within single agent) | No | No | No | Algorithmic (priority-based) | Yes (LLM-driven orchestrator) |
-| Streaming output | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Session persistence | Partial (chat history) | Yes | Yes (SQLite) | No | Yes | Yes | Yes (SQLite) |
-| Git integration | Deep (auto-commit) | Deep (native) | Basic | No | Yes (worktrees) | No | Basic (auto-commit cycles) |
-| Multi-model support | Yes (any model) | No (Claude only) | Yes (multiple) | Yes (via backends) | Yes (Claude + Codex) | Yes (multiple agents) | No (Claude only, by design) |
-| Token/cost tracking | Partial | No | Yes | No | Yes (real-time) | Partial | Yes (per-agent breakdown) |
-| Iterative quality loop | Partial (lint+test) | No (single pass) | No | No | No | Yes (task retry) | Yes (REVIEW-driven iteration) |
-| Pluggable extensions | No | Yes (MCP) | No | Yes (ACP protocol) | No | Yes (agent configs) | Future (pluggable agents) |
+| Feature | Devin | Claude Code (CLI) | Sweep.dev | GitHub Agentic Workflows | This Platform |
+|---------|-------|-------------------|-----------|--------------------------|---------------|
+| Interface | Web chat (Slack-like) | Terminal | GitHub Issues | GitHub Actions YAML | Web dashboard |
+| Execution visibility | Cloud IDE view | Terminal streaming | PR diff only | Action logs | WebSocket streaming with agent step labels |
+| Autonomy control | Fully autonomous | Fully supervised (each tool call) | Fully autonomous | YAML-defined | Hybrid: choose per task |
+| Approval gates | None (auto-runs) | Every tool call | None | Read-only default, "safe outputs" for writes | Per pipeline stage (Plan/Execute/Review) |
+| Multi-task | One at a time | One terminal session | Parallel PRs | Parallel workflows | 2 concurrent + queue |
+| Cross-device | Yes (web) | No (local terminal) | Yes (GitHub) | Yes (GitHub) | Yes (web dashboard) |
+| Git integration | Built-in | Built-in (native) | Native GitHub App | Native GitHub | Clone/commit/push/PR via GitPython |
+| Cost visibility | $500/mo flat fee | Hidden | Free tier + paid | GitHub Actions minutes | Per-task token/cost breakdown |
+| Self-hosted | No (SaaS only) | N/A (runs locally) | No (SaaS) | No (GitHub hosted) | Yes (Docker on any VPS) |
+| Late-join replay | Yes (persistent UI) | N/A (local terminal) | N/A (async PRs) | N/A (async runs) | Yes (WebSocket replay buffer) |
+
+**Key competitive insight:** The hybrid autonomy mode is genuinely differentiated. No competitor in this space offers per-task autonomy selection. Devin users complain about tasks going sideways with no intervention point. Claude Code CLI users complain about approving every tool call on routine tasks. This platform sits in the middle -- and that middle ground is exactly what the "supervised autonomy" movement in 2026 advocates for.
 
 ## Sources
 
-- [Aider - AI Pair Programming](https://aider.chat/) - Official site, chat modes docs
-- [Aider Chat Modes](https://aider.chat/docs/usage/modes.html) - Architect mode details
-- [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) - Official multi-agent docs
-- [OpenCode TUI](https://opencode.ai/docs/tui/) - TUI feature documentation
-- [OpenCode GitHub](https://github.com/opencode-ai/opencode) - 95K+ stars, open-source reference
-- [Toad by Will McGugan](https://willmcgugan.github.io/announcing-toad/) - Textual-based agentic TUI
-- [Toad Released](https://willmcgugan.github.io/toad-released/) - Shell integration, notebook UX
-- [Conduit - Multi-Agent TUI](https://getconduit.sh/) - Tabbed multi-agent interface
-- [Ralph TUI](https://ralph-tui.com/docs/getting-started/introduction) - Agent loop orchestrator
-- [Goose GitHub](https://github.com/block/goose) - MCP-first agent, recipes
-- [Warp Oz Platform](https://www.warp.dev/blog/oz-orchestration-platform-cloud-agents) - Cloud agent orchestration
-- [Cursor CLI Agent Modes](https://forum.cursor.com/t/cursor-cli-jan-16-2026-cli-agent-modes-and-cloud-handoff/149171) - Plan mode, cloud handoff
-- [DiffBack](https://github.com/A386official/diffback) - Agent rollback tooling
-- [Top 5 CLI Coding Agents 2026](https://pinggy.io/blog/top_cli_based_ai_coding_agents/) - Market overview
-- [AgentPipe](https://github.com/kevinelliott/agentpipe) - Multi-agent conversation orchestrator
-- [Agentic CLI Tools Compared](https://aimultiple.com/agentic-cli) - Claude Code vs Cline vs Aider
+- [Supervised Autonomy Agents: The AI Framework for 2026](https://edge-case.medium.com/supervised-autonomy-the-ai-framework-everyone-will-be-talking-about-in-2026-fe6c1350ab76) -- MEDIUM confidence, single source but well-argued
+- [Human-in-the-Loop for AI Agents: Best Practices](https://www.permit.io/blog/human-in-the-loop-for-ai-agents-best-practices-frameworks-use-cases-and-demo) -- HIGH confidence, comprehensive patterns guide
+- [From HITL to HOTL: Evolving AI Agent Autonomy (2026)](https://bytebridge.medium.com/from-human-in-the-loop-to-human-on-the-loop-evolving-ai-agent-autonomy-c0ae62c3bf91) -- MEDIUM confidence
+- [StackAI: Approval Workflows for Safe Automation](https://www.stackai.com/insights/human-in-the-loop-ai-agents-how-to-design-approval-workflows-for-safe-and-scalable-automation) -- HIGH confidence, practical implementation guide
+- [WebSocket Replay Buffer Patterns](https://javatsc.substack.com/p/day-13-the-replay-buffer-engineering) -- MEDIUM confidence, Discord case study
+- [FastAPI WebSocket Connection Management and Reconnection (2025)](https://blog.greeden.me/en/2025/10/28/weaponizing-real-time-websocket-sse-notifications-with-fastapi-connection-management-rooms-reconnection-scale-out-and-observability/) -- HIGH confidence, production patterns
+- [Streaming in 2026: SSE vs WebSockets vs RSC](https://jetbi.com/blog/streaming-architecture-2026-beyond-websockets) -- HIGH confidence, current comparison with AI agent context
+- [WebSockets vs SSE Comparison](https://websocket.org/comparisons/sse/) -- HIGH confidence, authoritative comparison
+- [GitHub Agentic Workflows Technical Preview (2026)](https://github.blog/changelog/2026-02-13-github-agentic-workflows-are-now-in-technical-preview/) -- HIGH confidence, official GitHub blog
+- [AI Coding Agents Comparison (2026)](https://devvela.com/blog/ai-coding-agents) -- MEDIUM confidence, market overview
+- [asyncio-pause-resume Pattern](https://github.com/m2-farzan/asyncio-pause-resume) -- HIGH confidence, working code example
+- [Python asyncio Queue Documentation](https://docs.python.org/3/library/asyncio-queue.html) -- HIGH confidence, official Python docs
+- [GitPython Documentation](https://gitpython.readthedocs.io/en/stable/tutorial.html) -- HIGH confidence, official library docs
+- [Using asyncio Queues for AI Task Orchestration (2026)](https://dasroot.net/posts/2026/02/using-asyncio-queues-ai-task-orchestration/) -- MEDIUM confidence, recent practical guide
+- [Devin AI: Coding With Devin](https://every.to/chain-of-thought/coding-with-devin-my-new-ai-programming-agent) -- MEDIUM confidence, user experience report
+- [Top 10 Devin Alternatives (2025)](https://www.codeant.ai/blogs/10-best-alternatives-to-devin-ai-for-developers-in-2025) -- MEDIUM confidence, market landscape
 
 ---
-*Feature research for: Terminal-based multi-agent AI coding console*
-*Researched: 2026-03-11*
+*Feature research for: AI agent workflow web platform (v2.0)*
+*Researched: 2026-03-12*

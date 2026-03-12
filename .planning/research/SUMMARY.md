@@ -1,169 +1,198 @@
 # Project Research Summary
 
-**Project:** AI Agent Workflow Console
-**Domain:** Python TUI multi-agent AI orchestration
-**Researched:** 2026-03-11
+**Project:** AI Agent Workflow Console v2.0 Web Platform
+**Domain:** Web-based AI agent orchestration (TUI-to-web migration)
+**Researched:** 2026-03-12
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This project is a terminal-based multi-agent AI coding console built with Python and Textual. It orchestrates three Claude CLI agents (PLAN, EXECUTE, REVIEW) through an AI-driven decision loop, displayed in a 4-panel TUI. Experts build this type of tool by combining an async subprocess runner for Claude CLI with a message-driven TUI framework, connecting them through an explicit finite state machine. The recommended stack (Textual + asyncio + Pydantic + aiosqlite) is mature, well-documented, and purpose-built for this exact use case -- there are no significant technology risks.
+The v2.0 migration transforms a validated TUI-based AI agent console into a persistent web platform using FastAPI, asyncpg, Alpine.js, and Pico CSS. The existing v1.0 codebase is well-structured: approximately 70% of core modules (agents, runner, parser, context, pipeline) are directly reusable with zero changes. The migration is primarily a UI layer swap (Textual to FastAPI + Alpine.js) and a database swap (aiosqlite to asyncpg), plus new web-specific components for WebSocket streaming, task lifecycle management, and approval gates. The recommended stack is mature, well-documented, and requires zero build tooling on the frontend -- a deliberate constraint that keeps deployment simple on the Coolify/Traefik VPS.
 
-The recommended approach is to build bottom-up: data models and subprocess infrastructure first, then the orchestrator engine, then the TUI shell that wires everything together. The core differentiator -- an AI-driven orchestrator that decides which agent runs next based on output quality -- should be implemented with a rule-based fallback before adding LLM-driven routing. This de-risks the most complex component while delivering value incrementally. The 4-panel layout and streaming output are the visual identity and must work reliably from the earliest prototype.
+The recommended architecture centers on four new components: TaskManager (asyncio.Semaphore-based concurrency), ConnectionManager (WebSocket fan-out with late-join replay buffer), ApprovalGate (asyncio.Event pause/resume for supervised mode), and a TaskContext Protocol that decouples the orchestrator from any specific UI. This Protocol is the key architectural decision -- it replaces the current hard dependency on `AgentConsoleApp` with an abstract interface, making the orchestrator testable and reusable across TUI, web, and future interfaces. The build order follows a strict dependency chain: database first, then orchestrator decoupling, then task management, then WebSocket streaming, then approval gates, then frontend, then Docker packaging.
 
-The primary risks are (1) subprocess deadlocks from improper stream reading, (2) structured output parsing brittleness when Claude deviates from the expected format, and (3) orchestrator infinite loops during review-execute cycles. All three are well-understood problems with established prevention patterns: concurrent stream consumption, multi-layer parsing with fallbacks, and hard iteration limits with user confirmation gates. The biggest unknown is Claude CLI's streaming behavior with `stream-json` format -- text streams incrementally but structured output does not, which means the display and parsing architectures must be separate concerns.
+The most dangerous risks are operational, not architectural. Zombie Claude CLI subprocesses can exhaust VPS RAM and OOM-kill shared Coolify services (n8n, Evolution API). WebSocket connections silently die behind Traefik's default 60-second timeout. Claude CLI auth requires mounting two specific files read-write in Docker, and losing either breaks the entire system. asyncpg uses `$1` parameter syntax instead of aiosqlite's `?`, and the migration will crash at runtime if any queries are ported without syntax changes. Every one of these pitfalls has a documented prevention strategy, but they must be addressed in the correct phase -- not retrofitted.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack is Python 3.12+ with Textual 8.x as the TUI framework, managed by uv. All core dependencies are mature, async-native, and compatible.
+The stack is zero-build-step by design. FastAPI (>=0.115) provides async-native HTTP and WebSocket support with Pydantic validation. asyncpg (>=0.30) connects directly to the existing Coolify-managed PostgreSQL 16 instance at 5x the speed of psycopg3, with built-in connection pooling. Alpine.js 3.x and Pico CSS 2.x are loaded from CDN, eliminating all frontend tooling. uvicorn with `[standard]` extras provides uvloop performance. The Docker image uses `python:3.12-slim` with Node.js 20 installed for Claude CLI (npm global package).
 
 **Core technologies:**
-- **Textual 8.1.1**: TUI framework -- only serious modern Python TUI option; async-native, rich widgets, CSS styling, Workers API for subprocess streaming
-- **asyncio (stdlib)**: Subprocess orchestration -- `create_subprocess_exec` for streaming Claude CLI output; integrates seamlessly with Textual's event loop
-- **Pydantic 2.12.5**: Output validation -- validates agent output contracts; handles malformed LLM output gracefully with clear error messages
-- **aiosqlite 0.22.1**: Async persistence -- prevents blocking the Textual event loop during DB writes; simple API
-- **uv**: Package management -- 10-100x faster than pip; deterministic lockfile; the new Python standard
+- **FastAPI 0.135.1:** Web framework -- async-native, first-class WebSocket, Pydantic built-in
+- **asyncpg 0.31.0:** PostgreSQL driver -- 5x faster than psycopg3 async, binary protocol, built-in pool
+- **Alpine.js 3.15.1:** Client-side reactivity -- 17KB, no build step, CDN delivery
+- **Pico CSS 2.1.1:** Semantic styling -- dark mode built-in, zero classes needed, CDN delivery
+- **uvicorn 0.41.0:** ASGI server -- uvloop + httptools via `[standard]` extras
+- **Jinja2 3.1.4+:** Server-side templates -- renders page shell, Alpine.js handles dynamic updates
 
-**Critical "do not use" decisions:** No LLM agent frameworks (LangChain, PydanticAI) -- they fight the subprocess-based architecture. No alternative async runtimes (trio/anyio) -- Textual is built on asyncio specifically. No curses/ncurses -- poor Windows support.
+**Critical exclusions:** No SQLAlchemy/Alembic (raw SQL sufficient for ~10 tables), no Celery/Redis (asyncio primitives handle 2-task concurrency), no React/Vue/Svelte (build step violates constraints), no Socket.IO (unnecessary protocol layer for single-node). Remove aiosqlite and Textual from dependencies.
 
 ### Expected Features
 
-**Must have (table stakes):**
-- Real-time streaming output from Claude CLI subprocesses
-- 4-panel TUI layout (Prompt, Plan, Execute, Review)
-- PLAN/EXECUTE/REVIEW agents with structured output contracts
-- Session persistence via SQLite (resume across terminal sessions)
-- Keyboard-driven workflow (terminal users demand this)
-- Status bar showing current agent, state, step count
-- Error handling with retry and exponential backoff
-- Project/workspace isolation (one project = one folder)
+**Must have (table stakes -- P1 launch):**
+- Task list with status indicators (queued/running/awaiting_approval/completed/failed/cancelled)
+- Real-time WebSocket streaming of Claude CLI output per task
+- Task creation with prompt input and mode selection (supervised/autonomous)
+- Task detail view with full agent step log
+- Cross-device persistence via PostgreSQL
+- HTTP Basic Auth on all endpoints and WebSocket handshake
+- Task cancellation with subprocess cleanup
+- Docker deployment on Coolify
 
-**Should have (differentiators):**
-- AI-driven orchestrator deciding next agent (core differentiator vs. all competitors)
-- Iterative review cycles with APPROVE/REVISE/REJECT decision loop
-- Visible agent handoff contracts between panels (builds trust)
-- Cost/token tracking per agent per cycle
-- Git auto-commit after successful cycles
+**Should have (differentiators -- P1 launch):**
+- Hybrid autonomy modes per task -- the killer feature; no competitor offers per-task autonomy selection
+- Approval gate UI showing what the agent wants to do next (not a bare "continue?" prompt)
 
-**Defer (v2+):**
-- Pluggable agent architecture (add agents via config)
-- Parallel agent execution
-- Additional agents (DEBUG, TEST, DEPLOY)
-- Multi-model support, web UI, voice input
+**Defer to v2.1:**
+- Late-join WebSocket replay buffer (needed once cross-device pain is felt)
+- Task parallelism with queue visualization
+- Token/cost tracking dashboard view
+- Rich approval gate context
+
+**Defer to v2.2+:**
+- GitHub integration (clone, commit, push, PR) -- highest complexity, most security surface
+- Mobile-responsive polish
+- Task templates / saved prompts
 
 ### Architecture Approach
 
-The architecture follows a 4-layer design: TUI Layer (Textual widgets) communicates with the Orchestrator Engine via Textual messages (never direct calls). The Orchestrator manages a finite state machine (IDLE -> PLANNING -> EXECUTING -> REVIEWING -> DONE/ITERATE) and dispatches work to the Agent Runner, which launches Claude CLI subprocesses with async streaming. The Persistence Layer (SQLite) stores sessions, outputs, and state independently.
+The architecture is a layered system: browser (Alpine.js + Pico CSS) communicates via REST for CRUD and WebSocket for streaming/events to a FastAPI server. The server contains four new service components (TaskManager, ConnectionManager, ApprovalGate, TaskContext) that mediate between the web layer and the reused v1.0 core (orchestrator, agents, runner, parser, context). Data flows through asyncpg to the existing PostgreSQL 16 instance. The orchestrator is decoupled from the UI via a TaskContext Protocol -- the single most important refactor in the migration.
 
 **Major components:**
-1. **TUI Layer** -- 4 panels + status bar; renders streaming output; posts messages upward for all user actions
-2. **Orchestrator Engine** -- FSM-based state management + agent routing (rule-based initially, AI-driven later)
-3. **Agent Runner** -- async subprocess launcher with line-by-line streaming back to TUI via messages
-4. **Agent Definitions** -- system prompts + output contracts per agent type (pure data, no logic)
-5. **Persistence Layer** -- aiosqlite CRUD for sessions, agent outputs, workspace context
-
-**Key architectural insight:** The orchestrator and TUI are independent until the App wires them together. They can be developed and tested in parallel after the models layer exists.
+1. **TaskManager** -- task lifecycle (create/run/cancel), asyncio.Semaphore(2) concurrency control, graceful shutdown
+2. **ConnectionManager** -- WebSocket connection tracking per task_id, broadcast fan-out, late-join replay via deque(maxlen=500)
+3. **ApprovalGate** -- asyncio.Event per task for supervised mode pause/resume, zero-polling approval flow
+4. **TaskContext Protocol** -- abstract interface replacing AgentConsoleApp dependency, enables orchestrator to work with any UI
+5. **asyncpg pool** -- lifespan-managed connection pool (min=2, max=5), replaces single aiosqlite connection
+6. **PostgreSQL schema** -- tasks, agent_outputs, agent_usage, orchestrator_decisions tables with proper indexes
 
 ### Critical Pitfalls
 
-1. **Subprocess deadlocks** -- Never call `process.wait()` before consuming stdout/stderr. Use `asyncio.gather` to read both streams concurrently. Test with 1MB+ output.
-2. **Structured output parsing brittleness** -- LLM output compliance is ~94% at best. Build multi-layer parsing: strict parse -> lenient regex fallback -> retry. Use markdown section markers (`## SECTION`), not JSON.
-3. **Event loop blocking** -- Any sync call in a Textual message handler freezes the entire UI. Use `@work` decorator or `run_worker()` for ALL subprocess and I/O operations from day one.
-4. **Orchestrator infinite loops** -- AI-driven routing can get stuck in REVIEW-EXECUTE cycles. Hard limit of 3 iterations before forcing user confirmation. Track state transitions and detect cycles.
-5. **Context window exhaustion** -- Accumulated history exceeds practical limits after 2-3 iterations. Pass only HANDOFF sections forward, not full outputs. Summarize older outputs.
-6. **Claude CLI stream-json limitation** -- Structured output does NOT stream incrementally. Stream text for display, parse sections only after completion.
+1. **Zombie Claude CLI subprocesses** -- Each subprocess uses 200-500MB RAM. If WebSocket disconnects without cleanup, zombies accumulate and OOM-kill shared VPS services. Prevention: try/finally with proc.terminate()/kill() around every stream_claude call, TaskManager registry for shutdown, Docker mem_limit of 3g.
+
+2. **WebSocket death behind Traefik** -- Traefik's default 60-second timeout kills long-running connections. Coolify's Gzip compression breaks WebSocket streaming (confirmed bug #4002). Prevention: set readTimeout/writeTimeout/idleTimeout to 30m in Coolify proxy settings, disable Gzip, implement 15-second server heartbeat, run concurrent receive_text() for disconnect detection.
+
+3. **Claude CLI auth in Docker** -- Requires TWO files (`~/.claude/` directory AND `~/.claude.json`), both read-write. Using Claude on host can delete container credentials. Prevention: mount both paths, verify in entrypoint script, set CLAUDE_CONFIG_DIR, keep credentials exclusive to container.
+
+4. **asyncpg pool exhaustion** -- Holding connections during long subprocess waits (current aiosqlite pattern) will drain the 5-connection pool with 2 concurrent tasks. Prevention: acquire/write/release pattern around each DB operation, never hold connections across subprocess calls.
+
+5. **asyncio task lifecycle mismatch** -- Background tasks survive FastAPI shutdown, causing 30-second hangs and inconsistent DB state. Prevention: TaskManager tracks all tasks, calls cancel() in lifespan teardown, startup reconciliation marks stale "running" records as "interrupted".
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on research, the suggested phase structure follows the dependency graph from ARCHITECTURE.md with pitfall prevention integrated at each layer.
 
-### Phase 1: Foundation (Models + Subprocess + Persistence)
-**Rationale:** Everything depends on reliable data models, subprocess communication, and storage. The architecture research explicitly identifies this as the zero-dependency base layer. All critical pitfalls (deadlocks, event loop blocking, SQLite WAL mode) must be addressed here.
-**Delivers:** Data models (session, state, agent definitions), async subprocess runner with streaming, SQLite schema with WAL mode, section-based output parser with fallback layers.
-**Addresses:** Subprocess streaming, session persistence, structured agent output, error handling with retry.
-**Avoids:** Subprocess deadlocks (Pitfall 1), event loop blocking (Pitfall 3), stream-json display issues (Pitfall 6), SQLite concurrency issues.
+### Phase 1: Database Foundation
+**Rationale:** Every feature depends on PostgreSQL persistence. The repository rewrite touches agents/base.py (db parameter type change), making this a prerequisite for all subsequent work.
+**Delivers:** asyncpg connection pool, PostgreSQL schema (tasks, agent_outputs, agent_usage, orchestrator_decisions), repository module rewritten with `$1` parameterized queries, lifespan-managed pool lifecycle.
+**Addresses:** Cross-device persistence, task status tracking.
+**Avoids:** asyncpg pool exhaustion (acquire/release pattern from day one), aiosqlite syntax carryover (`?` to `$1`).
 
-### Phase 2: Agent Pipeline (PLAN + EXECUTE + REVIEW)
-**Rationale:** With infrastructure in place, build the three core agents and their contracts. This is where the product's value emerges. Agent definitions are pure data (prompts + contracts) so they are low-risk, but the integration with the runner and parser needs testing with real Claude CLI output.
-**Delivers:** PLAN agent with GOAL/TASKS/ARCHITECTURE/FILES/HANDOFF contract, EXECUTE agent with code generation contract, REVIEW agent with DECISION (APPROVE/REVISE/REJECT) contract. Rule-based sequential pipeline (PLAN -> EXECUTE -> REVIEW).
-**Addresses:** Multi-file context awareness, structured agent contracts, basic pipeline flow.
-**Avoids:** Output parsing brittleness (Pitfall 2), context window exhaustion (Pitfall 5).
+### Phase 2: FastAPI Shell and Orchestrator Decoupling
+**Rationale:** The server must boot and connect to the database before any features can be built. The orchestrator must be decoupled from Textual before the TaskManager can call it.
+**Delivers:** FastAPI app factory with lifespan, health endpoint, TaskContext Protocol, orchestrator refactored to accept TaskContext instead of AgentConsoleApp.
+**Addresses:** Web accessibility foundation, testable orchestrator.
+**Avoids:** Tight coupling between orchestrator and web layer (anti-pattern from ARCHITECTURE.md).
 
-### Phase 3: TUI Shell (4-Panel Layout + Keyboard + Status)
-**Rationale:** The TUI can be built in parallel with Phase 2 after models exist, but full integration requires the agent pipeline. This phase creates the visual identity: 4-panel layout with streaming, keyboard shortcuts, status bar.
-**Delivers:** Textual App with Prompt/Plan/Execute/Review panels, real-time streaming display, keyboard shortcuts for all actions, status bar, dark theme, message-driven communication between TUI and orchestrator.
-**Addresses:** Real-time streaming output, keyboard-driven workflow, status/progress indicators, dark theme.
-**Avoids:** Widget-calls-orchestrator anti-pattern, re-rendering performance trap.
+### Phase 3: Task Manager and REST API
+**Rationale:** Task creation and lifecycle management depend on both the database (phase 1) and the decoupled orchestrator (phase 2). REST endpoints are needed before WebSocket because task creation is a REST operation.
+**Delivers:** TaskManager with Semaphore(2), REST endpoints (POST /tasks, GET /tasks, GET /tasks/{id}, POST /tasks/{id}/cancel), HTTP Basic Auth, task queuing and execution.
+**Addresses:** Task creation, task listing, task cancellation, basic auth.
+**Avoids:** asyncio task lifecycle mismatch (TaskManager tracks all tasks, handles shutdown), zombie subprocesses (try/finally cleanup in task execution).
 
-### Phase 4: Orchestrator Intelligence (AI-Driven Routing + Iteration)
-**Rationale:** The orchestrator is the core differentiator but also the highest-complexity component. Building it after the agent pipeline and TUI are stable means it can be tested against real agent outputs. Start rule-based, upgrade to AI-driven.
-**Delivers:** AI-driven routing (Claude CLI meta-call to decide next agent), iterative review cycles with user confirmation gates, cycle detection, hard iteration limits, cost budget per session.
-**Addresses:** AI-driven orchestrator, iterative review cycles, visible handoff contracts.
-**Avoids:** Orchestrator infinite loops (Pitfall 4), runaway token costs.
+### Phase 4: WebSocket Streaming
+**Rationale:** WebSocket infrastructure depends on TaskManager (phase 3) for knowing which tasks are active. This is the core UX -- streaming Claude CLI output to the browser in real-time.
+**Delivers:** ConnectionManager, WebSocket endpoint per task, late-join replay buffer (deque), chunk batching (50ms/1KB flush), heartbeat (15s ping), disconnect detection via concurrent receive_text().
+**Addresses:** Real-time streaming output, late-join replay, cross-device live viewing.
+**Avoids:** WebSocket message buffer overflow (batching), zombie subprocesses on disconnect (cleanup in finally block), silent connection death (heartbeat + disconnect watcher).
 
-### Phase 5: Polish and v1.x Features
-**Rationale:** Once the core loop works end-to-end, add the features that improve daily usage: git integration, token tracking, session history, resizable panels.
-**Delivers:** Git auto-commit after cycles, token/cost tracking per agent, session history browser, resizable/collapsible panels, crash recovery.
-**Addresses:** Git integration, cost tracking, session history, panel flexibility.
+### Phase 5: Approval Gates and Supervised Mode
+**Rationale:** Approval gates require both WebSocket (phase 4, for pushing approval_required events) and TaskManager (phase 3, for pausing pipeline execution). This is the differentiator feature.
+**Delivers:** ApprovalGate with asyncio.Event, supervised/autonomous mode selection per task, approval/reject REST endpoints, approval request display with agent context.
+**Addresses:** Hybrid autonomy (the killer feature), approval gate UI.
+**Avoids:** Polling for approval status (event-driven via WebSocket push).
+
+### Phase 6: Alpine.js Frontend
+**Rationale:** All backend APIs exist by this point. Building the frontend last avoids rework as APIs evolve. The UI consumes REST for CRUD and WebSocket for streaming.
+**Delivers:** Dashboard (task list with status), task detail view (streaming log + step labels), task creation form (prompt + mode selector), approval UI (approve/reject with context), Jinja2 templates + Alpine.js components, Pico CSS styling.
+**Addresses:** All UI-facing features from the table stakes list.
+**Avoids:** Building UI against unstable APIs (frontend last principle).
+
+### Phase 7: Docker and Coolify Deployment
+**Rationale:** Packaging and deployment come after the application works locally. Docker configuration addresses the majority of operational pitfalls (Claude CLI auth, network isolation, memory limits).
+**Delivers:** Dockerfile (python:3.12-slim + Node.js 20), volume mounts for Claude CLI auth and workspaces, Coolify configuration, Traefik timeout settings (30m), Gzip disabled, Docker memory limit (3g), entrypoint script for auth verification.
+**Addresses:** Docker deployment, production readiness.
+**Avoids:** Claude CLI auth loss (two-file mount), Docker network isolation (shared Coolify network), Traefik timeout kills (30m settings), OOM cascading to other services (mem_limit).
+
+### Phase 8: GitHub Integration (v2.2)
+**Rationale:** Highest complexity feature that blocks nothing else. The platform is fully usable without it. Build on a stable, deployed foundation.
+**Delivers:** Repo cloning to workspace volumes, branch management, commit/push, PR creation via GitHub API.
+**Addresses:** GitHub integration feature.
+**Avoids:** Premature complexity in core platform.
 
 ### Phase Ordering Rationale
 
-- **Phases 1-2 before 3:** The TUI needs real data to display. Building panels before the pipeline produces hollow widgets that need rework.
-- **Phase 2 before 4:** The orchestrator routes between agents. Without working agents, the orchestrator cannot be meaningfully tested.
-- **Phase 4 after 3:** The orchestrator's decisions are visible in the TUI. Testing the orchestrator with visual feedback catches issues that unit tests miss.
-- **Phase 5 last:** Polish features have no dependencies on unproven patterns. They are safe to parallelize and deprioritize.
+- **Database first** because the repository rewrite changes the db parameter type in agents/base.py, affecting all modules that touch persistence.
+- **Orchestrator decoupling before TaskManager** because TaskManager calls the orchestrator -- the orchestrator must accept TaskContext before it can be wrapped in a managed task.
+- **WebSocket before ApprovalGate** because approval events are delivered via WebSocket -- the ConnectionManager must exist before approval_required messages can be broadcast.
+- **Frontend after all APIs** because it consumes every endpoint. Building it earlier means constant rework as APIs evolve during phases 3-5.
+- **Docker after local validation** because it is packaging, not architecture. Containerization bugs (auth, networking, Traefik) are easier to debug when the application is already known to work.
+- **GitHub integration last** because it is independent, high-complexity, and the platform delivers full value without it.
 
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 1:** Claude CLI `stream-json` behavior needs hands-on experimentation. The documented limitation (structured output does not stream) needs verification with current CLI version.
-- **Phase 4:** AI-driven routing prompt design is novel -- no established patterns exist for TUI orchestrator meta-prompts. Will need iterative prompt engineering.
+- **Phase 4 (WebSocket Streaming):** Complex interaction between subprocess lifecycle, backpressure handling, and disconnect detection. Multiple confirmed bugs in Coolify/Traefik affect this phase. Needs phase-level research.
+- **Phase 7 (Docker/Coolify Deployment):** Claude CLI auth in containers has multiple documented failure modes. Traefik proxy configuration is Coolify-version-dependent. Needs phase-level research to verify current Coolify settings.
+- **Phase 8 (GitHub Integration):** Repo lifecycle management, branch strategy, auth token handling, security sandboxing. Highest complexity. Needs dedicated research.
 
 Phases with standard patterns (skip research-phase):
-- **Phase 2:** Agent prompt engineering follows well-documented patterns from the competitor analysis (aider architect mode, OpenCode Build/Plan).
-- **Phase 3:** Textual TUI development is thoroughly documented with official guides, examples, and the textual-dev tooling.
-- **Phase 5:** Git integration, token parsing, and session management are all standard CRUD patterns.
+- **Phase 1 (Database Foundation):** asyncpg pool + PostgreSQL DDL is extremely well-documented. Standard pattern.
+- **Phase 2 (FastAPI Shell):** FastAPI lifespan + health endpoint is boilerplate. Protocol pattern is standard Python.
+- **Phase 3 (Task Manager + REST):** asyncio.Semaphore and REST CRUD are well-documented patterns. HTTP Basic Auth is built into FastAPI.
+- **Phase 5 (Approval Gates):** asyncio.Event is a standard primitive. The pattern is documented in ARCHITECTURE.md with working code.
+- **Phase 6 (Frontend):** Alpine.js + Pico CSS are simple, well-documented. No build step complexity.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All libraries verified on PyPI with current versions. Textual 8.1.1 released 2026-03-10. No version conflicts. |
-| Features | HIGH | Competitor analysis covers 7+ tools with detailed feature matrices. Clear consensus on table stakes. |
-| Architecture | HIGH | Patterns sourced from official Textual docs, Google/Microsoft architecture guides, and multiple production agent systems. |
-| Pitfalls | HIGH (core) / MEDIUM (CLI-specific) | Subprocess and TUI pitfalls are well-documented. Claude CLI streaming behavior has fewer sources and may change between versions. |
+| Stack | HIGH | All versions verified on PyPI/GitHub. FastAPI + asyncpg + Alpine.js is a proven combination. No exotic dependencies. |
+| Features | HIGH | Feature landscape well-mapped against competitors. Hybrid autonomy validated as differentiated. Clear P1/P2/P3 prioritization. Anti-features correctly identified. |
+| Architecture | HIGH | Four core patterns (TaskManager, ConnectionManager, ApprovalGate, TaskContext) have working code examples. Build order follows verified dependency graph. v1.0 module reuse map is accurate. |
+| Pitfalls | HIGH | All critical pitfalls traced to specific GitHub issues with confirmed status. Coolify/Traefik issues (#4002, #5358) verified against official bug trackers. Claude CLI Docker auth issues documented in multiple sources. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Claude CLI `stream-json` exact behavior:** Research identified a known limitation but the exact message format and timing need hands-on verification in Phase 1. Build a minimal streaming test before committing to the display architecture.
-- **Windows-specific Textual rendering:** Research flags Windows Terminal vs. legacy conhost differences. Manual testing on Windows is needed in Phase 3 -- automated tests cannot fully verify terminal rendering.
-- **Orchestrator prompt effectiveness:** The AI-driven routing prompt has no established pattern to follow. Phase 4 will need empirical testing with diverse prompts to tune the routing meta-prompt. Budget time for prompt iteration.
-- **Context window management strategy:** The "pass only HANDOFF sections" approach is sound in theory but needs validation with real agent output sizes. Measure actual token counts in Phase 2 before finalizing the summarization strategy.
+- **Claude CLI version pinning in Docker:** The Dockerfile installs `@anthropic-ai/claude-code` globally but does not pin a version. Claude CLI updates could introduce breaking changes. Pin to a known-good version during phase 7 planning.
+- **PostgreSQL connection string for Coolify networking:** The exact hostname for the Coolify-managed PostgreSQL instance needs to be confirmed from the Coolify dashboard during phase 1. It may be a service name like `postgresql-xxxx` or a Docker network IP.
+- **Traefik configuration method in Coolify 4.0:** The proxy timeout settings may need to be applied via Coolify dashboard, docker-compose labels, or server-level config depending on the current Coolify interface. Verify during phase 7.
+- **WebSocket reconnection strategy:** Research covers disconnect detection but not automatic client-side reconnection with state recovery. Address during phase 4 or 6 planning -- Alpine.js reconnect logic with exponential backoff and replay-from-last-event.
+- **Startup reconciliation for stale task state:** The pattern is described (mark "running" as "interrupted" on boot) but the exact SQL and timing within the lifespan handler need to be designed during phase 2.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [Textual PyPI](https://pypi.org/project/textual/) -- v8.1.1, Python 3.9+
-- [Textual Workers Guide](https://textual.textualize.io/guide/workers/) -- subprocess streaming pattern
-- [Textual Events and Messages Guide](https://textual.textualize.io/guide/events/) -- message-driven communication
-- [Pydantic PyPI](https://pypi.org/project/pydantic/) -- v2.12.5, validation patterns
-- [Python asyncio Subprocess Docs](https://docs.python.org/3/library/asyncio-subprocess.html) -- stream reading patterns
-- [aiosqlite PyPI](https://pypi.org/project/aiosqlite/) -- v0.22.1, async SQLite
+- FastAPI PyPI (v0.135.1), asyncpg PyPI (v0.31.0), uvicorn PyPI (v0.41.0) -- version verification
+- FastAPI WebSocket docs, FastAPI Templates docs -- integration patterns
+- asyncpg official docs -- connection pool patterns
+- Claude Code Docker Auth (GitHub #1736), Claude Code Dev Containers docs -- Docker auth requirements
+- Coolify WebSocket/Gzip Bug (GitHub #4002), Coolify Traefik Timeout (GitHub #5358) -- proxy pitfalls
+- FastAPI WebSocket Disconnect (GitHub #9031) -- disconnect detection
+- Docker Resource Constraints docs -- memory limits
+- Python asyncio Queue docs -- concurrency primitives
 
 ### Secondary (MEDIUM confidence)
-- [Google Cloud: Agentic AI Design Patterns](https://docs.google.com/architecture/choose-design-pattern-agentic-ai-system) -- pipeline and orchestrator patterns
-- [Microsoft: AI Agent Orchestration Patterns](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) -- multi-agent architectures
-- [GitHub Blog: Multi-agent workflows](https://github.blog/ai-and-ml/generative-ai/multi-agent-workflows-often-fail-heres-how-to-engineer-ones-that-dont/) -- engineering recommendations
-- [OpenCode GitHub](https://github.com/opencode-ai/opencode) -- 95K+ stars, TUI reference implementation
-- [Competitor analysis](https://pinggy.io/blog/top_cli_based_ai_coding_agents/) -- market overview of CLI coding agents
-
-### Tertiary (LOW confidence)
-- [Claude CLI stream-json issue #15511](https://github.com/anthropics/claude-code/issues/15511) -- structured output streaming limitation (may be resolved in newer CLI versions)
+- FastAPI + asyncpg without ORM (sheshbabu.com) -- pattern validation
+- Supervised Autonomy Agents (Medium, 2026) -- feature validation for hybrid autonomy
+- WebSocket Replay Buffer Patterns (Substack) -- Discord case study for late-join
+- Coolify Traefik Zombie State (GitHub #7744) -- recovery strategy
+- AI Coding Agents Comparison (devvela.com, 2026) -- competitive landscape
 
 ---
-*Research completed: 2026-03-11*
+*Research completed: 2026-03-12*
 *Ready for roadmap: yes*

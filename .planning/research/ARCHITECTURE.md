@@ -1,478 +1,602 @@
 # Architecture Research
 
-**Domain:** Multi-agent AI orchestration TUI (terminal UI)
-**Researched:** 2026-03-11
+**Domain:** Web platform for AI agent orchestration (TUI-to-web migration)
+**Researched:** 2026-03-12
 **Confidence:** HIGH
 
-## Standard Architecture
-
-### System Overview
+## System Overview
 
 ```
-+---------------------------------------------------------------+
-|                      TUI Layer (Textual)                      |
-|  +----------+ +----------+ +----------+ +----------+         |
-|  | Prompt   | | Plan     | | Execute  | | Review   |         |
-|  | Panel    | | Panel    | | Panel    | | Panel    |         |
-|  +----+-----+ +----+-----+ +----+-----+ +----+-----+         |
-|       |            |            |            |                |
-|  +----+------------+------------+------------+----+           |
-|  |              Status Bar / Footer               |           |
-|  +------------------------------------------------+           |
-+-------------------------------+-------------------------------+
-                                |
-                    Custom Messages (up)
-                    Reactive attrs (down)
-                                |
-+-------------------------------v-------------------------------+
-|                    Orchestrator Engine                         |
-|  +------------------+  +------------------+                   |
-|  | State Machine    |  | Agent Router     |                   |
-|  | (session state)  |  | (next agent)     |                   |
-|  +--------+---------+  +--------+---------+                   |
-|           |                      |                            |
-|  +--------v----------------------v---------+                  |
-|  |           Agent Runner                  |                  |
-|  |  (asyncio subprocess + streaming)       |                  |
-|  +--------+---+---+---+------------------+|                  |
-|           |   |   |   |                   |                   |
-+-------------------------------+-------------------------------+
-                                |
-              asyncio.create_subprocess_exec
-                                |
-+-------------------------------v-------------------------------+
-|                    Agent Layer                                 |
-|  +----------+  +-----------+  +-----------+                   |
-|  | PLAN     |  | EXECUTE   |  | REVIEW    |                   |
-|  | Agent    |  | Agent     |  | Agent     |                   |
-|  | (claude) |  | (claude)  |  | (claude)  |                   |
-|  +----------+  +-----------+  +-----------+                   |
-|  Each agent = system prompt + output contract                 |
-+-------------------------------+-------------------------------+
-                                |
-+-------------------------------v-------------------------------+
-|                  Persistence Layer                             |
-|  +-------------------+  +------------------+                  |
-|  | SessionStore      |  | WorkspaceContext |                  |
-|  | (SQLite)          |  | (project files)  |                  |
-|  +-------------------+  +------------------+                  |
-+---------------------------------------------------------------+
+                         Browser (Alpine.js + Pico CSS)
+                    +-----------------------------------------+
+                    |  Dashboard    Task Detail    Logs        |
+                    |  [REST]       [WebSocket]   [REST]      |
+                    +------+----------+----------+------------+
+                           |          |          |
+===========================|==========|==========|================
+                    FastAPI Server    |          |
+                    +------+----------+----------+------------+
+                    |          HTTP / WS Router                |
+                    |  +----------+  +----------------+       |
+                    |  | REST API |  | WS Endpoint    |       |
+                    |  | /tasks   |  | /ws/task/{id}  |       |
+                    |  +----+-----+  +------+---------+       |
+                    |       |               |                  |
+                    |  +----+---------------+----------+      |
+                    |  |       TaskManager              |      |
+                    |  |  (asyncio.Semaphore(2))        |      |
+                    |  |  task registry + lifecycle     |      |
+                    |  +----+--------------+-----------+      |
+                    |       |              |                   |
+                    |  +----+----+  +------+----------+       |
+                    |  |Approval |  | Connection      |       |
+                    |  |Gate     |  | Manager         |       |
+                    |  |(Event)  |  | (broadcast)     |       |
+                    |  +----+----+  +------+----------+       |
+                    |       |              |                   |
+                    +-------+--------------+-------------------+
+                            |              |
+============================|==============|=======================
+              Reused Core   |              |
+                    +-------+--------------+------------------+
+                    |  orchestrator.py  (modified)              |
+                    |  stream_claude()  (unchanged)             |
+                    |  agents/          (unchanged)             |
+                    |  parser/          (unchanged)             |
+                    |  context/         (unchanged)             |
+                    |  pipeline/        (unchanged)             |
+                    +------------------+------------------------+
+                                       |
+=======================================|==========================
+              Data Layer               |
+                    +------------------+------------------------+
+                    |  asyncpg pool  ->  PostgreSQL 16          |
+                    |  (Coolify-managed instance)                |
+                    +-------------------------------------------+
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Typical Implementation |
-|-----------|----------------|------------------------|
-| **TUI Layer** | Rendering panels, capturing input, streaming output display | Textual App with compound widgets, CSS grid layout |
-| **Orchestrator Engine** | Deciding which agent runs next, managing session state transitions | State machine + Claude CLI call for routing decisions |
-| **Agent Runner** | Launching Claude CLI subprocesses, streaming stdout line-by-line back to TUI | `asyncio.create_subprocess_exec` wrapped in Textual Workers |
-| **Agent Definitions** | System prompts and output contracts per agent type | Python dataclasses or config files defining prompt templates |
-| **State Machine** | Tracking session lifecycle (IDLE -> PLANNING -> EXECUTING -> REVIEWING -> DONE) | Enum-based FSM with explicit transitions |
-| **Session Store** | Persisting prompts, plans, outputs, reviews, session metadata | SQLite via `aiosqlite` |
-| **Workspace Context** | Shared context passed to every agent (project path, stack, history) | Dataclass assembled before each agent call |
+| Component | Responsibility | New or Modified |
+|-----------|----------------|-----------------|
+| **FastAPI app** | HTTP server, lifespan, dependency injection | NEW |
+| **REST API routes** | CRUD for tasks, list sessions, usage stats | NEW |
+| **WebSocket endpoint** | Per-task streaming + late-join replay | NEW |
+| **TaskManager** | Task lifecycle, concurrency control, asyncio.Semaphore(2) | NEW |
+| **ApprovalGate** | Pause pipeline at approval points via asyncio.Event | NEW |
+| **ConnectionManager** | Track WebSocket connections per task, broadcast chunks | NEW |
+| **orchestrator.py** | Route agents through pipeline (decoupled from TUI) | MODIFIED |
+| **stream_claude()** | Launch Claude CLI subprocess, yield chunks/results | UNCHANGED |
+| **agents/** | Config registry, factory, base agent class | UNCHANGED |
+| **parser/** | Section extraction from agent output | UNCHANGED |
+| **context/** | Workspace context assembly | UNCHANGED |
+| **db/schema.py** | Table definitions (migrated to PostgreSQL DDL) | MODIFIED |
+| **db/repository.py** | Data access (rewritten for asyncpg) | MODIFIED |
 
 ## Recommended Project Structure
 
 ```
-ai_agent_console/
-├── app.py                  # Textual App entry point, compose(), key bindings
-├── config.py               # Settings, paths, constants
-├── models/                 # Data structures
-│   ├── session.py          # Session, AgentOutput, WorkspaceContext dataclasses
-│   ├── state.py            # SessionState enum, FSM transitions
-│   └── agents.py           # AgentDefinition (name, system_prompt, output_contract)
-├── orchestrator/           # Core engine
-│   ├── engine.py           # Orchestrator: decides next agent, manages flow
-│   ├── router.py           # Agent routing logic (Claude CLI call or rule-based)
-│   └── runner.py           # AgentRunner: subprocess launch, streaming, retry
-├── agents/                 # Agent prompt definitions
-│   ├── plan.py             # PLAN agent system prompt + contract
-│   ├── execute.py          # EXECUTE agent system prompt + contract
-│   └── review.py           # REVIEW agent system prompt + contract
-├── ui/                     # Textual widgets
-│   ├── panels/             # One widget per panel
-│   │   ├── prompt_panel.py # User input panel
-│   │   ├── plan_panel.py   # Plan display panel
-│   │   ├── execute_panel.py# Execution output panel
-│   │   └── review_panel.py # Review display panel
-│   ├── status_bar.py       # Current agent, state, step info
-│   ├── messages.py         # Custom Textual Messages (AgentStarted, StreamChunk, AgentCompleted, etc.)
-│   └── theme.py            # Centralized CSS/styling
-├── persistence/            # Storage
-│   ├── database.py         # SQLite schema, migrations, CRUD
-│   └── file_store.py       # Saving outputs to project folder on disk
-├── console.tcss            # Textual CSS stylesheet
-└── __main__.py             # Entry point
+src/
++-- agents/                 # UNCHANGED - agent config, factory, base
+|   +-- config.py
+|   +-- factory.py
+|   +-- base.py
+|   +-- prompts/
++-- runner/                 # UNCHANGED - Claude CLI subprocess
+|   +-- runner.py           # stream_claude(), call_orchestrator_claude()
+|   +-- retry.py
++-- parser/                 # UNCHANGED - section extraction
+|   +-- extractor.py
++-- context/                # UNCHANGED - workspace context
+|   +-- assembler.py
++-- pipeline/               # MODIFIED - decouple from TUI
+|   +-- orchestrator.py     # Remove AgentConsoleApp dependency
+|   +-- handoff.py
+|   +-- runner.py
+|   +-- project.py
++-- git/                    # UNCHANGED - auto-commit
+|   +-- autocommit.py
++-- db/                     # REWRITTEN - asyncpg instead of aiosqlite
+|   +-- schema.py           # PostgreSQL DDL + Pydantic models
+|   +-- repository.py       # asyncpg queries (parameterized $1, $2)
+|   +-- pool.py             # Connection pool lifecycle
++-- web/                    # NEW - entire web layer
+|   +-- app.py              # FastAPI app factory + lifespan
+|   +-- routes/
+|   |   +-- tasks.py        # POST /tasks, GET /tasks, GET /tasks/{id}
+|   |   +-- sessions.py     # GET /sessions, GET /sessions/{id}
+|   |   +-- health.py       # GET /health
+|   +-- ws/
+|   |   +-- streaming.py    # WebSocket /ws/task/{id}
+|   +-- services/
+|   |   +-- task_manager.py # TaskManager class
+|   |   +-- approval.py     # ApprovalGate class
+|   |   +-- connection.py   # ConnectionManager class
+|   +-- models.py           # Pydantic request/response models
+|   +-- auth.py             # HTTP Basic Auth dependency
++-- static/                 # NEW - Alpine.js frontend
+|   +-- index.html
+|   +-- task.html
+|   +-- app.js              # Alpine.js components
+|   +-- style.css           # Pico CSS overrides
++-- __main__.py             # NEW - uvicorn entry point
 ```
 
 ### Structure Rationale
 
-- **models/**: Pure data structures with no dependencies on UI or persistence. Every other layer imports from here, nothing imports into here. This is the gravity center.
-- **orchestrator/**: The brain. Separated from UI so it can be tested independently. `engine.py` owns the loop, `runner.py` owns subprocess management, `router.py` owns "what's next" decisions.
-- **agents/**: Just data (prompts and contracts). No logic. Adding a new agent = adding one file here plus registering it in the router.
-- **ui/**: Textual widgets that know how to render data and emit messages. They do not call the orchestrator directly -- they post messages up, and the App dispatches.
-- **persistence/**: Isolated storage layer. Could swap SQLite for anything without touching other layers.
+- **agents/, runner/, parser/, context/ unchanged:** These modules have zero TUI coupling. `stream_claude()` yields `str | dict` -- the consumer changes from TUI panel to WebSocket broadcast, but the producer stays identical.
+- **pipeline/ modified minimally:** The orchestrator currently takes `AgentConsoleApp` as first argument. It needs to accept a callback interface instead, so both TUI and web can drive it. In practice, replace `app: AgentConsoleApp` with a `TaskContext` protocol.
+- **db/ rewritten:** aiosqlite uses `?` placeholders and `cursor.lastrowid`. asyncpg uses `$1` placeholders and `RETURNING id`. The repository interface stays the same, but internals change completely.
+- **web/ is the new layer:** All new components live here. Clean separation from reusable core.
 
 ## Architectural Patterns
 
-### Pattern 1: Message-Driven TUI-to-Orchestrator Communication
+### Pattern 1: TaskContext Protocol (Decoupling Orchestrator from UI)
 
-**What:** The TUI layer communicates with the orchestrator exclusively through Textual's message system. Panels post custom messages upward (e.g., `PromptSubmitted`, `RetryRequested`). The App handles these messages and calls orchestrator methods. The orchestrator pushes updates back via reactive attributes or by posting messages that panels listen to.
-
-**When to use:** Always. This is the core integration pattern.
-
-**Trade-offs:** Clean separation and testability. Slightly more boilerplate than direct calls, but prevents the spaghetti that inevitably results from widgets calling engine methods directly.
+**What:** Define a Protocol that the orchestrator calls for UI actions (stream chunk, request approval, update status). The web layer implements it.
+**When to use:** When the same business logic needs to drive different UIs.
+**Trade-offs:** Slight indirection, but eliminates the `from src.tui.app import AgentConsoleApp` coupling that currently makes the orchestrator untestable without Textual.
 
 **Example:**
 ```python
-# ui/messages.py
-from textual.message import Message
+from typing import Protocol
 
-class PromptSubmitted(Message):
-    def __init__(self, text: str, project_name: str) -> None:
-        super().__init__()
-        self.text = text
-        self.project_name = project_name
+class TaskContext(Protocol):
+    """Interface the orchestrator uses to communicate with the UI layer."""
 
-class StreamChunk(Message):
-    def __init__(self, agent: str, content: str) -> None:
-        super().__init__()
-        self.agent = agent
-        self.content = content
+    async def stream_chunk(self, agent: str, chunk: str) -> None:
+        """Send a text chunk to the user."""
+        ...
 
-class AgentCompleted(Message):
-    def __init__(self, agent: str, output: str, success: bool) -> None:
-        super().__init__()
-        self.agent = agent
-        self.output = output
-        self.success = success
+    async def request_approval(self, agent: str, reasoning: str) -> bool:
+        """Pause and wait for user approval. Returns True if approved."""
+        ...
 
-# app.py
-class AgentConsole(App):
-    def on_prompt_submitted(self, event: PromptSubmitted) -> None:
-        self.run_worker(self.orchestrator.start_session(event.text, event.project_name))
+    async def update_status(self, agent: str, state: str, detail: str) -> None:
+        """Update task status display."""
+        ...
 
-    def on_agent_completed(self, event: AgentCompleted) -> None:
-        self.run_worker(self.orchestrator.handle_completion(event.agent, event.output))
+
+class WebTaskContext:
+    """Web implementation -- broadcasts via ConnectionManager."""
+
+    def __init__(self, task_id: int, conn_mgr: "ConnectionManager", gate: "ApprovalGate"):
+        self._task_id = task_id
+        self._conn_mgr = conn_mgr
+        self._gate = gate
+
+    async def stream_chunk(self, agent: str, chunk: str) -> None:
+        await self._conn_mgr.broadcast(self._task_id, {
+            "type": "chunk", "agent": agent, "text": chunk
+        })
+
+    async def request_approval(self, agent: str, reasoning: str) -> bool:
+        await self._conn_mgr.broadcast(self._task_id, {
+            "type": "approval_required", "agent": agent, "reasoning": reasoning
+        })
+        return await self._gate.wait_for_approval(self._task_id)
+
+    async def update_status(self, agent: str, state: str, detail: str) -> None:
+        await self._conn_mgr.broadcast(self._task_id, {
+            "type": "status", "agent": agent, "state": state, "detail": detail
+        })
 ```
 
-### Pattern 2: State Machine for Session Lifecycle
+### Pattern 2: TaskManager with Semaphore Concurrency
 
-**What:** The session lifecycle is an explicit finite state machine with named states and valid transitions. The orchestrator checks the current state before performing any action. Invalid transitions raise errors rather than silently proceeding.
-
-**When to use:** Always. The pipeline (PROMPT -> PLAN -> EXECUTE -> REVIEW -> DONE/ITERATE) maps naturally to an FSM.
-
-**Trade-offs:** Rigid but predictable. Prevents impossible states like "reviewing before planning". The AI-driven router operates within the FSM's constraints -- it chooses the next agent, but only from valid transitions.
+**What:** A singleton that manages task lifecycle (create, run, cancel) with `asyncio.Semaphore(2)` limiting concurrent Claude CLI processes.
+**When to use:** When multiple tasks can be queued but only N should run simultaneously.
+**Trade-offs:** Simple and correct for single-process. Would need Redis/queue for multi-worker, but PROJECT.md explicitly rules that out.
 
 **Example:**
 ```python
-from enum import Enum, auto
-
-class SessionState(Enum):
-    IDLE = auto()
-    PLANNING = auto()
-    EXECUTING = auto()
-    REVIEWING = auto()
-    ITERATING = auto()   # Re-entering PLAN or EXECUTE after review
-    COMPLETED = auto()
-    ERROR = auto()
-
-VALID_TRANSITIONS = {
-    SessionState.IDLE: {SessionState.PLANNING},
-    SessionState.PLANNING: {SessionState.EXECUTING, SessionState.ERROR},
-    SessionState.EXECUTING: {SessionState.REVIEWING, SessionState.ERROR},
-    SessionState.REVIEWING: {SessionState.COMPLETED, SessionState.ITERATING, SessionState.ERROR},
-    SessionState.ITERATING: {SessionState.PLANNING, SessionState.EXECUTING},
-    SessionState.ERROR: {SessionState.IDLE, SessionState.PLANNING, SessionState.EXECUTING},
-}
-```
-
-### Pattern 3: Streaming Subprocess via Async Workers
-
-**What:** Each agent invocation launches a Claude CLI subprocess using `asyncio.create_subprocess_exec`. Output is read line-by-line from stdout and posted back to the TUI as `StreamChunk` messages. The Worker API handles cancellation and lifecycle.
-
-**When to use:** Every agent call. This is the only way to get real-time streaming into the TUI.
-
-**Trade-offs:** Requires careful buffer management. Must read stdout before/while waiting (not after) to avoid deadlocks. The `exclusive=True` worker flag ensures only one agent runs at a time (unless parallel mode is enabled).
-
-**Example:**
-```python
-# orchestrator/runner.py
 import asyncio
-from textual.app import App
+from enum import Enum
 
-class AgentRunner:
-    def __init__(self, app: App):
-        self.app = app
+class TaskStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
-    async def run_agent(self, agent_def: "AgentDefinition", context: "WorkspaceContext") -> str:
-        cmd = [
-            "claude", "--dangerously-skip-permissions",
-            "-p", agent_def.build_prompt(context),
-            "--output-format", "text",
-        ]
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+class TaskManager:
+    def __init__(self, max_concurrent: int = 2):
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._tasks: dict[int, asyncio.Task] = {}  # task_id -> asyncio.Task
+        self._statuses: dict[int, TaskStatus] = {}
+
+    async def submit(self, task_id: int, coro) -> None:
+        """Queue a task. It runs when a semaphore slot opens."""
+        self._statuses[task_id] = TaskStatus.QUEUED
+
+        async def _wrapped():
+            async with self._semaphore:
+                self._statuses[task_id] = TaskStatus.RUNNING
+                try:
+                    await coro
+                    self._statuses[task_id] = TaskStatus.COMPLETED
+                except asyncio.CancelledError:
+                    self._statuses[task_id] = TaskStatus.CANCELLED
+                except Exception:
+                    self._statuses[task_id] = TaskStatus.FAILED
+                    raise
+
+        self._tasks[task_id] = asyncio.create_task(_wrapped())
+
+    async def cancel(self, task_id: int) -> None:
+        task = self._tasks.get(task_id)
+        if task and not task.done():
+            task.cancel()
+```
+
+### Pattern 3: ApprovalGate with asyncio.Event
+
+**What:** Per-task Event objects that pause the orchestrator pipeline until the user sends an HTTP POST to approve/reject.
+**When to use:** Supervised mode where each agent transition requires human approval.
+**Trade-offs:** Elegant and zero-polling. The Event lives in memory, so if the server restarts mid-approval, the task is lost. Acceptable for single-user single-process.
+
+**Example:**
+```python
+import asyncio
+
+class ApprovalGate:
+    def __init__(self):
+        self._gates: dict[int, asyncio.Event] = {}
+        self._results: dict[int, bool] = {}
+
+    async def wait_for_approval(self, task_id: int) -> bool:
+        """Block the pipeline coroutine until user approves or rejects."""
+        event = asyncio.Event()
+        self._gates[task_id] = event
+        await event.wait()
+        result = self._results.pop(task_id, False)
+        del self._gates[task_id]
+        return result
+
+    def approve(self, task_id: int) -> None:
+        """Called by REST endpoint POST /tasks/{id}/approve."""
+        self._results[task_id] = True
+        if task_id in self._gates:
+            self._gates[task_id].set()
+
+    def reject(self, task_id: int) -> None:
+        """Called by REST endpoint POST /tasks/{id}/reject."""
+        self._results[task_id] = False
+        if task_id in self._gates:
+            self._gates[task_id].set()
+```
+
+### Pattern 4: ConnectionManager with Late-Join Replay
+
+**What:** Track WebSocket connections per task_id. Buffer recent chunks so late-joining clients see context.
+**When to use:** When users open task detail page while a task is already streaming.
+**Trade-offs:** Memory usage for replay buffer. Cap at 500 chunks per task (roughly last ~50KB of output). Chunks are cheap (small text deltas).
+
+**Example:**
+```python
+import asyncio
+import json
+from collections import defaultdict, deque
+from fastapi import WebSocket
+
+class ConnectionManager:
+    def __init__(self, replay_limit: int = 500):
+        self._connections: dict[int, list[WebSocket]] = defaultdict(list)
+        self._replay: dict[int, deque] = defaultdict(
+            lambda: deque(maxlen=replay_limit)
         )
-        output_lines = []
-        async for line in process.stdout:
-            text = line.decode().rstrip()
-            output_lines.append(text)
-            self.app.post_message(StreamChunk(agent=agent_def.name, content=text))
+        self._lock = asyncio.Lock()
 
-        await process.wait()
-        full_output = "\n".join(output_lines)
+    async def connect(self, task_id: int, ws: WebSocket) -> None:
+        await ws.accept()
+        async with self._lock:
+            self._connections[task_id].append(ws)
+            # Replay buffered chunks to late-joiner
+            for msg in self._replay[task_id]:
+                await ws.send_text(msg)
 
-        if process.returncode != 0:
-            stderr = await process.stderr.read()
-            raise AgentError(agent_def.name, stderr.decode())
+    async def disconnect(self, task_id: int, ws: WebSocket) -> None:
+        async with self._lock:
+            self._connections[task_id].remove(ws)
 
-        return full_output
+    async def broadcast(self, task_id: int, data: dict) -> None:
+        msg = json.dumps(data)
+        async with self._lock:
+            self._replay[task_id].append(msg)
+            dead = []
+            for ws in self._connections[task_id]:
+                try:
+                    await ws.send_text(msg)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                self._connections[task_id].remove(ws)
 ```
 
-### Pattern 4: Structured Output Contracts
+### Pattern 5: Lifespan-Managed asyncpg Pool
 
-**What:** Each agent's system prompt enforces a specific output format with named sections (e.g., GOAL, TASKS, ARCHITECTURE for the PLAN agent). The orchestrator parses these sections from raw text output using simple delimiter-based parsing, not JSON. This keeps agent prompts natural while still enabling programmatic extraction.
-
-**When to use:** Every agent. The orchestrator and the REVIEW agent both consume structured sections from other agents' outputs.
-
-**Trade-offs:** Text section parsing is fragile compared to JSON but far more reliable in practice with LLMs. Claude consistently produces markdown-style sections when instructed. A thin parser that looks for `## SECTION_NAME` headers is sufficient.
+**What:** Create asyncpg connection pool in FastAPI lifespan, store on `app.state`, close on shutdown.
+**When to use:** Always with asyncpg + FastAPI.
+**Trade-offs:** None -- this is the standard pattern. Avoids connection leaks.
 
 **Example:**
 ```python
-# models/agents.py
-from dataclasses import dataclass, field
+from contextlib import asynccontextmanager
+import asyncpg
+from fastapi import FastAPI
 
-@dataclass
-class AgentDefinition:
-    name: str
-    system_prompt: str
-    output_sections: list[str]  # Expected section headers
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    app.state.db_pool = await asyncpg.create_pool(
+        dsn="postgresql://user:pass@host:5432/dbname",
+        min_size=2,
+        max_size=5,
+    )
+    app.state.task_manager = TaskManager(max_concurrent=2)
+    app.state.conn_manager = ConnectionManager()
+    app.state.approval_gate = ApprovalGate()
 
-    def build_prompt(self, context: "WorkspaceContext") -> str:
-        return f"{self.system_prompt}\n\n## Context\n{context.to_prompt()}"
+    yield
 
-PLAN_AGENT = AgentDefinition(
-    name="PLAN",
-    system_prompt="You are a planning agent...",
-    output_sections=["GOAL", "TASKS", "ARCHITECTURE", "FILES", "HANDOFF"],
-)
+    # Shutdown
+    await app.state.db_pool.close()
 
-# Simple section parser
-def parse_sections(output: str, expected: list[str]) -> dict[str, str]:
-    sections = {}
-    current = None
-    lines = []
-    for line in output.split("\n"):
-        header = line.strip().lstrip("#").strip()
-        if header in expected:
-            if current:
-                sections[current] = "\n".join(lines).strip()
-            current = header
-            lines = []
-        elif current:
-            lines.append(line)
-    if current:
-        sections[current] = "\n".join(lines).strip()
-    return sections
-```
-
-### Pattern 5: AI-Driven Router (Orchestrator-as-Agent)
-
-**What:** After each agent completes, the orchestrator calls Claude CLI with a meta-prompt: "Given the current state, the agent's output, and the review (if any), what should happen next?" The response is a structured decision (next agent, or completion). This is distinct from the agents themselves -- it's a lightweight routing call.
-
-**When to use:** After every agent completion. The router decides: proceed to next stage, iterate, or finish.
-
-**Trade-offs:** An LLM call for routing adds latency (~2-5s). But it handles ambiguity that rule-based routing cannot (e.g., "this plan is incomplete, should we re-plan or proceed?"). For v1, keep a rule-based fallback for when the routing call fails.
-
-**Example:**
-```python
-# orchestrator/router.py
-ROUTER_PROMPT = """You are an orchestrator deciding the next step.
-Current state: {state}
-Last agent: {agent}
-Last output summary: {summary}
-
-Valid next steps: {valid_transitions}
-
-Respond with exactly one of: {valid_transitions}
-If the output quality is insufficient, choose to iterate.
-"""
+app = FastAPI(lifespan=lifespan)
 ```
 
 ## Data Flow
 
-### Request Flow (Happy Path)
+### Task Creation and Execution Flow
 
 ```
-User types prompt in PromptPanel
-    |
-    v  [PromptSubmitted message]
-App.on_prompt_submitted()
-    |
-    v
-Orchestrator.start_session(prompt, project_name)
-    |-- Creates Session in SQLite
-    |-- Builds WorkspaceContext
-    |-- Sets state: IDLE -> PLANNING
-    |
-    v
-AgentRunner.run_agent(PLAN_AGENT, context)
-    |-- Launches `claude` subprocess
-    |-- Streams stdout line-by-line
-    |       |
-    |       v  [StreamChunk messages]
-    |   PlanPanel.on_stream_chunk() -> appends text
-    |
-    v  [AgentCompleted message]
-Orchestrator.handle_completion("PLAN", output)
-    |-- Parses sections from output
-    |-- Persists to SQLite
-    |-- Calls Router: "what next?"
-    |-- Router says: EXECUTING
-    |-- Sets state: PLANNING -> EXECUTING
-    |
-    v
-AgentRunner.run_agent(EXECUTE_AGENT, context + plan)
-    |-- Same streaming pattern
-    |
-    v  [AgentCompleted message]
-Orchestrator.handle_completion("EXECUTE", output)
-    |-- Router says: REVIEWING
-    |-- Sets state: EXECUTING -> REVIEWING
-    |
-    v
-AgentRunner.run_agent(REVIEW_AGENT, context + plan + code)
-    |-- Same streaming pattern
-    |
-    v  [AgentCompleted message]
-Orchestrator.handle_completion("REVIEW", output)
-    |-- Parses DECISION section
-    |-- Router decides: COMPLETED or ITERATING
-    |-- If ITERATING: user confirms, then re-enters PLANNING or EXECUTING
-    |-- If COMPLETED: saves final outputs to project folder
-```
-
-### State Management
-
-```
-Session (in-memory + SQLite)
-    |
-    +-- state: SessionState enum (FSM)
-    +-- prompt: str (original user input)
-    +-- project_name: str
-    +-- project_path: Path
-    +-- history: list[AgentOutput]  (append-only log of all agent runs)
-    +-- workspace_context: WorkspaceContext
-            |
-            +-- project_path: Path
-            +-- existing_files: list[str]
-            +-- stack: str (detected or specified)
-            +-- agent_history: list[AgentOutput] (fed to next agent)
+Browser                FastAPI             TaskManager      Orchestrator     Claude CLI
+  |                      |                     |                |               |
+  +--POST /tasks-------->|                     |                |               |
+  |  {prompt, mode}      +--create in DB------>|                |               |
+  |<--201 {task_id}------|                     |                |               |
+  |                      |                     |                |               |
+  +--WS /ws/task/{id}--->| (late-join replay)  |                |               |
+  |                      |                     |                |               |
+  |                      +--submit(id, coro)-->|                |               |
+  |                      |                     +--sem.acquire-->|               |
+  |                      |                     |                +--stream_claude>|
+  |                      |                     |                |<--text chunk---|
+  |                      |                     |                |               |
+  |<-WS {"type":"chunk"}-|<---broadcast--------|<-stream_chunk()|               |
+  |                      |                     |                |               |
+  | (repeat for all chunks)                    |                |               |
+  |                      |                     |                |               |
+  |<-WS {"type":"approval_required"}-----------<-request_approval               |
+  |                      |                     |   (Event.wait) |               |
+  |                      |                     |                |               |
+  +--POST /tasks/{id}/approve-->|              |                |               |
+  |                      +--gate.approve(id)-->|                |               |
+  |                      |                     +--Event.set()--->|               |
+  |                      |                     |                +--next agent--->|
 ```
 
 ### Key Data Flows
 
-1. **Prompt -> Agent context:** User prompt is combined with WorkspaceContext into a single prompt string that gets passed to `claude` via `-p` flag. Each subsequent agent receives the accumulated history of all previous agent outputs.
+1. **Stream chunk path:** `stream_claude() yield` -> `orchestrator` -> `TaskContext.stream_chunk()` -> `ConnectionManager.broadcast()` -> WebSocket -> Browser. This is the hot path. Each yield from the async generator becomes a WebSocket message within milliseconds.
 
-2. **Streaming -> UI:** Subprocess stdout is read async line-by-line. Each line is posted as a `StreamChunk` message. The target panel appends the text. This gives real-time feedback during the 30-120 second agent runs.
+2. **Approval gate path:** Orchestrator calls `TaskContext.request_approval()` -> broadcasts `approval_required` message to browser -> browser shows approve/reject buttons -> user clicks -> `POST /tasks/{id}/approve` -> `ApprovalGate.approve()` sets Event -> orchestrator resumes. Zero polling. The coroutine is suspended at `await event.wait()`.
 
-3. **Agent output -> Persistence:** On agent completion, the full output text plus parsed sections are saved to SQLite. The raw output is also written to the project folder on disk for later reference.
+3. **Late-join replay:** Browser opens `WS /ws/task/{id}` while task is running -> `ConnectionManager.connect()` sends buffered chunks -> browser renders existing output -> future chunks arrive in real-time.
 
-4. **Review -> Iteration decision:** The REVIEW agent's output includes a DECISION section. The router (or a simple parse) extracts this. If "iterate", the orchestrator transitions to ITERATING and asks the user to confirm before re-running PLAN or EXECUTE with the review feedback injected into context.
+4. **Database persistence:** Same as v1.0 but async. `orchestrator` -> `repository.create()` -> `asyncpg pool.acquire()` -> PostgreSQL. Runs after each agent completes, not on every chunk (chunks are transient, buffered in ConnectionManager).
+
+## Integration Points: Existing Code Changes
+
+### What Changes
+
+| Module | Change | Why |
+|--------|--------|-----|
+| `pipeline/orchestrator.py` | Replace `app: AgentConsoleApp` param with `ctx: TaskContext` | Decouple from Textual |
+| `pipeline/orchestrator.py` | Replace `show_reroute_confirmation()` with `ctx.request_approval()` | Use approval gate instead of TUI modal |
+| `pipeline/orchestrator.py` | Replace `stream_agent_to_panel()` with new `stream_agent()` that calls `ctx.stream_chunk()` | Route output to WebSocket instead of TUI panel |
+| `pipeline/orchestrator.py` | Replace `app.status_bar.set_status()` with `ctx.update_status()` | Abstract status updates |
+| `db/schema.py` | Replace SQLite DDL with PostgreSQL DDL, add `tasks` table, add `status` column | PostgreSQL types (SERIAL, TIMESTAMPTZ, TEXT) |
+| `db/repository.py` | Rewrite from aiosqlite to asyncpg | Different API: `$1` params, `fetchrow()`, `RETURNING id` |
+| `agents/base.py` | Change `db: aiosqlite.Connection` to `db: asyncpg.Pool` | Pool-based connection management |
+
+### What Does NOT Change
+
+| Module | Why Unchanged |
+|--------|---------------|
+| `runner/runner.py` | `stream_claude()` is already a clean async generator. No TUI coupling. |
+| `runner/retry.py` | Retry logic is transport-agnostic. |
+| `parser/extractor.py` | Pure function: string in, dict out. |
+| `context/assembler.py` | Pure function: path in, string out. |
+| `agents/config.py` | Declarative registry. No I/O coupling. |
+| `agents/factory.py` | Factory pattern. DB type changes but factory signature stays. |
+| `pipeline/handoff.py` | Pure function: AgentResult in, string out. |
+| `git/autocommit.py` | Subprocess call. No TUI coupling. |
+
+## New PostgreSQL Schema
+
+```sql
+-- tasks table (new -- replaces in-memory task tracking)
+CREATE TABLE tasks (
+    id SERIAL PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'supervised',  -- 'supervised' | 'autonomous'
+    status TEXT NOT NULL DEFAULT 'queued',
+    project_path TEXT NOT NULL,
+    current_agent TEXT,
+    iteration_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- v1.0 "sessions" concept merges into "tasks" for v2.0.
+-- A task IS a session. One table instead of two.
+
+-- agent_outputs (same structure, PostgreSQL types)
+CREATE TABLE agent_outputs (
+    id SERIAL PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    agent_type TEXT NOT NULL,
+    raw_output TEXT NOT NULL,
+    sections JSONB,  -- NEW: parsed sections stored for queryability
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- agent_usage (same structure)
+CREATE TABLE agent_usage (
+    id SERIAL PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    agent_type TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd NUMERIC(10,6) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- orchestrator_decisions (same structure)
+CREATE TABLE orchestrator_decisions (
+    id SERIAL PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    next_agent TEXT NOT NULL,
+    reasoning TEXT NOT NULL,
+    confidence NUMERIC(3,2),
+    full_response TEXT NOT NULL,
+    iteration_count INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- indexes
+CREATE INDEX idx_agent_outputs_task ON agent_outputs(task_id);
+CREATE INDEX idx_agent_usage_task ON agent_usage(task_id);
+CREATE INDEX idx_orchestrator_decisions_task ON orchestrator_decisions(task_id);
+CREATE INDEX idx_tasks_status ON tasks(status);
+```
+
+## Docker Container Architecture
+
+### Dockerfile Strategy
+
+Use `python:3.12-slim` as base, install Node.js 20 for Claude CLI. Do NOT use Alpine -- native npm packages cause compatibility issues.
+
+```dockerfile
+FROM python:3.12-slim
+
+# Install Node.js 20 for Claude CLI
+RUN apt-get update && apt-get install -y curl git && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g @anthropic-ai/claude-code && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ src/
+COPY static/ static/
+
+# Claude CLI needs a home directory for config
+ENV HOME=/app
+# ANTHROPIC_API_KEY injected at runtime via Coolify env var
+
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "src.web.app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### Key Docker Considerations
+
+| Concern | Approach |
+|---------|----------|
+| Claude CLI auth | `ANTHROPIC_API_KEY` env var set in Coolify dashboard, passed to container at runtime |
+| Workspace volumes | Mount `/workspaces` volume for cloned repos. Claude CLI operates inside these directories. |
+| Claude CLI subprocess | `stream_claude()` uses `asyncio.create_subprocess_exec` -- works identically in container |
+| Node.js in Python image | ~150MB overhead but necessary. Claude CLI is a Node.js package. |
+| `--dangerously-skip-permissions` | Already set in `stream_claude()`. Required for non-interactive container execution. |
+| Image size | ~500MB total. Acceptable for VPS deployment. |
 
 ## Scaling Considerations
 
 | Scale | Architecture Adjustments |
 |-------|--------------------------|
-| 1 user, sequential agents | Current architecture. Single subprocess at a time. Simple and sufficient. |
-| 1 user, parallel agents | Run PLAN for multiple sub-tasks concurrently via multiple Workers. Needs careful state tracking per sub-task. |
-| Multiple projects | Each project = separate session in SQLite. No architectural change needed. Tab-based UI for switching. |
+| 1 user, 1-3 tasks | Current design. Single process, asyncio semaphore, in-memory ConnectionManager. |
+| 1 user, 10+ tasks | Add task queue persistence (tasks table with status=queued survives restarts). |
+| Multi-user (future) | Add Redis for pub/sub (ConnectionManager), proper auth (JWT), task isolation. OUT OF SCOPE per PROJECT.md. |
 
 ### Scaling Priorities
 
-1. **First bottleneck: Agent response time.** Claude CLI calls take 30-120s. The architecture already handles this via streaming. No fix needed -- this is inherent to LLM latency.
-2. **Second bottleneck: Context window limits.** As iteration cycles grow, the accumulated history gets too large for Claude's context. Mitigation: summarize older agent outputs before injecting into context. Keep last 2 full outputs, summarize the rest.
+1. **First bottleneck: RAM.** Each Claude CLI subprocess uses ~200-400MB. Semaphore(2) caps at ~800MB for CLI processes + ~200MB for Python + asyncpg. Fits within VPS 5GB margin.
+2. **Second bottleneck: Claude CLI cold start.** Each subprocess takes 2-5 seconds to initialize. No mitigation possible -- CLI design limitation. Pipeline has 3-6 agent calls, so 6-30 seconds of overhead per task.
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Widgets Calling Orchestrator Directly
+### Anti-Pattern 1: Blocking the Event Loop with Subprocess
 
-**What people do:** Panel widgets import the orchestrator and call `orchestrator.run_agent()` directly from button handlers.
-**Why it's wrong:** Creates tight coupling. Widgets become untestable without a real orchestrator. Multiple panels might trigger conflicting agent runs. State becomes unpredictable.
-**Do this instead:** Widgets post messages. The App (single coordinator) handles messages and calls the orchestrator. One place controls flow.
+**What people do:** Use `subprocess.run()` or `os.popen()` to call Claude CLI.
+**Why it's wrong:** Blocks the entire asyncio event loop. No concurrent tasks, no WebSocket heartbeats, no HTTP responses while CLI runs.
+**Do this instead:** Use `asyncio.create_subprocess_exec()` exactly as `stream_claude()` already does. This is already correct in the codebase.
 
-### Anti-Pattern 2: Blocking Subprocess Calls
+### Anti-Pattern 2: Database Connection Per Request
 
-**What people do:** Use `subprocess.run()` or synchronous `Popen` in a Textual app.
-**Why it's wrong:** Freezes the entire TUI for 30-120 seconds. No streaming. No cancel button. User thinks it crashed.
-**Do this instead:** Use `asyncio.create_subprocess_exec` inside a Textual Worker (async, not thread). Read stdout in an async for loop. Post `StreamChunk` messages for each line.
+**What people do:** `asyncpg.connect()` in every route handler.
+**Why it's wrong:** Connection overhead (TCP handshake, auth) on every request. Connection leak if not closed properly.
+**Do this instead:** Use `asyncpg.create_pool()` in lifespan, `pool.acquire()` in handlers. Pool manages lifecycle.
 
-### Anti-Pattern 3: JSON Output Contracts
+### Anti-Pattern 3: Storing Stream Chunks in Database
 
-**What people do:** Ask Claude to return JSON-only output, then parse it.
-**Why it's wrong:** LLMs frequently produce invalid JSON (trailing commas, unescaped strings, markdown wrapping). Parsing failures cause agent failures. JSON output is also unreadable in the TUI during streaming.
-**Do this instead:** Use markdown-section-based contracts (`## SECTION_NAME`). Parse with simple string splitting. Display streaming text naturally. Fall back gracefully if a section is missing.
+**What people do:** INSERT every text chunk from `stream_claude()` into the database for replay.
+**Why it's wrong:** Thousands of INSERT operations per agent run. Destroys performance. Pointless -- chunks are reconstructed from `raw_output`.
+**Do this instead:** Buffer chunks in ConnectionManager memory for live replay. Store final `raw_output` once per agent in `agent_outputs` table. Late-join replay uses in-memory buffer; historical replay reconstructs from stored output.
 
-### Anti-Pattern 4: Stateless Orchestrator
+### Anti-Pattern 4: Tight Coupling Between Orchestrator and Web Layer
 
-**What people do:** Treat each agent call independently with no session state tracking.
-**Why it's wrong:** Lose the ability to iterate. Cannot resume interrupted sessions. Cannot enforce valid transitions (e.g., accidentally executing before planning).
-**Do this instead:** Maintain an explicit FSM with SessionState enum. Persist state transitions to SQLite. Validate every transition against VALID_TRANSITIONS.
+**What people do:** Import FastAPI Request/WebSocket directly in orchestrator.
+**Why it's wrong:** Makes orchestrator untestable, kills reusability.
+**Do this instead:** Use the TaskContext Protocol pattern. Orchestrator calls abstract methods. Web layer provides concrete implementation.
 
-### Anti-Pattern 5: Monolithic Agent Prompts
+### Anti-Pattern 5: Polling for Approval Status
 
-**What people do:** Stuff all context, history, and instructions into a single enormous system prompt.
-**Why it's wrong:** Hits context window limits fast. Agent performance degrades with prompt length. Impossible to debug which part of the prompt caused bad output.
-**Do this instead:** Compose prompts from small, focused pieces: system prompt (static) + output contract (static) + workspace context (dynamic) + relevant prior outputs (dynamic, summarized if old).
+**What people do:** Browser polls `GET /tasks/{id}/status` every second to check if approval is needed.
+**Why it's wrong:** Unnecessary load, latency, wasted requests.
+**Do this instead:** Push `approval_required` event over WebSocket. Browser shows buttons immediately. User clicks, `POST /tasks/{id}/approve` fires once. Zero polling.
 
-## Integration Points
+## Suggested Build Order
 
-### External Services
+Build order follows dependency graph -- each phase uses only components from previous phases.
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Claude CLI | `asyncio.create_subprocess_exec` with stdout PIPE | Always use `--dangerously-skip-permissions`. Use `--output-format text` for streaming-friendly output. Retry 3x on non-zero exit. |
-| File system | `pathlib.Path` / `aiofiles` | Project folders created at `Documents/VisualStudio/{project_name}`. Outputs saved as `.md` files per agent run. |
-| SQLite | `aiosqlite` (async wrapper) | Single DB file in app data dir. One table per entity: sessions, agent_outputs, workspace_contexts. |
+| Phase | Component | Depends On | Rationale |
+|-------|-----------|------------|-----------|
+| 1 | PostgreSQL schema + asyncpg pool + repository rewrite | Nothing | Foundation. Everything else needs the database. |
+| 2 | FastAPI app shell + lifespan + health endpoint | Phase 1 | Verify the server boots, pool connects, Coolify deploys. |
+| 3 | TaskContext Protocol + orchestrator refactor | Phase 1 | Decouple orchestrator from TUI. Unit-testable without web server. |
+| 4 | TaskManager + REST endpoints (POST/GET /tasks) | Phases 1, 2, 3 | Tasks can be created and queued. Pipeline runs in background. |
+| 5 | ConnectionManager + WebSocket endpoint | Phases 2, 4 | Stream chunks to browser in real-time. |
+| 6 | ApprovalGate + supervised mode | Phases 3, 4, 5 | Pause/resume pipeline from browser. |
+| 7 | Alpine.js frontend | Phases 4, 5, 6 | All backend APIs exist. Build UI against them. |
+| 8 | Docker + Coolify deployment | Phases 1-7 | Everything works locally, now containerize. |
 
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| UI <-> Orchestrator | Textual Messages (up) + reactive attributes (down) | Never import orchestrator in widget code. App is the bridge. |
-| Orchestrator <-> AgentRunner | Direct async method calls | Runner is owned by orchestrator. Returns full output string. |
-| Orchestrator <-> Persistence | Direct async method calls via repository pattern | Orchestrator calls `session_store.save_output()`, never raw SQL. |
-| AgentRunner <-> Claude CLI | Subprocess with PIPE | One subprocess per agent invocation. Killed on cancellation. |
-
-## Build Order (Dependency Chain)
-
-The following build order respects component dependencies:
-
-1. **Models first** (session, state, agent definitions) -- zero dependencies, everything else imports these
-2. **Persistence layer** (SQLite schema, CRUD) -- depends only on models
-3. **Agent definitions** (prompts, contracts) -- depends only on models
-4. **Agent Runner** (subprocess + streaming) -- depends on models + needs a way to post messages
-5. **Orchestrator engine** (state machine + routing) -- depends on runner + persistence + models
-6. **TUI panels** (individual widgets) -- depends on models for display, messages for communication
-7. **App shell** (compose, keybindings, message handlers) -- wires everything together
-8. **Router intelligence** (AI-driven routing via Claude CLI) -- can start rule-based, upgrade to AI-driven later
-
-**Key insight:** The orchestrator and TUI are independent of each other until the App wires them together. This means they can be developed and tested in parallel after the models layer exists.
+**Phase ordering rationale:**
+- Database first because repository rewrite touches agents/base.py (db parameter type change).
+- Orchestrator refactor before TaskManager because TaskManager calls the orchestrator.
+- WebSocket before ApprovalGate because approval events are delivered via WebSocket.
+- Frontend last because it consumes all APIs. Building it earlier means constant rework as APIs evolve.
+- Docker last because it is packaging, not architecture. Develop locally, containerize once stable.
 
 ## Sources
 
-- [Textual Workers Guide](https://textual.textualize.io/guide/workers/) -- Worker API, async/thread patterns, exclusive workers
-- [Textual Events and Messages Guide](https://textual.textualize.io/guide/events/) -- Custom message pattern, handler naming
-- [Textual Widgets Guide](https://textual.textualize.io/guide/widgets/) -- Compose pattern, compound widgets
-- [Python asyncio Subprocess Docs](https://docs.python.org/3/library/asyncio-subprocess.html) -- create_subprocess_exec, PIPE streaming
-- [Google Cloud: Choose a Design Pattern for Agentic AI](https://docs.google.com/architecture/choose-design-pattern-agentic-ai-system) -- Sequential pipeline, orchestrator patterns
-- [Microsoft: AI Agent Orchestration Patterns](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) -- Multi-agent orchestration architectures
-- [Pipeline of Agents Pattern](https://www.vitaliihonchar.com/insights/how-to-build-pipeline-of-agents) -- Sequential agent pipeline architecture
-- [6 Patterns for Production Agentic Workflows](https://medium.com/@wasowski.jarek/building-ai-workflows-neither-programming-nor-prompt-engineering-cdd45d2d314a) -- State machine, sandwich pattern, immutable state
+- [FastAPI WebSockets documentation](https://fastapi.tiangolo.com/advanced/websockets/)
+- [FastAPI Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/)
+- [FastAPI asyncpg lifespan pattern discussion](https://github.com/fastapi/fastapi/discussions/9520)
+- [Using asyncpg with FastAPI](https://daniel.feldroy.com/posts/2025-10-using-asyncpg-with-fastapi-and-air)
+- [FastAPI without ORM: asyncpg](https://www.sheshbabu.com/posts/fastapi-without-orm-getting-started-with-asyncpg/)
+- [Managing Multiple WebSocket Clients in FastAPI](https://hexshift.medium.com/managing-multiple-websocket-clients-in-fastapi-ce5b134568a2)
+- [Running Claude Code in Docker Containers](https://medium.com/rigel-computer-com/running-claude-code-in-docker-containers-one-project-one-container-1601042bf49c)
+- [Claude Code Development Containers](https://code.claude.com/docs/en/devcontainer)
+- [Async Database Patterns for AI Systems](https://dasroot.net/posts/2026/03/async-database-access-patterns-ai-systems/)
 
 ---
-*Architecture research for: Multi-agent AI orchestration TUI*
-*Researched: 2026-03-11*
+*Architecture research for: AI Agent Console v2.0 Web Platform*
+*Researched: 2026-03-12*

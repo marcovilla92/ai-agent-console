@@ -1,177 +1,271 @@
 # Pitfalls Research
 
-**Domain:** Terminal-based multi-agent AI orchestration console (TUI)
-**Researched:** 2026-03-11
-**Confidence:** HIGH (core subprocess/TUI patterns) to MEDIUM (Claude CLI-specific streaming behavior)
+**Domain:** TUI-to-Web migration -- FastAPI + WebSocket + Docker + Claude CLI subprocess
+**Researched:** 2026-03-12
+**Confidence:** HIGH (verified across official docs, GitHub issues, and community reports)
 
 ## Critical Pitfalls
 
-### Pitfall 1: Subprocess Deadlocks from Unbuffered Stream Reading
+### Pitfall 1: Claude CLI Auth Lost on Container Restart
 
 **What goes wrong:**
-The Claude CLI subprocess blocks because its stdout/stderr pipe buffer fills up. The Python side is waiting on `process.wait()` before reading output, creating a classic deadlock: the child waits for the parent to drain the buffer, the parent waits for the child to exit.
+Claude CLI inside Docker loses authentication every time the container restarts or redeploys. The app starts, tries to spawn `claude -p`, and gets an auth error. Every Coolify deploy breaks the system until someone manually re-authenticates.
 
 **Why it happens:**
-Developers use `await process.wait()` or `process.communicate()` before consuming the stream, or they read stdout and stderr sequentially instead of concurrently. OS pipe buffers are typically 64KB -- a single Claude response easily exceeds this.
+Claude CLI requires TWO files for persistent auth: `~/.claude/.credentials.json` AND `~/.claude.json`. Most developers only mount one. Additionally, Claude needs WRITE access to these files (it refreshes tokens), so read-only mounts silently fail. Using Claude on the host outside the container can also delete the credentials file (confirmed in GitHub issue #1736).
 
 **How to avoid:**
-- Use `asyncio.create_subprocess_exec` with `stdout=PIPE, stderr=PIPE`.
-- Read stdout and stderr concurrently using `asyncio.gather` or `asyncio.TaskGroup`.
-- Never call `process.wait()` before fully consuming both streams.
-- For streaming display, use `async for line in process.stdout` which reads line-by-line without buffering the full output.
-- Set timeouts with `asyncio.wait_for()` and terminate the process on timeout.
-
-```python
-# WRONG - deadlock risk
-await process.wait()
-output = await process.stdout.read()
-
-# RIGHT - concurrent consumption
-async def read_stream(stream, callback):
-    async for line in stream:
-        await callback(line.decode())
-
-await asyncio.gather(
-    read_stream(process.stdout, on_stdout),
-    read_stream(process.stderr, on_stderr),
-)
-await process.wait()
-```
+1. Mount both paths read-write in docker-compose:
+   ```yaml
+   volumes:
+     - /home/ubuntu/.claude:/home/appuser/.claude
+     - /home/ubuntu/.claude.json:/home/appuser/.claude.json
+   ```
+2. Add an entrypoint script that verifies auth files exist and have correct ownership before starting FastAPI.
+3. Set `CLAUDE_CONFIG_DIR` environment variable explicitly.
+4. Add `"bypassPermissionsModeAccepted": true` to `.claude.json` since the app uses `--dangerously-skip-permissions`.
+5. Never use Claude CLI from the host while the container is running -- keep credentials exclusive to one consumer.
 
 **Warning signs:**
-- TUI freezes during long Claude responses.
-- Agent appears to hang but CPU usage is zero.
-- Works with short prompts, fails with long outputs.
+- `subprocess.CalledProcessError` with exit code 1 from `stream_claude` right after deploy
+- Auth works once then fails after Coolify redeploy
+- Works locally but fails in container
 
 **Phase to address:**
-Phase 1 (core subprocess infrastructure). This is foundational -- every agent depends on reliable subprocess communication.
+Docker/deployment setup phase -- must be validated BEFORE any WebSocket or API work is deployed, since everything depends on Claude CLI functioning.
 
 ---
 
-### Pitfall 2: Structured Output Parsing Brittleness
+### Pitfall 2: Zombie Claude CLI Processes Exhaust VPS RAM
 
 **What goes wrong:**
-The orchestrator depends on Claude returning well-formed structured output (GOAL, TASKS, ARCHITECTURE, etc.) via system prompts. Claude returns malformed output: extra conversational text wrapping the structure, missing sections, inconsistent field names, or partial JSON. The parser breaks, the orchestrator cannot determine the next action, and the pipeline halts.
+Claude CLI subprocesses (each consuming 200-500MB+ RAM) accumulate when WebSocket clients disconnect without proper cleanup. With only ~5GB available RAM and a 2-process semaphore, even 3-4 zombie processes push the VPS into OOM territory. The Linux OOM killer may kill the Docker daemon itself, taking down n8n and Evolution API alongside the agent console.
 
 **Why it happens:**
-LLMs are non-deterministic. Even with excellent system prompts, output format compliance is approximately 94% at best. The remaining 6% includes: preamble text ("Sure, here's the plan:"), missing closing markers, hallucinated extra fields, or subtle format drift between runs. Using Claude CLI (not the API with JSON schema enforcement) means there is no server-side format guarantee.
+The current `stream_claude` function (in `src/runner/runner.py`) awaits `proc.wait()` at the end, but if the calling coroutine is cancelled (WebSocket disconnect, client navigates away, network drop), the subprocess is never terminated. `asyncio.create_task` without stored references creates "fire and forget" tasks that cannot be cancelled during shutdown. FastAPI's `BackgroundTasks` are request-scoped but raw `asyncio.create_task` is not.
 
 **How to avoid:**
-- Use `--output-format stream-json` with Claude CLI to get structured JSON-lines output, which provides more reliable framing than raw text parsing.
-- Design a multi-layer parsing strategy: (1) try strict parse, (2) try lenient parse with regex fallback for known sections, (3) try JSON repair (e.g., `json_repair` library), (4) flag as unparseable and retry.
-- Define explicit section markers that are easy to regex-match (e.g., `## GOAL`, `## TASKS`) rather than relying on JSON embedded in prose.
-- Keep structured output contracts simple -- fewer fields means higher compliance.
-- Validate parsed output against a schema before passing to orchestrator.
-- Log every raw Claude response before parsing for debugging.
+1. Refactor `stream_claude` to accept a cancellation token or wrap every call in try/finally that terminates the subprocess:
+   ```python
+   try:
+       async for chunk in stream_claude(prompt):
+           await websocket.send_text(chunk)
+   finally:
+       if proc.returncode is None:
+           proc.terminate()
+           try:
+               await asyncio.wait_for(proc.wait(), timeout=5.0)
+           except asyncio.TimeoutError:
+               proc.kill()
+   ```
+2. Maintain a registry of active subprocess PIDs. On shutdown (lifespan teardown), kill all remaining processes.
+3. Set Docker memory limits (`mem_limit: 3g`) so OOM kills only the agent console container, not the entire host.
+4. Add a periodic health check that counts child processes and logs warnings when approaching the semaphore limit.
 
 **Warning signs:**
-- Intermittent "parse failed" errors that seem random.
-- Output format works in testing but breaks in production with varied prompts.
-- Different Claude model versions produce different format compliance rates.
+- `ps aux | grep claude` shows more processes than the semaphore limit allows
+- Container memory usage climbs monotonically over time
+- Other Coolify services (n8n, Evolution API) become unresponsive
+- `dmesg | grep -i oom` shows OOM kills
 
 **Phase to address:**
-Phase 1-2. Build the parser with fallback layers from day one. Never assume 100% format compliance.
+Core WebSocket streaming phase -- this is the FIRST thing to get right when wiring WebSocket to subprocess. Build the cleanup mechanism before building the streaming.
 
 ---
 
-### Pitfall 3: Textual Event Loop Blocking from Synchronous Operations
+### Pitfall 3: WebSocket Connections Silently Die Behind Traefik
 
 **What goes wrong:**
-The TUI freezes, becomes unresponsive to keyboard input, or visually stutters. The user cannot cancel a running agent, switch panels, or even quit the application during long-running operations.
+WebSocket connections appear established but stop receiving data. The client shows a connected state while the server-side coroutine is blocked or errored. Long-running Claude CLI tasks (5-30 minutes) exceed Traefik's default 60-second timeout, causing the proxy to drop the connection while the subprocess continues running.
 
 **Why it happens:**
-Textual runs on a single asyncio event loop. Any synchronous/blocking call in a message handler -- `subprocess.run()`, `time.sleep()`, synchronous file I/O, or even a slow SQLite query -- blocks the entire UI. Developers test with fast operations and miss that the same code path blocks under load.
+Three compounding issues: (1) Traefik's default `respondingTimeouts.readTimeout` is 60 seconds -- any pause longer than that in Claude CLI output kills the connection (confirmed in Coolify GitHub #5358). (2) Coolify's Gzip compression interferes with WebSocket streaming -- this is a confirmed bug (Coolify GitHub #4002), fix is disabling Gzip in advanced settings. (3) FastAPI does not propagate WebSocket disconnect state unless you explicitly call `websocket.receive_text()`, so the server keeps streaming to a dead connection (FastAPI GitHub #9031).
 
 **How to avoid:**
-- Use Textual's `@work` decorator or `run_worker()` for ALL subprocess and I/O operations.
-- Use `thread=True` for synchronous libraries (e.g., `sqlite3`) that cannot be made async.
-- Never call `subprocess.run()` or `subprocess.Popen().wait()` in message handlers -- always use `asyncio.create_subprocess_exec` within a worker.
-- Use `aiosqlite` instead of raw `sqlite3` for database access.
-- Profile the event loop: if any single handler takes >50ms, it needs to be a worker.
+1. Configure Traefik timeouts in Coolify server proxy settings:
+   ```
+   --entrypoints.https.transport.respondingTimeouts.readTimeout=30m
+   --entrypoints.https.transport.respondingTimeouts.writeTimeout=30m
+   --entrypoints.https.transport.respondingTimeouts.idleTimeout=30m
+   ```
+2. Disable Gzip compression in Coolify advanced settings for this application.
+3. Implement server-side heartbeat: send a ping frame every 15 seconds over the WebSocket.
+4. Run a concurrent `receive_text()` task alongside the streaming task to detect disconnects:
+   ```python
+   async def watch_disconnect(ws):
+       try:
+           while True:
+               await ws.receive_text()
+       except WebSocketDisconnect:
+           return
+
+   streaming_task = asyncio.create_task(stream_to_ws(ws, prompt))
+   disconnect_task = asyncio.create_task(watch_disconnect(ws))
+   done, pending = await asyncio.wait(
+       [streaming_task, disconnect_task],
+       return_when=asyncio.FIRST_COMPLETED,
+   )
+   for task in pending:
+       task.cancel()
+   ```
 
 **Warning signs:**
-- TUI input lag during agent execution.
-- Keyboard shortcuts stop responding mid-operation.
-- "Application not responding" feel when switching panels.
+- Client shows "connected" but no new data arrives after initial connection
+- Server logs show successful sends after client has navigated away
+- Tasks complete on server but client never receives the result
+- Works locally but fails when deployed behind Coolify/Traefik
 
 **Phase to address:**
-Phase 1. Establish the worker pattern for all I/O from the very first prototype. Retrofitting workers onto blocking code is painful.
+WebSocket implementation phase -- build heartbeat and disconnect detection into the WebSocket handler from day one. Traefik configuration in deployment phase.
 
 ---
 
-### Pitfall 4: Orchestrator Infinite Loops and Runaway Agents
+### Pitfall 4: asyncpg Pool Exhaustion Under Concurrent Tasks
 
 **What goes wrong:**
-The AI-driven orchestrator calls REVIEW, which requests improvements, which triggers EXECUTE, which produces output that REVIEW again finds insufficient, creating an infinite improvement loop. Or the orchestrator misinterprets agent output and keeps retrying the same failing operation. Token costs spiral, the user waits forever, and no useful output is produced.
+Database operations start timing out or hanging. New WebSocket connections fail to save task records. The entire application becomes unresponsive even though Claude CLI processes are running fine.
 
 **Why it happens:**
-An AI-driven orchestrator (vs. rule-based) makes non-deterministic routing decisions. Without explicit loop detection or iteration limits, the orchestrator can get stuck in cycles. The "prompting fallacy" -- believing better prompts alone can fix systemic coordination failures -- leads developers to tweak prompts instead of adding hard guardrails.
+The current codebase uses a single `aiosqlite.Connection` shared across the app (see `src/db/repository.py`). Migrating to asyncpg requires a connection pool, but developers often: (1) set pool size too small or too large, (2) forget to release connections (missing `async with pool.acquire()` context manager), (3) hold connections during long-running operations (like waiting for Claude CLI to finish -- the current `log_decision` pattern acquires a connection, writes, and commits inline with the orchestration loop), or (4) create the pool outside the lifespan handler so it is not properly cleaned up on shutdown.
 
 **How to avoid:**
-- Implement hard iteration limits per cycle (e.g., max 3 REVIEW-EXECUTE loops before forcing user confirmation).
-- Track orchestrator state machine transitions and detect cycles (same agent called >N times without state change).
-- Require user confirmation for every REVIEW->EXECUTE iteration (the project already plans this -- enforce it strictly).
-- Add a "cost budget" per session: total token usage cannot exceed a threshold without explicit user approval.
-- Log every orchestrator decision with reasoning for post-hoc debugging.
-- Define clear "done" criteria that the orchestrator can evaluate deterministically, not subjectively.
+1. Create pool in FastAPI lifespan, close in teardown:
+   ```python
+   @asynccontextmanager
+   async def lifespan(app: FastAPI):
+       app.state.db_pool = await asyncpg.create_pool(
+           dsn=settings.database_url,
+           min_size=2, max_size=5,
+           max_inactive_connection_lifetime=300,
+       )
+       yield
+       await app.state.db_pool.close()
+   ```
+2. Never hold a connection while awaiting a subprocess. Acquire, write, release. Then run subprocess. Then acquire again for the result.
+3. Use `pool.acquire()` as async context manager everywhere -- never manually acquire without release.
+4. Set `max_size=5` (not higher). Single-user app with 2 concurrent tasks needs at most 4-5 connections.
+5. Connect to the EXISTING Coolify-managed PostgreSQL via Docker network, not localhost.
 
 **Warning signs:**
-- Same agent called 3+ times in a row.
-- Total session tokens growing without proportional output.
-- REVIEW agent repeatedly finding the same issues.
+- `asyncpg.exceptions.TooManyConnectionsError` in logs
+- Requests hang for exactly the pool timeout duration then fail
+- Database operations work initially but degrade after running several tasks
 
 **Phase to address:**
-Phase 2-3 (orchestrator implementation). Build cycle detection and hard limits before making the orchestrator AI-driven. Start with a rule-based orchestrator with human-in-the-loop, then add AI routing.
+Database migration phase -- must be correct from the start since every other feature depends on persistence.
 
 ---
 
-### Pitfall 5: Agent Context Window Exhaustion
+### Pitfall 5: asyncio Task Lifecycle Mismatch with FastAPI Shutdown
 
 **What goes wrong:**
-As the pipeline progresses (PLAN -> EXECUTE -> REVIEW -> EXECUTE again), the accumulated context (original prompt + plan + code output + review feedback + previous iterations) exceeds Claude's context window. The agent starts losing critical information, produces contradictory output, or fails entirely.
+Background tasks created with `asyncio.create_task()` continue running after the FastAPI app receives SIGTERM. Shutdown hangs for 30+ seconds (uvicorn's default graceful shutdown timeout). Or worse, tasks are abruptly killed mid-operation leaving database records in inconsistent states (task status stuck on "running" forever).
 
 **Why it happens:**
-Developers pass the full conversation history to each agent. With code generation, a single EXECUTE cycle can produce 10-20KB of output. After 2-3 review iterations, the context easily exceeds practical limits. Even within the context window, LLM quality degrades with very long contexts ("lost in the middle" phenomenon).
+The current orchestrator (`orchestrate_pipeline` in `src/pipeline/orchestrator.py`) is a long-running coroutine designed for a TUI lifetime -- it loops `while not state.halted and not state.approved` with no check for external cancellation signals. In FastAPI, it will be launched as a background task per WebSocket connection. FastAPI's lifespan shutdown does not automatically cancel arbitrary tasks created with `asyncio.create_task`.
 
 **How to avoid:**
-- Design each agent call as stateless with a focused context window: pass only what the agent needs, not the full history.
-- Summarize previous outputs before passing to the next agent. The HANDOFF section in the output contract is exactly this -- make it the only thing passed forward, not the full output.
-- Store full outputs in SQLite/files and pass references, not content.
-- For REVIEW iterations: pass only the current code + specific review feedback, not the entire review history.
-- Monitor token counts per agent call and warn when approaching 60% of context window.
+1. Create a `TaskManager` class that tracks all running orchestration tasks:
+   ```python
+   class TaskManager:
+       def __init__(self):
+           self._tasks: dict[str, asyncio.Task] = {}
+
+       def register(self, task_id: str, task: asyncio.Task):
+           self._tasks[task_id] = task
+           task.add_done_callback(lambda t: self._tasks.pop(task_id, None))
+
+       async def shutdown(self, timeout: float = 10.0):
+           for task in self._tasks.values():
+               task.cancel()
+           await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+   ```
+2. Register TaskManager in FastAPI lifespan -- call `task_manager.shutdown()` in teardown.
+3. Add cancellation checks in the orchestration loop:
+   ```python
+   while not state.halted and not state.approved:
+       await asyncio.sleep(0)  # yields to event loop, raises CancelledError if cancelled
+       ...
+   ```
+4. Use `asyncio.shield()` around critical DB writes that must complete even during cancellation.
+5. Add a "cancelled" / "interrupted" terminal state to task records so the UI shows accurate status.
+6. On app startup, reconcile stale state: mark all "running" tasks as "interrupted".
 
 **Warning signs:**
-- Agent output quality degrades in later iterations.
-- Agent "forgets" requirements stated in the original prompt.
-- EXECUTE agent produces code that contradicts the PLAN after review iterations.
+- Shutdown takes exactly `uvicorn --timeout-graceful-shutdown` seconds (default 30)
+- Tasks show "running" in the database but no subprocess is active
+- Container restart in Coolify takes abnormally long
+- `docker logs` shows `Waiting for background tasks to complete...` during deploy
 
 **Phase to address:**
-Phase 2 (agent communication design). The context management strategy must be designed before building the iterative pipeline.
+Core API scaffolding phase -- the TaskManager pattern must be established before any orchestration logic is wired to WebSocket endpoints.
 
 ---
 
-### Pitfall 6: Claude CLI stream-json Partial Message Handling
+### Pitfall 6: Docker Network Isolation Blocks Access to Existing Services
 
 **What goes wrong:**
-The TUI tries to display streaming output from Claude CLI using `--output-format stream-json`, but structured JSON output only appears in the final `result` message, not incrementally. The TUI shows nothing for seconds/minutes during generation, then dumps everything at once. Alternatively, partial text messages stream fine but the structured `result.structured_output` is null until completion.
+The agent console container cannot reach the Coolify-managed PostgreSQL instance. Connection refused errors on `localhost:5432` because inside Docker, localhost is the container itself, not the host.
 
 **Why it happens:**
-Claude CLI's `stream-json` format emits JSON-lines where each line is a complete JSON object. Text content streams as `assistant` message deltas, but `--json-schema` constrained output does NOT stream incrementally -- it appears only in the final result. This is a known limitation (GitHub issue #15511 on claude-code).
+Coolify manages services in its own Docker network (`coolify` network). A new application deployed via Coolify may be placed on a different network. Developers hardcode `localhost` or `127.0.0.1` as the database host from their local development experience.
 
 **How to avoid:**
-- Do NOT rely on `--json-schema` for real-time streaming display. Use plain text output with section markers for the streaming display, then parse the completed output.
-- Stream the text content to the TUI panel in real-time for user feedback.
-- Parse the structured sections only after the agent completes.
-- Design TUI to show "Agent thinking..." with streaming text preview, then parse+display structured output on completion.
-- Handle both partial `assistant` messages (for display) and the final `result` message (for parsing) as separate concerns.
+1. Use the Coolify-assigned internal hostname for PostgreSQL (visible in Coolify dashboard, usually a service name like `postgresql-xxxx`).
+2. Ensure the agent console is on the same Docker network as the PostgreSQL service. In Coolify, configure this in the application's network settings.
+3. Use environment variables for all connection strings, never hardcode:
+   ```
+   DATABASE_URL=postgresql://user:pass@postgresql-xxxx:5432/agent_console
+   ```
+4. Test connectivity from within the container: `docker exec <container> pg_isready -h <pg-hostname>`.
+5. If networks cannot be shared, use `host.docker.internal` (Linux requires `--add-host=host.docker.internal:host-gateway`).
 
 **Warning signs:**
-- TUI panel stays blank during agent execution despite activity.
-- Structured output appears only after long delays.
-- Attempting to parse incomplete JSON-lines mid-stream causes errors.
+- `Connection refused` on port 5432 from within the container
+- Works with `docker-compose up` locally but fails in Coolify
+- Can reach the database from the VPS host but not from the container
 
 **Phase to address:**
-Phase 1 (streaming infrastructure). This design decision affects the entire display and parsing architecture.
+Docker/deployment setup phase -- validate network connectivity before building any database-dependent features.
+
+---
+
+### Pitfall 7: WebSocket Message Buffer Overflow During Long Streams
+
+**What goes wrong:**
+Claude CLI produces `content_block_delta` events faster than the WebSocket can send them. Messages accumulate in memory, eventually causing the container to exhaust RAM or the WebSocket to fail silently.
+
+**Why it happens:**
+The current `stream_claude` yields every `content_block_delta` text chunk as fast as they arrive (see `src/runner/runner.py` line 88-92). When forwarded over WebSocket, network latency and client processing speed create backpressure that is not handled. Sending thousands of small messages in rapid succession without flow control causes buffer bloat.
+
+**How to avoid:**
+1. Batch small deltas before sending over WebSocket -- accumulate chunks and flush every 50ms or 1KB, whichever comes first:
+   ```python
+   buffer = []
+   last_flush = time.monotonic()
+   async for chunk in stream_claude(prompt):
+       if isinstance(chunk, str):
+           buffer.append(chunk)
+           if time.monotonic() - last_flush > 0.05 or len("".join(buffer)) > 1024:
+               await websocket.send_text(json.dumps({"type": "delta", "text": "".join(buffer)}))
+               buffer.clear()
+               last_flush = time.monotonic()
+       elif isinstance(chunk, dict):  # result event
+           if buffer:
+               await websocket.send_text(json.dumps({"type": "delta", "text": "".join(buffer)}))
+               buffer.clear()
+           await websocket.send_text(json.dumps(chunk))
+   ```
+2. Monitor WebSocket send queue depth.
+3. Use a bounded asyncio.Queue between the subprocess reader and WebSocket sender for backpressure.
+
+**Warning signs:**
+- Client receives large bursts of messages followed by silence
+- Container memory spikes during streaming phases
+- WebSocket connection drops mid-stream with no error on the server side
+
+**Phase to address:**
+WebSocket streaming phase -- implement buffering when first wiring `stream_claude` to WebSocket.
 
 ---
 
@@ -179,98 +273,116 @@ Phase 1 (streaming infrastructure). This design decision affects the entire disp
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Regex parsing instead of proper section parser | Quick to implement | Breaks on edge cases, impossible to maintain with format changes | MVP only -- replace in Phase 2 |
-| Storing full agent output in memory instead of SQLite | Simpler architecture | Memory grows unbounded with iterations; crash loses everything | Never -- stream to SQLite from Phase 1 |
-| Hardcoded agent prompts instead of template system | Faster initial development | Cannot tune prompts without code changes, no A/B testing | MVP only -- extract to config files in Phase 2 |
-| Single SQLite connection without WAL mode | Works in development | Concurrent reads from UI thread + writes from worker thread cause "database locked" errors | Never -- enable WAL mode from day one |
-| Passing raw subprocess output without sanitization | Less code | Terminal escape sequences in Claude output corrupt TUI rendering | Never -- strip/sanitize from Phase 1 |
+| Single aiosqlite connection instead of asyncpg pool | No migration effort | Cannot handle concurrent writes, blocks event loop | Never in web version -- migrate immediately |
+| Global `asyncio.Semaphore` without task tracking | Simple concurrency limit | Cannot cancel or inspect running tasks, zombie processes | Only for MVP; replace with TaskManager before production |
+| Hardcoded `claude` binary path via `shutil.which` | Works on host | Fails in Docker if PATH differs or `claude` is in a non-standard location | MVP only; add explicit config/env var for container binary path |
+| No WebSocket authentication | Faster development | Anyone on the network can connect and launch Claude tasks (Pro Max costs) | Never -- add Basic Auth to WebSocket handshake from day one |
+| `--dangerously-skip-permissions` with broad volume mounts | Required for non-interactive use | Claude can modify any file the process has access to | Acceptable -- mitigate with narrow Docker volume constraints |
+| Porting aiosqlite SQL to asyncpg with `?` placeholders | Copy-paste migration | asyncpg uses `$1, $2` not `?`; will crash at runtime | Never -- fix during migration, verified by tests |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Claude CLI subprocess | Using `subprocess.run()` (blocking) | Use `asyncio.create_subprocess_exec` with stream reading in a Textual worker |
-| Claude CLI `--dangerously-skip-permissions` | Assuming it always works silently | Handle permission prompts and unexpected interactive behavior; some operations may still prompt |
-| SQLite from async context | Using `sqlite3` module directly in async handlers | Use `aiosqlite` or run sqlite3 in a thread worker via Textual's `@work(thread=True)` |
-| Claude CLI error codes | Parsing only stdout, ignoring stderr and exit codes | Check exit code, capture stderr, implement retry with exponential backoff for transient errors |
-| Textual widget updates from workers | Calling `widget.update()` from a thread worker | Use `App.call_from_thread()` or post messages via `self.post_message()` from thread workers |
+| Coolify + PostgreSQL | Using `localhost:5432` as DB host | Use Coolify service hostname on shared Docker network |
+| Coolify + Traefik | Default 60s timeout kills long WebSocket connections | Set `respondingTimeouts.readTimeout=30m` in proxy config |
+| Coolify + Traefik | Gzip compression breaks WebSocket/SSE | Disable Gzip in Coolify advanced settings for this app |
+| Claude CLI + Docker | Mounting only `.credentials.json` | Must mount BOTH `~/.claude/` directory AND `~/.claude.json` file, read-write |
+| Claude CLI + Docker | Running `claude` as root but auth files owned by host user | Use entrypoint script to fix file ownership with `chown` |
+| asyncpg migration | Porting SQL queries 1:1 from aiosqlite | asyncpg uses `$1, $2` placeholders (not `?`), returns `Record` objects (not tuples), has no `.commit()` (autocommit by default) |
+| FastAPI + long-running tasks | Using `BackgroundTasks` for multi-minute orchestration | Use `asyncio.create_task` with a TaskManager for lifecycle control |
+| FastAPI WebSocket | Assuming disconnect is detected automatically | Must run concurrent `receive_text()` loop or heartbeat to detect disconnects |
+| Docker + Claude CLI | Assuming `shutil.which("claude")` works in container | Claude CLI (npm package) needs Node.js in the container image; install globally and verify PATH |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Re-rendering full TUI on every streaming line | UI flickers, high CPU during agent output | Batch updates: accumulate lines and update widget every 100ms, not per-line | Immediately with fast-streaming agents |
-| Loading full session history into memory | Slow startup, high memory after many sessions | Lazy-load from SQLite; only load current session; paginate history | After 10-20 sessions with large outputs |
-| Unbounded agent output in TUI RichLog/TextLog | Widget becomes sluggish, scrolling lags | Cap displayed lines (e.g., last 1000); store full output in SQLite for review | After 5+ EXECUTE iterations producing code |
-| Spawning new subprocess per small orchestrator decision | Process creation overhead (especially on Windows where fork is expensive) | Reuse a long-running Claude CLI process if possible, or batch small decisions | With rapid orchestrator decision cycles |
+| Holding DB connection during subprocess wait | Pool exhaustion after 2-3 concurrent tasks | Acquire/release around each DB operation, not around task lifecycle | Immediately with 2+ concurrent tasks |
+| No WebSocket message batching | RAM spikes during streaming, client lag | Buffer and flush every 50ms | With verbose Claude CLI output (large codebases) |
+| Unbounded task history in memory | Slow response times after many tasks | Paginate task listing, keep only active tasks in memory | After 50-100 completed tasks |
+| Logging full Claude CLI output to Docker stdout | Docker log storage fills 72GB disk | Log summaries only; store full output in PostgreSQL; configure Docker log rotation | After a few days of continuous operation |
+| No Docker memory limit on container | OOM killer targets random process (could be n8n, Evolution API) | Set `mem_limit: 3g` on the container | First time 2 Claude processes produce large output simultaneously |
+| Creating new DB connection per request instead of using pool | Connection overhead, PG max_connections reached | Use asyncpg pool via `app.state`, inject via dependency | After ~100 concurrent DB operations |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Passing user input directly in subprocess command arguments | Command injection via crafted project names or prompts | Use list-form arguments with `asyncio.create_subprocess_exec` (not `shell=True`), validate/sanitize all user inputs |
-| Storing Claude API keys in SQLite session database | Key exposure if database is shared or backed up | Never store API keys; rely on Claude CLI's own authentication; store only session data |
-| Running `--dangerously-skip-permissions` without understanding scope | Claude CLI can execute arbitrary code, modify filesystem | Sandbox project folders; never point agents at system directories; document the risk clearly |
-| Logging full Claude responses including potential secrets | Sensitive data in logs/database | Sanitize logs; never log API keys or credentials that might appear in generated code |
+| No auth on WebSocket endpoint | Anyone can launch Claude tasks costing money (Pro Max subscription) | Add HTTP Basic Auth check during WebSocket handshake |
+| Claude credentials baked into Docker image layer | Credentials leaked if image is pushed to registry | Mount at runtime via volumes, never COPY in Dockerfile |
+| `--dangerously-skip-permissions` with unrestricted volume mounts | Claude can read/write any mounted directory including host system | Mount only specific workspace directories, never `/` or `/home` |
+| SSH keys mounted for GitHub integration without restrictions | Claude subprocess could exfiltrate or misuse keys | Use deploy keys (read-only where possible), mount as read-only |
+| No rate limiting on task creation API | Accidental or malicious spawn of many concurrent tasks | Enforce semaphore at API level, not just in orchestrator |
+| Database password in plaintext environment variable | Visible in `docker inspect` and Coolify dashboard | Use Coolify's secret management; restrict dashboard access |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| No progress indication during agent execution | User thinks app is frozen, force-quits | Show streaming output, elapsed time, token count, and "Agent working..." animation |
-| Blocking keyboard input during agent runs | Cannot cancel, cannot switch panels, trapped | Run agents in workers; keep UI responsive; Ctrl+C cancels current agent |
-| Dumping raw markdown/code without syntax highlighting | Wall of unreadable text | Use Rich/Textual's built-in Markdown and Syntax widgets for rendering |
-| No way to see previous iterations | User loses context of what changed | Session history panel with diff view between iterations |
-| Requiring mouse for panel resizing | Breaks keyboard-first workflow promise | Keyboard shortcuts for panel focus/resize (the project plans this -- enforce it) |
-| Silent failures when Claude CLI is not installed or auth expired | Confusing error state | Check Claude CLI availability and auth status on startup; show clear error with fix instructions |
+| No late-join replay on WebSocket | Opening dashboard mid-task shows blank screen | Store stream chunks in memory ring buffer, replay on connect |
+| No task status persistence across page loads | Browser refresh loses all context about running tasks | Write status updates to PostgreSQL, hydrate from DB on page load |
+| Silent subprocess failure after timeout | User waits forever for output that will never come | Set subprocess timeout (e.g., 30 min), show error state in UI with elapsed time |
+| Approval gate with no visible indicator | In supervised mode, user does not realize a task is waiting for approval | Show clear pending-approval badge; auto-scroll to approval prompt |
+| No indication of queue position | User submits task when 2 are running, sees nothing happen | Show "queued (position N)" status while waiting for semaphore |
+| WebSocket reconnect loses context | Network blip causes full page reload | Implement auto-reconnect with state recovery from server |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Streaming output:** Often missing proper handling of incomplete UTF-8 sequences at chunk boundaries -- verify with multibyte characters (CJK, emoji in Claude responses)
-- [ ] **Agent retry logic:** Often missing exponential backoff and max-retry limits -- verify that 3 consecutive failures do not retry forever
-- [ ] **Session persistence:** Often missing crash recovery -- verify that killing the app mid-agent preserves the session state written so far
-- [ ] **Panel layout:** Often missing Windows Terminal-specific testing -- verify rendering with both Windows Terminal and legacy conhost
-- [ ] **Orchestrator decisions:** Often missing logging of WHY a decision was made -- verify that every routing decision is logged with the input that triggered it
-- [ ] **Output contracts:** Often missing validation -- verify that malformed agent output triggers retry, not a crash
-- [ ] **Project folder creation:** Often missing path sanitization -- verify that project names with spaces, unicode, or special characters work on Windows
+- [ ] **WebSocket streaming:** Often missing disconnect detection -- verify the server stops streaming AND kills subprocess when client disconnects
+- [ ] **Claude CLI in Docker:** Often missing `.claude.json` mount -- verify auth survives a `docker restart`
+- [ ] **Traefik proxy:** Often missing timeout config -- verify a 10-minute idle period does not drop the WebSocket connection
+- [ ] **asyncpg pool:** Often missing lifespan teardown -- verify `pool.close()` is called on shutdown (check for connection leak warnings in logs)
+- [ ] **Task cancellation:** Often missing subprocess cleanup -- verify `ps aux | grep claude` shows 0 processes after all tasks are stopped
+- [ ] **Database migration:** Often missing placeholder syntax change -- verify no `?` placeholders remain (asyncpg uses `$1`)
+- [ ] **Docker networking:** Often missing shared network -- verify container can reach PostgreSQL by Coolify hostname
+- [ ] **Coolify Gzip setting:** Often left as default on -- verify Gzip is disabled for the WebSocket application
+- [ ] **Docker memory limits:** Often unset -- verify `docker stats` shows a memory limit on the container
+- [ ] **Graceful shutdown:** Often untested -- verify `docker stop` completes within 10 seconds with 2 running tasks
+- [ ] **Startup reconciliation:** Often missing -- verify that tasks marked "running" before a crash are updated to "interrupted" on restart
+- [ ] **Claude CLI PATH:** Often assumes host PATH -- verify `claude --version` works inside the container
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Subprocess deadlock | LOW | Kill the Claude CLI process, retry the agent call; add stream reading fix |
-| Structured output parse failure | LOW | Log raw output, retry with same prompt (non-deterministic = may work next time); if persistent, simplify the output contract |
-| TUI event loop blocked | MEDIUM | Requires refactoring blocking calls to workers; identify blocking call via profiling |
-| Orchestrator infinite loop | LOW | Kill current cycle, show accumulated output to user, let them decide next step manually |
-| Context window exhaustion | MEDIUM | Redesign context passing strategy; implement summarization; requires touching all agent call sites |
-| SQLite database locked | LOW | Enable WAL mode; if already locked, retry with timeout; restructure to single-writer pattern |
+| Zombie subprocess accumulation | LOW | `pkill -f "claude -p"` on host; restart container; add cleanup code |
+| OOM kill of container only | LOW | Container auto-restarts via Coolify; add memory limits to prevent recurrence |
+| OOM kill of Docker daemon | HIGH | SSH into VPS, `systemctl restart docker`, all Coolify services restart cold; add container memory limits to prevent |
+| Database pool exhaustion | LOW | Restart FastAPI app; fix connection leak; reduce pool hold times |
+| Auth credentials lost in container | LOW | Re-run `claude login` inside container; fix volume mounts to persist |
+| Traefik zombie state | MEDIUM | Restart Traefik via Coolify dashboard; known Coolify bug #7744 |
+| Inconsistent task state in DB | LOW | Add startup reconciliation: mark all "running" tasks as "interrupted" on app boot |
+| Disk full from Docker logs | MEDIUM | `docker system prune`; add log rotation in `/etc/docker/daemon.json`; configure `max-size` and `max-file` |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Subprocess deadlocks | Phase 1 (subprocess infra) | Unit test: stream 1MB+ output without hang |
-| Structured output parsing | Phase 1-2 (agent contracts) | Test with intentionally malformed outputs; measure parse success rate over 100 runs |
-| Event loop blocking | Phase 1 (TUI foundation) | No operation in message handlers takes >50ms; profile with Textual devtools |
-| Orchestrator loops | Phase 2-3 (orchestrator) | Integration test: orchestrator with adversarial agent that always requests changes; verify it stops |
-| Context exhaustion | Phase 2 (agent pipeline) | Monitor token counts per call; verify no call exceeds 60% of context window after 3 iterations |
-| stream-json handling | Phase 1 (streaming display) | End-to-end test: stream a real Claude response and verify TUI shows progressive output |
-| SQLite concurrency | Phase 1 (persistence) | Concurrent read+write test with WAL mode enabled |
-| Windows rendering | Phase 1 (TUI foundation) | Manual testing on Windows Terminal and VS Code integrated terminal |
-| Agent output sanitization | Phase 1 (display) | Feed terminal escape sequences through display pipeline; verify no corruption |
+| Claude CLI auth in Docker | Docker/Deployment setup | `docker exec <c> claude --version` succeeds after container restart |
+| Zombie subprocess accumulation | WebSocket streaming (core) | Kill WebSocket mid-stream, verify subprocess terminates within 10s |
+| WebSocket dies behind Traefik | Deployment configuration | 10-minute idle WebSocket stays connected in production |
+| asyncpg pool exhaustion | Database migration | Run 3 concurrent tasks, verify no pool timeout errors |
+| Task lifecycle mismatch | Core API scaffolding | `docker stop` completes in under 10s with 2 running tasks |
+| Docker network isolation | Docker/Deployment setup | App connects to existing PG from container on first boot |
+| Message buffer overflow | WebSocket streaming | Stream a large codebase task, verify container RAM stays stable |
+| aiosqlite-to-asyncpg syntax | Database migration | Full test suite passes with asyncpg (no `?` placeholders, no `.commit()`) |
 
 ## Sources
 
-- [Textual Workers Guide](https://textual.textualize.io/guide/workers/) -- official documentation on concurrency patterns
-- [Multi-agent workflows often fail (GitHub Blog)](https://github.blog/ai-and-ml/generative-ai/multi-agent-workflows-often-fail-heres-how-to-engineer-ones-that-dont/) -- engineering recommendations for multi-agent systems
-- [Python asyncio subprocess documentation](https://docs.python.org/3/library/asyncio-subprocess.html) -- official subprocess streaming patterns
-- [Claude CLI stream-json issue #15511](https://github.com/anthropics/claude-code/issues/15511) -- structured output streaming limitation
-- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference) -- output format options
-- [aiosqlite](https://github.com/omnilib/aiosqlite) -- async SQLite bridge for Python
-- [json_repair](https://github.com/mangiucugna/json_repair) -- LLM malformed JSON repair library
-- [Textual FAQ](https://textual.textualize.io/FAQ/) -- platform-specific rendering notes
-- [7 Things learned building a modern TUI Framework](https://www.textualize.io/blog/7-things-ive-learned-building-a-modern-tui-framework/) -- framework author's lessons learned
+- [Claude Code Docker Auth Persistence (GitHub #1736)](https://github.com/anthropics/claude-code/issues/1736) -- HIGH confidence
+- [Claude Code Credential Two-File Requirement (Field Notes #10)](https://github.com/tfvchow/field-notes-public/issues/10) -- HIGH confidence
+- [Claude Code Development Containers (Official Docs)](https://code.claude.com/docs/en/devcontainer) -- HIGH confidence
+- [Coolify WebSocket/SSE Bug with Gzip (GitHub #4002)](https://github.com/coollabsio/coolify/issues/4002) -- HIGH confidence
+- [Coolify Traefik 60s Default Timeout (GitHub #5358)](https://github.com/coollabsio/coolify/issues/5358) -- HIGH confidence
+- [Coolify Traefik Zombie State (GitHub #7744)](https://github.com/coollabsio/coolify/issues/7744) -- MEDIUM confidence
+- [FastAPI WebSocket Disconnect Detection (GitHub #9031)](https://github.com/fastapi/fastapi/discussions/9031) -- HIGH confidence
+- [FastAPI Async Task Pitfalls (Leapcell)](https://leapcell.io/blog/understanding-pitfalls-of-async-task-management-in-fastapi-requests) -- MEDIUM confidence
+- [FastAPI Lifespan Events (Dev Central)](https://dev.turmansolutions.ai/2025/09/27/understanding-fastapis-lifespan-events-proper-initialization-and-shutdown/) -- MEDIUM confidence
+- [asyncpg with FastAPI (Feldroy 2025)](https://daniel.feldroy.com/posts/2025-10-using-asyncpg-with-fastapi-and-air) -- MEDIUM confidence
+- [Docker Resource Constraints (Official Docs)](https://docs.docker.com/engine/containers/resource_constraints/) -- HIGH confidence
+- [Coolify Gateway Timeout Docs](https://coolify.io/docs/troubleshoot/applications/gateway-timeout) -- HIGH confidence
 
 ---
-*Pitfalls research for: AI Agent Workflow Console (TUI multi-agent orchestration)*
-*Researched: 2026-03-11*
+*Pitfalls research for: AI Agent Console v2.0 -- TUI to Web Platform migration*
+*Researched: 2026-03-12*
