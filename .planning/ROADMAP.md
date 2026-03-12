@@ -40,11 +40,11 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. Task data (tasks, agent_outputs, agent_usage, orchestrator_decisions) persists in PostgreSQL across server restarts
   3. Orchestrator accepts a TaskContext Protocol instead of AgentConsoleApp, enabling web-driven execution
   4. Connection pool is lifespan-managed (created on startup, closed on shutdown)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: PostgreSQL schema and asyncpg repository layer
-- [ ] 06-02: FastAPI app factory, lifespan, health endpoint, and TaskContext Protocol with orchestrator refactor
+- [ ] 06-01-PLAN.md -- PostgreSQL schema and asyncpg repository layer
+- [ ] 06-02-PLAN.md -- FastAPI app factory, lifespan, health endpoint, and TaskContext Protocol with orchestrator refactor
 
 ### Phase 7: Task Engine and API
 **Goal**: Users can create, list, cancel, and run tasks through authenticated REST endpoints with up to 2 tasks running concurrently
