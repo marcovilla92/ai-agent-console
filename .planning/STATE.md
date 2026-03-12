@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-12T14:43:40.524Z"
-last_activity: 2026-03-12 -- Completed plan 04-02 (orchestrator TUI wiring)
+status: in-progress
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-12T15:05:00Z"
+last_activity: 2026-03-12 -- Completed plan 05-02 (resizable/collapsible panels)
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_plans: 16
+  completed_plans: 14
+  percent: 88
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management.
-**Current focus:** Phase 4 complete. Ready for Phase 5 Polish.
+**Current focus:** Phase 5 Polish in progress.
 
 ## Current Position
 
-Phase: 4 of 5 (Orchestrator Intelligence) -- COMPLETE
-Plan: 2 of 2 in phase 4 (all done)
-Status: Phase 4 complete, ready for Phase 5
-Last activity: 2026-03-12 -- Completed plan 04-02 (orchestrator TUI wiring)
+Phase: 5 of 5 (Polish) -- IN PROGRESS
+Plan: 2 of 3 in phase 5 (05-02 complete)
+Status: Executing phase 5 polish plans
+Last activity: 2026-03-12 -- Completed plan 05-02 (resizable/collapsible panels)
 
-Progress: [██████████] 100% (Overall)
+Progress: [█████████░] 88% (Overall)
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [██████████] 100% (Overall)
 | Phase 03-tui-shell P04 | 3min | 2 tasks | 4 files |
 | Phase 04-01 P01 | 5min | 2 tasks | 7 files |
 | Phase 04 P02 | 8min | 2 tasks | 7 files |
+| Phase 05-02 P02 | 4min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,8 @@ Progress: [██████████] 100% (Overall)
 - [Phase 04-01]: Stub modal functions for Plan 02 to replace with real Textual ModalScreen
 - [Phase 04-02]: asyncio.Event bridge pattern to await modal results from call_from_thread
 - [Phase 04-02]: Unset CLAUDECODE env var in runner to allow nested Claude CLI calls
+- [Phase 05-02]: Textual grid auto-reflow handles collapse without CSS changes
+- [Phase 05-02]: Resize uses independent row/column ratio tracking with fr units, clamped 1-4
 
 ### Pending Todos
 
@@ -91,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T14:40:22.307Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-03-12T15:05:00Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
