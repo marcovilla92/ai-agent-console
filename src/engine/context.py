@@ -5,7 +5,10 @@ Bridges the orchestrator pipeline to the web platform. Handles agent output
 streaming via Claude CLI subprocess, section parsing, and DB persistence.
 Broadcasts output chunks via ConnectionManager for WebSocket streaming.
 
-Approval UI deferred to Phase 9 (auto-approve for now).
+In supervised mode, confirm_reroute and handle_halt pause execution via
+asyncio.Event and broadcast approval_required events over WebSocket. The user
+approves or rejects via the REST API, which calls set_approval() to resume.
+In autonomous mode, these methods auto-approve immediately.
 """
 from __future__ import annotations
 
@@ -47,6 +50,8 @@ class WebTaskContext:
         self._project_path = project_path
         self._connection_manager = connection_manager
         self.proc: Optional[asyncio.subprocess.Process] = None
+        self._approval_event: Optional[asyncio.Event] = None
+        self._approval_decision: Optional[str] = None
 
     @property
     def project_path(self) -> str:
@@ -105,21 +110,91 @@ class WebTaskContext:
 
         return parsed_sections
 
-    async def confirm_reroute(self, next_agent: str, reasoning: str) -> bool:
-        """Confirm re-routing. Auto-approve for all modes in Phase 7.
+    def set_approval(self, decision: str) -> None:
+        """Set the approval decision and unblock the waiting gate.
 
-        Approval UI is Phase 9. For now, always return True.
+        Called by TaskManager.approve() when the user submits a decision
+        via the REST API.
         """
-        log.debug(
-            "auto-approve reroute: next=%s reasoning=%s mode=%s",
-            next_agent, reasoning, self._mode,
+        self._approval_decision = decision
+        if self._approval_event is not None:
+            self._approval_event.set()
+
+    async def _wait_for_approval(self, action: str, context: dict) -> str:
+        """Pause execution and wait for user approval via asyncio.Event.
+
+        Broadcasts approval_required WS event, updates task status to
+        awaiting_approval, and blocks until set_approval() is called.
+        Returns the decision string.
+        """
+        from src.db.pg_repository import TaskRepository
+
+        self._approval_event = asyncio.Event()
+        self._approval_decision = None
+
+        # Update DB status and broadcast
+        repo = TaskRepository(self._pool)
+        await repo.update_status(self._task_id, "awaiting_approval")
+        if self._connection_manager:
+            await self._connection_manager.send_approval_required(
+                self._task_id, action, context,
+            )
+            await self._connection_manager.send_status(
+                self._task_id, "awaiting_approval",
+            )
+
+        log.info(
+            "Task %d awaiting approval: action=%s context=%s",
+            self._task_id, action, context,
         )
-        return True
+
+        # Block until approved/rejected
+        await self._approval_event.wait()
+
+        decision = self._approval_decision or "reject"
+
+        # Restore running status
+        await repo.update_status(self._task_id, "running")
+        if self._connection_manager:
+            await self._connection_manager.send_status(self._task_id, "running")
+
+        # Clean up gate state
+        self._approval_event = None
+        self._approval_decision = None
+
+        return decision
+
+    async def confirm_reroute(self, next_agent: str, reasoning: str) -> bool:
+        """Confirm agent re-routing.
+
+        In autonomous mode, auto-approves immediately.
+        In supervised mode, pauses execution and waits for user approval.
+        """
+        if self._mode != "supervised":
+            log.debug(
+                "auto-approve reroute: next=%s reasoning=%s mode=%s",
+                next_agent, reasoning, self._mode,
+            )
+            return True
+
+        decision = await self._wait_for_approval(
+            "reroute",
+            {"next_agent": next_agent, "reasoning": reasoning},
+        )
+        return decision == "approve"
 
     async def handle_halt(self, iteration_count: int) -> str:
-        """Handle iteration limit. Always approve in Phase 7.
+        """Handle iteration limit decision.
 
-        Approval UI is Phase 9.
+        In autonomous mode, auto-approves immediately.
+        In supervised mode, pauses execution and waits for user decision.
+        Returns the decision string: "approve", "reject", or "continue".
         """
-        log.debug("auto-approve halt at iteration %d", iteration_count)
-        return "approve"
+        if self._mode != "supervised":
+            log.debug("auto-approve halt at iteration %d", iteration_count)
+            return "approve"
+
+        return await self._wait_for_approval(
+            "halt",
+            {"iteration_count": iteration_count},
+        )

@@ -62,6 +62,19 @@ class ConnectionManager:
         """Check if any WebSockets are connected for a task."""
         return bool(self._connections.get(task_id))
 
+    async def send_approval_required(
+        self, task_id: int, action: str, context: dict[str, Any]
+    ) -> None:
+        """Broadcast an approval_required event for a task.
+
+        Sent when a supervised task pauses at a decision point (reroute or halt)
+        and needs user approval to continue.
+        """
+        await self._broadcast(
+            task_id,
+            {"type": "approval_required", "data": {"action": action, "context": context}},
+        )
+
     async def _broadcast(self, task_id: int, message: dict[str, Any]) -> None:
         """Send a JSON message to all connected sockets, pruning dead ones."""
         conns = self._connections.get(task_id)

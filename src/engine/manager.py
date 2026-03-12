@@ -172,6 +172,23 @@ class TaskManager:
 
         return True
 
+    async def approve(self, task_id: int, decision: str) -> bool:
+        """Relay an approval decision to a running task's context.
+
+        Returns True if the task was found and was awaiting approval.
+        Returns False if the task is not running or not awaiting approval.
+        """
+        running = self._running.get(task_id)
+        if running is None:
+            return False
+
+        ctx = running.ctx
+        if ctx._approval_event is None or ctx._approval_event.is_set():
+            return False
+
+        ctx.set_approval(decision)
+        return True
+
     async def get(self, task_id: int) -> Optional[Task]:
         """Get a task by ID from the database."""
         return await self._repo.get(task_id)
