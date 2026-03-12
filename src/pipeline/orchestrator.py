@@ -3,6 +3,9 @@ AI-driven orchestrator replacing the fixed sequential pipeline.
 
 Analyzes agent outputs via Claude CLI and decides the next step.
 Supports iterative improvement cycles with safety limits.
+
+v2.0: Decoupled from TUI via TaskContext Protocol. Accepts asyncpg.Pool
+instead of aiosqlite.Connection for PostgreSQL persistence.
 """
 from __future__ import annotations
 
@@ -10,17 +13,14 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
-import aiosqlite
+import asyncpg
 
-from src.db.repository import OrchestratorDecisionRepository
-from src.db.schema import OrchestratorDecisionRecord
+from src.db.pg_repository import OrchestratorDecisionRepository, TaskRepository
+from src.db.pg_schema import OrchestratorDecisionRecord
 from src.pipeline.handoff import build_handoff
+from src.pipeline.protocol import TaskContext
 from src.runner.runner import call_orchestrator_claude
-
-if TYPE_CHECKING:
-    from src.tui.app import AgentConsoleApp
 
 log = logging.getLogger(__name__)
 
@@ -174,13 +174,13 @@ async def get_orchestrator_decision(
 # --- DB logging ---
 
 async def log_decision(
-    db: aiosqlite.Connection,
+    pool: asyncpg.Pool,
     session_id: int,
     decision: OrchestratorDecision,
     iteration_count: int,
 ) -> int:
     """Persist an orchestrator decision to the database."""
-    repo = OrchestratorDecisionRepository(db)
+    repo = OrchestratorDecisionRepository(pool)
     record = OrchestratorDecisionRecord(
         session_id=session_id,
         next_agent=decision.next_agent,
@@ -188,77 +188,31 @@ async def log_decision(
         confidence=decision.confidence,
         full_response=decision.full_response,
         iteration_count=iteration_count,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(timezone.utc),
     )
     return await repo.create(record)
-
-
-# --- Modal dialog bridge functions ---
-
-async def show_reroute_confirmation(app: AgentConsoleApp, decision: OrchestratorDecision) -> bool:
-    """
-    Push RerouteConfirmDialog modal and await user response.
-
-    Uses asyncio.Event to bridge between Textual's callback-based
-    push_screen and the async orchestration loop.
-    """
-    import asyncio
-
-    from src.tui.confirm_dialog import RerouteConfirmDialog
-
-    result_event = asyncio.Event()
-    result_holder: dict[str, bool] = {}
-
-    def on_result(confirmed: bool) -> None:
-        result_holder["value"] = confirmed
-        result_event.set()
-
-    dialog = RerouteConfirmDialog(decision.next_agent, decision.reasoning)
-    app.call_from_thread(app.push_screen, dialog, on_result)
-    await result_event.wait()
-    return result_holder["value"]
-
-
-async def show_halt_dialog(app: AgentConsoleApp, state: OrchestratorState) -> str:
-    """
-    Push HaltDialog modal and await user choice.
-
-    Returns "continue", "approve", or "stop".
-    """
-    import asyncio
-
-    from src.tui.confirm_dialog import HaltDialog
-
-    result_event = asyncio.Event()
-    result_holder: dict[str, str] = {}
-
-    def on_result(choice: str) -> None:
-        result_holder["value"] = choice
-        result_event.set()
-
-    dialog = HaltDialog(state.iteration_count)
-    app.call_from_thread(app.push_screen, dialog, on_result)
-    await result_event.wait()
-    return result_holder["value"]
 
 
 # --- Main orchestration loop ---
 
 async def orchestrate_pipeline(
-    app: AgentConsoleApp,
+    ctx: TaskContext,
     prompt: str,
-    db: aiosqlite.Connection | None = None,
+    pool: asyncpg.Pool | None = None,
     session_id: int | None = None,
 ) -> OrchestratorState:
     """
     AI-driven orchestration loop replacing the fixed sequential pipeline.
 
-    Runs agents via stream_agent_to_panel, calls Claude CLI for routing
+    Runs agents via ctx.stream_output, calls Claude CLI for routing
     decisions after each agent, and handles re-routing with iteration limits.
-    """
-    from src.tui.actions import AGENT_PANEL_MAP
-    from src.tui.streaming import stream_agent_to_panel
 
+    Args:
+        ctx: TaskContext implementation (TUI adapter, web handler, etc.)
+        prompt: The user's task prompt.
+        pool: asyncpg connection pool for persistence (optional).
+        session_id: Task/session ID for DB logging (optional).
+    """
     state = OrchestratorState(session_id=session_id, original_prompt=prompt)
 
     while not state.halted and not state.approved:
@@ -268,19 +222,16 @@ async def orchestrate_pipeline(
             handoff_context = "\n\n".join(state.accumulated_handoffs)
             agent_prompt = f"{prompt}\n\n{handoff_context}"
 
-        # 2. Run current agent (streams to TUI panel)
-        panel_id = AGENT_PANEL_MAP[state.current_agent]
-        panel = app.get_panel(panel_id)
-
-        app.status_bar.set_status(
+        # 2. Run current agent (streams via TaskContext)
+        await ctx.update_status(
             agent=state.current_agent,
             state="streaming",
             step="receiving output",
             next_action="Streaming...",
         )
 
-        sections = await stream_agent_to_panel(
-            app, state.current_agent, agent_prompt, panel, db, session_id,
+        sections = await ctx.stream_output(
+            state.current_agent, agent_prompt, {},
         )
 
         # 3. Record in history
@@ -297,17 +248,17 @@ async def orchestrate_pipeline(
         decision = await get_orchestrator_decision(state, sections)
         state.decisions.append(decision)
 
-        # 6. Update status bar with reasoning
-        app.status_bar.set_status(
+        # 6. Update status with reasoning
+        await ctx.update_status(
             agent="orchestrator",
             state="routing",
             step=decision.reasoning,
             next_action=f"-> {decision.next_agent.upper()}",
         )
 
-        # 7. Log decision to DB (skip if no DB connection)
-        if db is not None and session_id is not None:
-            await log_decision(db, session_id, decision, state.iteration_count)
+        # 7. Log decision to DB (skip if no pool)
+        if pool is not None and session_id is not None:
+            await log_decision(pool, session_id, decision, state.iteration_count)
 
         # 8. Handle the decision
         if decision.next_agent == "approved":
@@ -315,7 +266,7 @@ async def orchestrate_pipeline(
         elif decision.next_agent in ("plan", "execute") and state.current_agent == "review":
             # Re-routing: check iteration limit
             if state.iteration_count >= state.max_iterations:
-                user_choice = await show_halt_dialog(app, state)
+                user_choice = await ctx.handle_halt(state.iteration_count)
                 if user_choice == "continue":
                     state.iteration_count = 0  # Reset for 3 more
                 elif user_choice == "approve":
@@ -326,7 +277,9 @@ async def orchestrate_pipeline(
                     break
 
             # User confirmation for re-routing
-            confirmed = await show_reroute_confirmation(app, decision)
+            confirmed = await ctx.confirm_reroute(
+                decision.next_agent, decision.reasoning,
+            )
             if confirmed:
                 state.current_agent = decision.next_agent
                 # Accumulate handoff context for the next iteration
@@ -347,18 +300,17 @@ async def orchestrate_pipeline(
     if state.approved:
         try:
             from src.git.autocommit import auto_commit
-            from src.db.repository import SessionRepository
 
-            session_name = "unnamed"
-            if db and session_id:
-                repo = SessionRepository(db)
-                session = await repo.get(session_id)
-                if session:
-                    session_name = session.name
+            task_name = "unnamed"
+            if pool and session_id:
+                repo = TaskRepository(pool)
+                task = await repo.get(session_id)
+                if task:
+                    task_name = task.name
 
-            committed = await auto_commit(app.project_path, session_name)
+            committed = await auto_commit(ctx.project_path, task_name)
             if committed:
-                app.status_bar.set_status(
+                await ctx.update_status(
                     agent="orchestrator",
                     state="committed",
                     step="auto-committed to git",

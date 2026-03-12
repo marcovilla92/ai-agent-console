@@ -9,12 +9,9 @@ Verifies that:
 import inspect
 
 import asyncpg
-import pytest
 
 from src.pipeline.protocol import TaskContext
 from src.pipeline.orchestrator import orchestrate_pipeline, log_decision
-
-pytestmark = pytest.mark.asyncio
 
 
 class MockTaskContext:
