@@ -5,6 +5,7 @@ Deadlock-safe: drains stdout before calling wait().
 import asyncio
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -57,10 +58,14 @@ async def stream_claude(
         cmd += extra_args
     cmd.append(prompt)
 
+    # Remove CLAUDECODE env var to allow nested Claude CLI calls
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
 
     # Drain stderr concurrently -- never block on it
@@ -119,10 +124,13 @@ async def call_orchestrator_claude(prompt: str, schema: str) -> str:
         prompt,
     ]
 
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stdout, stderr = await proc.communicate()
 
