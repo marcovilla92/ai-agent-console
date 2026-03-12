@@ -99,13 +99,15 @@ async def test_list_all_returns_new_fields(pg_pool):
         name="list-test",
         project_path="/tmp",
         created_at=now,
-        status="completed",
+        status="queued",
         mode="autonomous",
         prompt="test prompt",
-        completed_at=now,
-        error=None,
     )
     task_id = await repo.create(task)
+
+    # Set completed_at via update_status
+    completed = datetime.now(timezone.utc)
+    await repo.update_status(task_id, "completed", completed_at=completed)
 
     all_tasks = await repo.list_all()
     found = [t for t in all_tasks if t.id == task_id]

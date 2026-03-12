@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS orchestrator_decisions (
 );
 """
 
+# --- Migration SQL -------------------------------------------------------
+
+ALTER_TASKS_SQL = """
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'autonomous';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS error TEXT;
+"""
+
 # --- Dataclasses ---------------------------------------------------------
 
 
@@ -60,6 +70,11 @@ class Task:
     project_path: str
     created_at: datetime
     id: Optional[int] = None
+    status: str = "queued"
+    mode: str = "autonomous"
+    prompt: str = ""
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
 
 
 @dataclass
