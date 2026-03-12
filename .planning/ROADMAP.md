@@ -71,10 +71,10 @@ Plans:
   2. WebSocket connection authenticates before streaming begins
   3. Connection survives long-running tasks (heartbeat prevents proxy timeout)
   4. Disconnecting and reconnecting does not crash the server or leak resources
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 08-01: ConnectionManager, WebSocket endpoint, heartbeat, and disconnect handling
+- [ ] 08-01-PLAN.md -- ConnectionManager, WebSocket endpoint with auth/heartbeat, and WebTaskContext chunk broadcasting
 
 ### Phase 9: Approval Gates
 **Goal**: Users can pause agent execution at each stage in supervised mode and approve or reject the next action with full context
