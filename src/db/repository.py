@@ -7,7 +7,7 @@ Use a single shared connection for the app lifetime to avoid lock contention.
 import aiosqlite
 from typing import Optional
 
-from src.db.schema import Session, AgentOutput
+from src.db.schema import Session, AgentOutput, OrchestratorDecisionRecord
 
 
 class SessionRepository:
@@ -60,5 +60,43 @@ class AgentOutputRepository:
             rows = await cursor.fetchall()
             return [
                 AgentOutput(id=r[0], session_id=r[1], agent_type=r[2], raw_output=r[3], created_at=r[4])
+                for r in rows
+            ]
+
+
+class OrchestratorDecisionRepository:
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def create(self, record: OrchestratorDecisionRecord) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO orchestrator_decisions "
+            "(session_id, next_agent, reasoning, confidence, full_response, iteration_count, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.session_id,
+                record.next_agent,
+                record.reasoning,
+                record.confidence,
+                record.full_response,
+                record.iteration_count,
+                record.created_at,
+            ),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_by_session(self, session_id: int) -> list[OrchestratorDecisionRecord]:
+        async with self._db.execute(
+            "SELECT id, session_id, next_agent, reasoning, confidence, full_response, iteration_count, created_at "
+            "FROM orchestrator_decisions WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                OrchestratorDecisionRecord(
+                    id=r[0], session_id=r[1], next_agent=r[2], reasoning=r[3],
+                    confidence=r[4], full_response=r[5], iteration_count=r[6], created_at=r[7],
+                )
                 for r in rows
             ]

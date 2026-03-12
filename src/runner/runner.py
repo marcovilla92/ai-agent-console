@@ -103,6 +103,39 @@ async def stream_claude(
         )
 
 
+async def call_orchestrator_claude(prompt: str, schema: str) -> str:
+    """
+    Call Claude CLI with --output-format json --json-schema for structured output.
+
+    Unlike stream_claude, this returns a single JSON response (not streamed).
+    Uses a dedicated subprocess call rather than the streaming path.
+    """
+    claude = _resolve_claude()
+    cmd = [
+        claude, "-p",
+        "--output-format", "json",
+        "--json-schema", schema,
+        "--dangerously-skip-permissions",
+        prompt,
+    ]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            "claude",
+            stderr=stderr.decode(errors="replace"),
+        )
+
+    return stdout.decode()
+
+
 async def collect_claude(prompt: str, **kwargs) -> str:
     """Collect all text chunks from stream_claude into a single string."""
     chunks = []

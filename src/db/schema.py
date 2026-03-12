@@ -24,6 +24,17 @@ CREATE TABLE IF NOT EXISTS agent_outputs (
     raw_output TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS orchestrator_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES sessions(id),
+    next_agent TEXT NOT NULL,
+    reasoning TEXT NOT NULL,
+    confidence REAL,
+    full_response TEXT NOT NULL,
+    iteration_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 # --- Dataclasses ---------------------------------------------------------
@@ -42,5 +53,17 @@ class AgentOutput:
     session_id: int
     agent_type: str       # 'plan' | 'execute' | 'review'
     raw_output: str
+    created_at: str
+    id: Optional[int] = None
+
+
+@dataclass
+class OrchestratorDecisionRecord:
+    session_id: int
+    next_agent: str
+    reasoning: str
+    confidence: float
+    full_response: str
+    iteration_count: int
     created_at: str
     id: Optional[int] = None

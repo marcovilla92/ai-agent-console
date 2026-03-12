@@ -174,6 +174,14 @@ class TestParseDecisionFromText:
 class TestOrchestratorDecisionRepository:
     @pytest.mark.asyncio
     async def test_create_returns_id(self, db_conn):
+        now = datetime.now(timezone.utc).isoformat()
+        # Insert a session first (FK constraint)
+        await db_conn.execute(
+            "INSERT INTO sessions (name, project_path, created_at) VALUES (?, ?, ?)",
+            ("test", "/tmp", now),
+        )
+        await db_conn.commit()
+
         repo = OrchestratorDecisionRepository(db_conn)
         record = OrchestratorDecisionRecord(
             session_id=1,
@@ -182,7 +190,7 @@ class TestOrchestratorDecisionRepository:
             confidence=0.9,
             full_response="{}",
             iteration_count=0,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=now,
         )
         row_id = await repo.create(record)
         assert isinstance(row_id, int)
@@ -223,6 +231,14 @@ class TestOrchestratorDecisionRepository:
 class TestLogDecision:
     @pytest.mark.asyncio
     async def test_persists_to_db(self, db_conn):
+        # Insert a session first (FK constraint)
+        now = datetime.now(timezone.utc).isoformat()
+        await db_conn.execute(
+            "INSERT INTO sessions (name, project_path, created_at) VALUES (?, ?, ?)",
+            ("test", "/tmp", now),
+        )
+        await db_conn.commit()
+
         decision = OrchestratorDecision(
             next_agent="execute",
             reasoning="plan complete",
