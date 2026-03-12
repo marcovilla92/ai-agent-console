@@ -90,3 +90,33 @@ async def test_create_form_present(client):
     assert "<select" in resp.text
     assert "supervised" in resp.text
     assert "autonomous" in resp.text
+
+
+async def test_task_detail_has_log_container(client):
+    """GET /tasks/1/view with auth returns HTML containing log-output class."""
+    async with client:
+        resp = await client.get("/tasks/1/view", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    assert "log-output" in resp.text
+
+
+async def test_task_detail_has_approval_ui(client):
+    """GET /tasks/1/view with auth returns HTML containing approval UI elements."""
+    async with client:
+        resp = await client.get("/tasks/1/view", headers=AUTH_HEADERS)
+    assert "sendApproval" in resp.text
+    assert "approve" in resp.text
+
+
+async def test_task_detail_has_websocket_connect(client):
+    """GET /tasks/1/view with auth returns HTML containing WebSocket connection code."""
+    async with client:
+        resp = await client.get("/tasks/1/view", headers=AUTH_HEADERS)
+    assert "WebSocket" in resp.text
+
+
+async def test_task_detail_has_cancel_button(client):
+    """GET /tasks/1/view with auth returns HTML containing cancel functionality."""
+    async with client:
+        resp = await client.get("/tasks/1/view", headers=AUTH_HEADERS)
+    assert "cancelTask" in resp.text
