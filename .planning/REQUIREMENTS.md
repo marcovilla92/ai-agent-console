@@ -21,7 +21,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **AGNT-01**: PLAN agent produces structured output (GOAL, ASSUMPTIONS, CONSTRAINTS, TASKS, ARCHITECTURE, FILES TO CREATE, HANDOFF → EXECUTE)
 - [ ] **AGNT-02**: EXECUTE agent produces structured output (TARGET, PROJECT STRUCTURE, FILES, CODE, COMMANDS, SETUP NOTES, HANDOFF → REVIEW)
 - [ ] **AGNT-03**: REVIEW agent produces structured output (SUMMARY, ISSUES FOUND, RISKS, IMPROVEMENTS, DECISION: APPROVED / BACK TO PLAN / BACK TO EXECUTE)
-- [ ] **AGNT-04**: User sees visible handoff context between agent panels showing what data was passed
+- [x] **AGNT-04**: User sees visible handoff context between agent panels showing what data was passed
 - [ ] **AGNT-05**: New agents can be added via config file (name, system_prompt, output_contract, panel_assignment) without code changes
 
 ### Orchestration
@@ -36,7 +36,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INFR-01**: Claude CLI invoked via asyncio.create_subprocess_exec with streaming stdout
 - [ ] **INFR-02**: Streaming output displays line-by-line in real-time in TUI panels
 - [x] **INFR-03**: Sessions persisted in SQLite database (prompts, plans, execute outputs, reviews, orchestrator decisions)
-- [ ] **INFR-04**: User creates new project by entering name, system creates dedicated folder under workspace
+- [x] **INFR-04**: User creates new project by entering name, system creates dedicated folder under workspace
 - [x] **INFR-05**: Retry logic with 3 attempts and exponential backoff on Claude CLI errors
 - [ ] **INFR-06**: Git auto-commit after successful execution cycles with descriptive commit messages
 - [ ] **INFR-07**: Token usage and estimated cost tracked per agent per cycle, displayed in status bar
@@ -91,7 +91,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-01 | Phase 2 | Pending |
 | AGNT-02 | Phase 2 | Pending |
 | AGNT-03 | Phase 2 | Pending |
-| AGNT-04 | Phase 2 | Pending |
+| AGNT-04 | Phase 2 | Complete |
 | AGNT-05 | Phase 2 | Pending |
 | ORCH-01 | Phase 4 | Pending |
 | ORCH-02 | Phase 4 | Pending |
@@ -100,7 +100,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 3 | Pending |
 | INFR-03 | Phase 1 | Complete |
-| INFR-04 | Phase 2 | Pending |
+| INFR-04 | Phase 2 | Complete |
 | INFR-05 | Phase 1 | Complete |
 | INFR-06 | Phase 5 | Pending |
 | INFR-07 | Phase 5 | Pending |
