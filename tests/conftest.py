@@ -1,6 +1,11 @@
 import asyncio
+import os
+
 import pytest
 import aiosqlite
+import asyncpg
+
+from src.db.migrations import apply_schema
 
 
 @pytest.fixture
@@ -77,6 +82,25 @@ class _MockProc:
 
     async def wait(self):
         return self.returncode
+
+
+@pytest.fixture
+async def pg_pool():
+    """asyncpg connection pool with schema applied, cleaned up after test."""
+    dsn = os.environ.get(
+        "TEST_DATABASE_URL",
+        "postgresql://n8n:Amc2017!m@10.0.1.7:5432/agent_console_test",
+    )
+    pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=2)
+    await apply_schema(pool)
+    yield pool
+    # Clean up in reverse FK order
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM orchestrator_decisions")
+        await conn.execute("DELETE FROM agent_usage")
+        await conn.execute("DELETE FROM agent_outputs")
+        await conn.execute("DELETE FROM tasks")
+    await pool.close()
 
 
 @pytest.fixture
