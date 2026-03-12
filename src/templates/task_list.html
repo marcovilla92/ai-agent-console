@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks - AI Agent Console{% endblock %}
+
+{% block content %}
+<section>
+  <h2>Create Task</h2>
+  <form x-data="{ prompt: '', mode: 'autonomous', submitting: false }"
+        @submit.prevent="
+          submitting = true;
+          fetch('/tasks', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify({ prompt, mode })
+          })
+          .then(r => r.json())
+          .then(t => { window.location.href = '/tasks/' + t.id + '/view'; })
+          .catch(() => { submitting = false; })
+        ">
+    <textarea x-model="prompt" placeholder="Describe the task..." required rows="3"></textarea>
+    <select x-model="mode">
+      <option value="autonomous">Autonomous</option>
+      <option value="supervised">Supervised</option>
+    </select>
+    <button type="submit" :disabled="submitting" :aria-busy="submitting">
+      Create Task
+    </button>
+  </form>
+</section>
+
+<section x-data="taskList()" x-init="loadTasks(); setInterval(() => loadTasks(), 5000)">
+  <h2>Tasks</h2>
+  <p x-show="tasks.length === 0 && !loading" style="color: var(--pico-muted-color);">No tasks yet.</p>
+  <template x-for="task in tasks" :key="task.id">
+    <article>
+      <header>
+        <hgroup>
+          <h3 x-text="task.name"></h3>
+          <p>
+            <span x-bind:data-status="task.status" x-text="task.status"></span>
+            &middot;
+            <small x-text="task.mode"></small>
+          </p>
+        </hgroup>
+      </header>
+      <p x-text="task.prompt" style="white-space: pre-wrap;"></p>
+      <footer>
+        <small x-text="new Date(task.created_at).toLocaleString()"></small>
+        <a x-bind:href="'/tasks/' + task.id + '/view'" role="button" class="outline">View</a>
+      </footer>
+    </article>
+  </template>
+</section>
+
+<script>
+function taskList() {
+  return {
+    tasks: [],
+    loading: true,
+    async loadTasks() {
+      try {
+        const resp = await fetch('/tasks', { credentials: 'same-origin' });
+        const data = await resp.json();
+        this.tasks = data.tasks;
+      } catch (e) {
+        console.error('Failed to load tasks:', e);
+      } finally {
+        this.loading = false;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

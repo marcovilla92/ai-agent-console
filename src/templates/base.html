@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AI Agent Console{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    [data-status="running"] { color: #0ea5e9; }
+    [data-status="completed"] { color: #22c55e; }
+    [data-status="failed"] { color: #ef4444; }
+    [data-status="queued"] { color: #6b7280; }
+    [data-status="awaiting_approval"] { color: #f59e0b; }
+    [data-status="cancelled"] { color: #9ca3af; }
+    .log-output { max-height: 70vh; overflow-y: auto; font-size: 0.85em; }
+  </style>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+<body>
+  <nav class="container">
+    <ul><li><strong>AI Agent Console</strong></li></ul>
+    <ul><li><a href="/">Tasks</a></li></ul>
+  </nav>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
