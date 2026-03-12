@@ -40,11 +40,14 @@ class TaskManager:
         max_concurrent: Maximum number of tasks that can run simultaneously.
     """
 
-    def __init__(self, pool: asyncpg.Pool, max_concurrent: int = 2) -> None:
+    def __init__(
+        self, pool: asyncpg.Pool, max_concurrent: int = 2, connection_manager=None
+    ) -> None:
         self._pool = pool
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._running: dict[int, RunningTask] = {}
         self._repo = TaskRepository(pool)
+        self._connection_manager = connection_manager
 
     async def submit(
         self,
@@ -77,6 +80,7 @@ class TaskManager:
             pool=self._pool,
             mode=mode,
             project_path=project_path,
+            connection_manager=self._connection_manager,
         )
         self._running[task_id] = RunningTask(
             handle=handle, task_id=task_id, ctx=ctx,
@@ -101,6 +105,7 @@ class TaskManager:
                     pool=self._pool,
                     mode=mode,
                     project_path=project_path,
+                    connection_manager=self._connection_manager,
                 )
                 # Update the running task's ctx reference
                 if task_id in self._running:
@@ -112,11 +117,15 @@ class TaskManager:
                     task_id, "completed",
                     completed_at=datetime.now(timezone.utc),
                 )
+                if self._connection_manager:
+                    await self._connection_manager.send_status(task_id, "completed")
         except asyncio.CancelledError:
             await self._repo.update_status(
                 task_id, "cancelled",
                 completed_at=datetime.now(timezone.utc),
             )
+            if self._connection_manager:
+                await self._connection_manager.send_status(task_id, "cancelled")
             raise
         except Exception as exc:
             log.exception("Task %d failed", task_id)
@@ -125,6 +134,8 @@ class TaskManager:
                 error=str(exc),
                 completed_at=datetime.now(timezone.utc),
             )
+            if self._connection_manager:
+                await self._connection_manager.send_status(task_id, "failed")
         finally:
             self._running.pop(task_id, None)
 

@@ -46,7 +46,11 @@ async def lifespan(app: FastAPI):
     try:
         await apply_schema(app.state.pool)
         app.state.connection_manager = ConnectionManager()
-        app.state.task_manager = TaskManager(pool=app.state.pool, max_concurrent=2)
+        app.state.task_manager = TaskManager(
+            pool=app.state.pool,
+            max_concurrent=2,
+            connection_manager=app.state.connection_manager,
+        )
         log.info("Schema applied, TaskManager created, server ready")
         yield
     finally:

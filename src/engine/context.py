@@ -3,15 +3,15 @@ WebTaskContext: TaskContext Protocol implementation for web-based task execution
 
 Bridges the orchestrator pipeline to the web platform. Handles agent output
 streaming via Claude CLI subprocess, section parsing, and DB persistence.
+Broadcasts output chunks via ConnectionManager for WebSocket streaming.
 
-Phase 7: Core implementation. WebSocket streaming deferred to Phase 8.
 Approval UI deferred to Phase 9 (auto-approve for now).
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import asyncpg
 
@@ -19,6 +19,9 @@ from src.db.pg_repository import AgentOutputRepository
 from src.db.pg_schema import AgentOutput
 from src.parser.extractor import extract_sections
 from src.runner.runner import stream_claude
+
+if TYPE_CHECKING:
+    from src.server.connection_manager import ConnectionManager
 
 log = logging.getLogger(__name__)
 
@@ -36,11 +39,13 @@ class WebTaskContext:
         pool: asyncpg.Pool,
         mode: str,
         project_path: str = ".",
+        connection_manager: Optional[ConnectionManager] = None,
     ) -> None:
         self._task_id = task_id
         self._pool = pool
         self._mode = mode
         self._project_path = project_path
+        self._connection_manager = connection_manager
         self.proc: Optional[asyncio.subprocess.Process] = None
 
     @property
@@ -50,11 +55,15 @@ class WebTaskContext:
     async def update_status(
         self, agent: str, state: str, step: str, next_action: str
     ) -> None:
-        """Update status display. No-op in Phase 7 (WebSocket streaming is Phase 8)."""
+        """Update status display. Broadcasts via ConnectionManager if available."""
         log.debug(
             "status: agent=%s state=%s step=%s next=%s",
             agent, state, step, next_action,
         )
+        if self._connection_manager:
+            await self._connection_manager.send_status(
+                self._task_id, f"{agent}:{state}:{step}"
+            )
 
     async def stream_output(
         self, agent_name: str, prompt: str, sections: dict
@@ -71,6 +80,8 @@ class WebTaskContext:
         async for event in stream_claude(prompt):
             if isinstance(event, str):
                 raw_parts.append(event)
+                if self._connection_manager:
+                    await self._connection_manager.send_chunk(self._task_id, event)
             elif isinstance(event, dict):
                 # result event -- extract text if present
                 if "result" in event:

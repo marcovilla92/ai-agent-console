@@ -172,3 +172,112 @@ async def test_heartbeat_sends_ping():
     # Should have sent at least 2 pings in 0.15s with 0.05s interval
     assert ws.send_json.call_count >= 2
     ws.send_json.assert_called_with({"type": "ping"})
+
+
+# --- Task 2: WebTaskContext broadcasting and TaskManager status events ---
+
+
+async def test_context_works_without_connection_manager():
+    """WebTaskContext.stream_output works normally when connection_manager is None."""
+    from src.engine.context import WebTaskContext
+
+    pool = AsyncMock()
+    ctx = WebTaskContext(task_id=1, pool=pool, mode="autonomous")
+
+    # Mock stream_claude to yield some text
+    async def mock_stream(prompt):
+        yield "hello"
+        yield "world"
+
+    with patch("src.engine.context.stream_claude", side_effect=mock_stream):
+        with patch("src.engine.context.AgentOutputRepository") as mock_repo_cls:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            result = await ctx.stream_output("test_agent", "test prompt", {})
+
+    # Should work without error -- backward compatible
+    assert isinstance(result, dict)
+
+
+async def test_ws_receives_chunks():
+    """When stream_output runs with a ConnectionManager, chunks are sent."""
+    from src.engine.context import WebTaskContext
+    from src.server.connection_manager import ConnectionManager
+
+    mgr = ConnectionManager()
+    mock_ws = AsyncMock()
+    await mgr.connect(1, mock_ws)
+
+    pool = AsyncMock()
+    ctx = WebTaskContext(
+        task_id=1, pool=pool, mode="autonomous",
+        connection_manager=mgr,
+    )
+
+    async def mock_stream(prompt):
+        yield "chunk1"
+        yield "chunk2"
+
+    with patch("src.engine.context.stream_claude", side_effect=mock_stream):
+        with patch("src.engine.context.AgentOutputRepository") as mock_repo_cls:
+            mock_repo = AsyncMock()
+            mock_repo_cls.return_value = mock_repo
+            await ctx.stream_output("test_agent", "test prompt", {})
+
+    # Should have sent chunk messages to the websocket
+    calls = mock_ws.send_json.call_args_list
+    chunk_calls = [c for c in calls if c[0][0].get("type") == "chunk"]
+    assert len(chunk_calls) == 2
+    assert chunk_calls[0][0][0] == {"type": "chunk", "data": "chunk1"}
+    assert chunk_calls[1][0][0] == {"type": "chunk", "data": "chunk2"}
+
+
+async def test_task_status_sent_on_completion():
+    """When task completes, ConnectionManager.send_status is called with 'completed'."""
+    from src.server.connection_manager import ConnectionManager
+
+    mgr = ConnectionManager()
+    mgr.send_status = AsyncMock()
+
+    pool = AsyncMock()
+    # Mock TaskRepository
+    with patch("src.engine.manager.TaskRepository") as mock_repo_cls:
+        mock_repo = AsyncMock()
+        mock_repo.create.return_value = 1
+        mock_repo_cls.return_value = mock_repo
+
+        from src.engine.manager import TaskManager
+        tm = TaskManager(pool=pool, max_concurrent=2, connection_manager=mgr)
+
+        with patch("src.engine.manager.orchestrate_pipeline", new_callable=AsyncMock):
+            task_id = await tm.submit("test prompt")
+            # Wait for async task to complete
+            await asyncio.sleep(0.2)
+
+    mgr.send_status.assert_any_call(task_id, "completed")
+
+
+async def test_task_status_sent_on_failure():
+    """When task fails, ConnectionManager.send_status is called with 'failed'."""
+    from src.server.connection_manager import ConnectionManager
+
+    mgr = ConnectionManager()
+    mgr.send_status = AsyncMock()
+
+    pool = AsyncMock()
+    with patch("src.engine.manager.TaskRepository") as mock_repo_cls:
+        mock_repo = AsyncMock()
+        mock_repo.create.return_value = 1
+        mock_repo_cls.return_value = mock_repo
+
+        from src.engine.manager import TaskManager
+        tm = TaskManager(pool=pool, max_concurrent=2, connection_manager=mgr)
+
+        with patch(
+            "src.engine.manager.orchestrate_pipeline",
+            side_effect=RuntimeError("boom"),
+        ):
+            task_id = await tm.submit("test prompt")
+            await asyncio.sleep(0.2)
+
+    mgr.send_status.assert_any_call(task_id, "failed")
