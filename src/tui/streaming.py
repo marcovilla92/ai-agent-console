@@ -23,7 +23,11 @@ if TYPE_CHECKING:
     from src.tui.app import AgentConsoleApp
     from src.tui.panels import OutputPanel
 
+import logging
+
 import aiosqlite
+
+slog = logging.getLogger(__name__)
 
 
 async def stream_agent_to_panel(
@@ -40,14 +44,17 @@ async def stream_agent_to_panel(
     Returns the parsed sections dict when complete.
     """
     config = get_agent_config(agent_name)
+    slog.info("stream_agent_to_panel: agent=%s system_prompt=%s", agent_name, config.system_prompt_file)
 
     # Build full prompt with workspace context
     context = assemble_workspace_context(app.project_path)
     full_prompt = f"{context}\n{prompt}"
+    slog.info("stream_agent_to_panel: context_len=%d full_prompt_len=%d", len(context), len(full_prompt))
 
     # Stream output line by line into the panel
     chunks: list[str] = []
     usage_data: dict | None = None
+    slog.info("stream_agent_to_panel: starting stream_claude for agent=%s...", agent_name)
     async for chunk in stream_claude(
         full_prompt,
         system_prompt_file=config.system_prompt_file,
@@ -55,6 +62,7 @@ async def stream_agent_to_panel(
         if isinstance(chunk, dict):
             # Result event with usage metadata
             usage_data = chunk
+            slog.info("stream_agent_to_panel: got result event for agent=%s", agent_name)
         else:
             chunks.append(chunk)
             # Write each chunk to the panel for real-time display
@@ -62,6 +70,7 @@ async def stream_agent_to_panel(
 
     raw_output = "".join(chunks)
     sections = extract_sections(raw_output)
+    slog.info("stream_agent_to_panel: agent=%s done output_len=%d sections=%s", agent_name, len(raw_output), list(sections.keys()))
 
     # Update status bar with usage info
     if usage_data is not None and hasattr(app, "status_bar"):
@@ -144,6 +153,10 @@ def start_orchestrator_worker(
     """
 
     async def _run_orchestrator() -> None:
+        import logging
+        log = logging.getLogger(__name__)
+        log.info("_run_orchestrator started")
+
         # Local import to avoid circular dependency
         from src.pipeline.orchestrator import orchestrate_pipeline
 
@@ -155,7 +168,11 @@ def start_orchestrator_worker(
         )
 
         try:
-            state = await orchestrate_pipeline(app, prompt, db, session_id)
+            from src.tui.task_context import TuiTaskContext
+            ctx = TuiTaskContext(app)
+            log.info("calling orchestrate_pipeline")
+            state = await orchestrate_pipeline(ctx, prompt, db, session_id)
+            log.info("orchestrate_pipeline returned: approved=%s halted=%s", state.approved, state.halted)
 
             if state.approved:
                 # Only update status if orchestrator hasn't already set "committed"
@@ -175,6 +192,7 @@ def start_orchestrator_worker(
                     next_action="Enter a new prompt",
                 )
         except Exception as exc:
+            log.error("orchestrator error: %s", exc, exc_info=True)
             app.status_bar.set_status(
                 agent="orchestrator",
                 state="error",

@@ -59,7 +59,11 @@ def send_prompt(app: AgentConsoleApp) -> str | None:
     which routes agents through iterative cycles.
     Returns the prompt text or None if empty.
     """
+    import logging
+    log = logging.getLogger(__name__)
+    log.info("send_prompt called")
     prompt = get_prompt_text(app)
+    log.info("prompt text: %r", prompt)
     if prompt is None:
         return None
 

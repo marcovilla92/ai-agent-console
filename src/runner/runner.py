@@ -58,6 +58,10 @@ async def stream_claude(
         cmd += extra_args
     cmd.append(prompt)
 
+    log.info("stream_claude: launching cmd=%s", " ".join(cmd[:6]) + "...")
+    log.info("stream_claude: system_prompt_file=%s", system_prompt_file)
+    log.info("stream_claude: prompt_len=%d prompt_preview=%r", len(prompt), prompt[:200])
+
     # Remove CLAUDECODE env var to allow nested Claude CLI calls
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
@@ -67,10 +71,13 @@ async def stream_claude(
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
+    log.info("stream_claude: process started pid=%s", proc.pid)
 
     # Drain stderr concurrently -- never block on it
     stderr_task = asyncio.create_task(proc.stderr.read())
     got_deltas = False
+    chunk_count = 0
+    total_chars = 0
 
     async for raw_line in proc.stdout:
         line = raw_line.decode().strip()
@@ -89,10 +96,15 @@ async def stream_claude(
             delta = data.get("delta", {})
             if delta.get("type") == "text_delta" and delta.get("text"):
                 got_deltas = True
+                chunk_count += 1
+                total_chars += len(delta["text"])
+                if chunk_count <= 3 or chunk_count % 50 == 0:
+                    log.debug("stream_claude: delta #%d chars_so_far=%d preview=%r", chunk_count, total_chars, delta["text"][:80])
                 yield delta["text"]
 
         # Final assistant message — fallback only if no deltas were received
         elif msg_type == "assistant" and not got_deltas:
+            log.info("stream_claude: got assistant message (fallback mode)")
             for block in data.get("message", {}).get("content", []):
                 if block.get("type") == "text" and block.get("text"):
                     yield block["text"]
@@ -100,7 +112,7 @@ async def stream_claude(
         # Result event — yield as dict with usage/cost metadata
         elif msg_type == "result":
             usage = data.get("usage", {})
-            yield {
+            result_data = {
                 "type": "result",
                 "cost_usd": data.get("cost_usd", 0.0),
                 "num_turns": data.get("num_turns", 0),
@@ -110,15 +122,24 @@ async def stream_claude(
                 "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
                 "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),
             }
+            log.info("stream_claude: result event cost=$%.4f input_tok=%d output_tok=%d chunks=%d chars=%d",
+                     result_data["cost_usd"], result_data["input_tokens"],
+                     result_data["output_tokens"], chunk_count, total_chars)
+            yield result_data
+        else:
+            log.debug("stream_claude: skipped event type=%s", msg_type)
 
     await proc.wait()
     stderr = await stderr_task
+    log.info("stream_claude: process exited rc=%s total_chunks=%d total_chars=%d", proc.returncode, chunk_count, total_chars)
 
     if proc.returncode != 0:
+        stderr_text = stderr.decode(errors="replace")
+        log.error("stream_claude: FAILED rc=%s stderr=%s", proc.returncode, stderr_text[:500])
         raise subprocess.CalledProcessError(
             proc.returncode,
             "claude",
-            stderr=stderr.decode(errors="replace"),
+            stderr=stderr_text,
         )
 
 
@@ -138,6 +159,9 @@ async def call_orchestrator_claude(prompt: str, schema: str) -> str:
         prompt,
     ]
 
+    log.info("call_orchestrator_claude: launching decision call, prompt_len=%d", len(prompt))
+    log.debug("call_orchestrator_claude: prompt_preview=%r", prompt[:300])
+
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
     proc = await asyncio.create_subprocess_exec(
@@ -146,16 +170,22 @@ async def call_orchestrator_claude(prompt: str, schema: str) -> str:
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
+    log.info("call_orchestrator_claude: process started pid=%s", proc.pid)
     stdout, stderr = await proc.communicate()
+    log.info("call_orchestrator_claude: process exited rc=%s stdout_len=%d", proc.returncode, len(stdout))
 
     if proc.returncode != 0:
+        stderr_text = stderr.decode(errors="replace")
+        log.error("call_orchestrator_claude: FAILED stderr=%s", stderr_text[:500])
         raise subprocess.CalledProcessError(
             proc.returncode,
             "claude",
-            stderr=stderr.decode(errors="replace"),
+            stderr=stderr_text,
         )
 
-    return stdout.decode()
+    result = stdout.decode()
+    log.info("call_orchestrator_claude: response=%r", result[:500])
+    return result
 
 
 async def collect_claude(prompt: str, **kwargs) -> str:

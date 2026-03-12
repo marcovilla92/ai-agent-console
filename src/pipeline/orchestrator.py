@@ -214,15 +214,20 @@ async def orchestrate_pipeline(
         session_id: Task/session ID for DB logging (optional).
     """
     state = OrchestratorState(session_id=session_id, original_prompt=prompt)
+    log.info("orchestrate_pipeline: started prompt_len=%d session_id=%s", len(prompt), session_id)
 
     while not state.halted and not state.approved:
+        log.info("orchestrate_pipeline: === LOOP iteration=%d agent=%s ===", state.iteration_count, state.current_agent)
+
         # 1. Build prompt for current agent (include accumulated handoffs)
         agent_prompt = prompt
         if state.accumulated_handoffs:
             handoff_context = "\n\n".join(state.accumulated_handoffs)
             agent_prompt = f"{prompt}\n\n{handoff_context}"
+            log.info("orchestrate_pipeline: added %d handoffs to prompt", len(state.accumulated_handoffs))
 
         # 2. Run current agent (streams via TaskContext)
+        log.info("orchestrate_pipeline: streaming agent=%s prompt_len=%d", state.current_agent, len(agent_prompt))
         await ctx.update_status(
             agent=state.current_agent,
             state="streaming",
@@ -233,6 +238,7 @@ async def orchestrate_pipeline(
         sections = await ctx.stream_output(
             state.current_agent, agent_prompt, {},
         )
+        log.info("orchestrate_pipeline: agent=%s completed sections=%s", state.current_agent, list(sections.keys()))
 
         # 3. Record in history
         state.history.append({
@@ -243,10 +249,14 @@ async def orchestrate_pipeline(
         # 4. If review just ran, increment iteration counter
         if state.current_agent == "review":
             state.iteration_count += 1
+            log.info("orchestrate_pipeline: review done, iteration_count=%d", state.iteration_count)
 
         # 5. Call Claude CLI for routing decision
+        log.info("orchestrate_pipeline: requesting routing decision...")
         decision = await get_orchestrator_decision(state, sections)
         state.decisions.append(decision)
+        log.info("orchestrate_pipeline: decision next=%s confidence=%.2f reasoning=%s",
+                 decision.next_agent, decision.confidence, decision.reasoning)
 
         # 6. Update status with reasoning
         await ctx.update_status(
@@ -262,11 +272,15 @@ async def orchestrate_pipeline(
 
         # 8. Handle the decision
         if decision.next_agent == "approved":
+            log.info("orchestrate_pipeline: APPROVED")
             state.approved = True
         elif decision.next_agent in ("plan", "execute") and state.current_agent == "review":
+            log.info("orchestrate_pipeline: re-routing from review to %s", decision.next_agent)
             # Re-routing: check iteration limit
             if state.iteration_count >= state.max_iterations:
+                log.info("orchestrate_pipeline: iteration limit reached, asking user")
                 user_choice = await ctx.handle_halt(state.iteration_count)
+                log.info("orchestrate_pipeline: user chose: %s", user_choice)
                 if user_choice == "continue":
                     state.iteration_count = 0  # Reset for 3 more
                 elif user_choice == "approve":
@@ -290,10 +304,13 @@ async def orchestrate_pipeline(
                     sections=sections,
                 )
                 state.accumulated_handoffs.append(build_handoff(agent_result))
+                log.info("orchestrate_pipeline: reroute confirmed, now agent=%s", state.current_agent)
             else:
+                log.info("orchestrate_pipeline: reroute rejected, halting")
                 state.halted = True
         else:
             # Normal forward progression: plan->execute->review
+            log.info("orchestrate_pipeline: forward to %s", decision.next_agent)
             state.current_agent = decision.next_agent
 
     # Auto-commit to git if pipeline was approved

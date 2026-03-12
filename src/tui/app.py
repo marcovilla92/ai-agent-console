@@ -8,6 +8,7 @@ Dark theme, keyboard-driven workflow.
 from pathlib import Path
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Container
 from textual.widgets import Footer, Header
 
@@ -28,10 +29,10 @@ class AgentConsoleApp(App):
 
     BINDINGS = [
         ("tab", "cycle_focus", "Next Panel"),
-        ("ctrl+s", "send_prompt", "Send"),
-        ("ctrl+p", "run_plan", "Plan"),
-        ("ctrl+e", "run_execute", "Execute"),
-        ("ctrl+r", "run_review", "Review"),
+        Binding("ctrl+s", "send_prompt", "Send", priority=True),
+        Binding("ctrl+p", "run_plan", "Plan", priority=True),
+        Binding("ctrl+e", "run_execute", "Execute", priority=True),
+        Binding("ctrl+r", "run_review", "Review", priority=True),
         ("ctrl+1", "toggle_panel('prompt-panel')", "Toggle Prompt"),
         ("ctrl+2", "toggle_panel('plan-panel')", "Toggle Plan"),
         ("ctrl+3", "toggle_panel('execute-panel')", "Toggle Execute"),
@@ -98,6 +99,8 @@ class AgentConsoleApp(App):
 
     def action_send_prompt(self) -> None:
         """Send prompt to the full pipeline (plan -> execute -> review)."""
+        import logging
+        logging.getLogger(__name__).info("action_send_prompt triggered")
         send_prompt(self)
 
     def action_run_plan(self) -> None:
