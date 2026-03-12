@@ -12,7 +12,7 @@ This roadmap takes the project from zero to a working terminal-based multi-agent
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Data models, async subprocess runner, SQLite persistence, output parser with fallbacks
+- [x] **Phase 1: Foundation** - Data models, async subprocess runner, SQLite persistence, output parser with fallbacks (completed 2026-03-12)
 - [ ] **Phase 2: Agent Pipeline** - PLAN/EXECUTE/REVIEW agents with structured contracts, project creation, rule-based sequential flow
 - [ ] **Phase 3: TUI Shell** - 4-panel Textual layout, streaming display, keyboard shortcuts, status bar, dark theme
 - [ ] **Phase 4: Orchestrator Intelligence** - AI-driven routing via Claude CLI, iterative review cycles, cycle detection, decision visibility
@@ -109,7 +109,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 2/3 | In Progress|  |
+| 1. Foundation | 3/3 | Complete   | 2026-03-12 |
 | 2. Agent Pipeline | 0/3 | Not started | - |
 | 3. TUI Shell | 0/3 | Not started | - |
 | 4. Orchestrator Intelligence | 0/2 | Not started | - |

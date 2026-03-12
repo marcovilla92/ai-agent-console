@@ -35,13 +35,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **INFR-01**: Claude CLI invoked via asyncio.create_subprocess_exec with streaming stdout
 - [ ] **INFR-02**: Streaming output displays line-by-line in real-time in TUI panels
-- [ ] **INFR-03**: Sessions persisted in SQLite database (prompts, plans, execute outputs, reviews, orchestrator decisions)
+- [x] **INFR-03**: Sessions persisted in SQLite database (prompts, plans, execute outputs, reviews, orchestrator decisions)
 - [ ] **INFR-04**: User creates new project by entering name, system creates dedicated folder under workspace
-- [ ] **INFR-05**: Retry logic with 3 attempts and exponential backoff on Claude CLI errors
+- [x] **INFR-05**: Retry logic with 3 attempts and exponential backoff on Claude CLI errors
 - [ ] **INFR-06**: Git auto-commit after successful execution cycles with descriptive commit messages
 - [ ] **INFR-07**: Token usage and estimated cost tracked per agent per cycle, displayed in status bar
 - [ ] **INFR-08**: User can browse past sessions and resume any previous session
-- [ ] **INFR-09**: Workspace context (project path, existing files, detected stack, session history) shared across all agent calls via system prompts
+- [x] **INFR-09**: Workspace context (project path, existing files, detected stack, session history) shared across all agent calls via system prompts
 
 ## v2 Requirements
 
@@ -99,13 +99,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORCH-04 | Phase 4 | Pending |
 | INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 3 | Pending |
-| INFR-03 | Phase 1 | Pending |
+| INFR-03 | Phase 1 | Complete |
 | INFR-04 | Phase 2 | Pending |
-| INFR-05 | Phase 1 | Pending |
+| INFR-05 | Phase 1 | Complete |
 | INFR-06 | Phase 5 | Pending |
 | INFR-07 | Phase 5 | Pending |
 | INFR-08 | Phase 5 | Pending |
-| INFR-09 | Phase 1 | Pending |
+| INFR-09 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 24 total
