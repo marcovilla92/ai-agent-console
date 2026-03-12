@@ -26,6 +26,18 @@ async def db_conn():
             created_at TEXT NOT NULL
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS orchestrator_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL REFERENCES sessions(id),
+            next_agent TEXT NOT NULL,
+            reasoning TEXT NOT NULL,
+            confidence REAL,
+            full_response TEXT NOT NULL,
+            iteration_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
     await db.commit()
     yield db
     await db.close()
