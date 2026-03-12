@@ -48,3 +48,74 @@ async def test_bindings_include_toggle_keys():
         assert "ctrl+2" in binding_keys
         assert "ctrl+3" in binding_keys
         assert "ctrl+4" in binding_keys
+
+
+# --- Panel Resize Tests ---
+
+
+async def test_resize_row_up_increases_top():
+    """action_resize_row('up') increases top row ratio."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        assert app._row_top == 1
+        assert app._row_bottom == 1
+        app.action_resize_row("up")
+        assert app._row_top == 2
+        assert app._row_bottom == 1
+
+
+async def test_resize_row_down_increases_bottom():
+    """action_resize_row('down') increases bottom row ratio."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        app.action_resize_row("down")
+        assert app._row_bottom == 2
+        assert app._row_top == 1
+
+
+async def test_resize_row_clamp_max():
+    """Row ratios are clamped at 4."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        for _ in range(5):
+            app.action_resize_row("up")
+        assert app._row_top == 4
+        assert app._row_bottom == 1
+
+
+async def test_resize_row_clamp_min():
+    """Row ratios cannot go below 1."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        for _ in range(5):
+            app.action_resize_row("down")
+        assert app._row_top == 1
+        assert app._row_bottom == 4
+
+
+async def test_resize_col_left_increases_left():
+    """action_resize_col('left') increases left column ratio."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        app.action_resize_col("left")
+        assert app._col_left == 2
+        assert app._col_right == 1
+
+
+async def test_resize_col_right_increases_right():
+    """action_resize_col('right') increases right column ratio."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        app.action_resize_col("right")
+        assert app._col_right == 2
+        assert app._col_left == 1
+
+
+async def test_resize_col_clamp():
+    """Column ratios are clamped between 1 and 4."""
+    async with AgentConsoleApp().run_test() as pilot:
+        app = pilot.app
+        for _ in range(5):
+            app.action_resize_col("left")
+        assert app._col_left == 4
+        assert app._col_right == 1
