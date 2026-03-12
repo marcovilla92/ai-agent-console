@@ -1,0 +1,64 @@
+"""
+Repository classes for Session and AgentOutput persistence.
+
+Both classes accept an aiosqlite.Connection injected at construction.
+Use a single shared connection for the app lifetime to avoid lock contention.
+"""
+import aiosqlite
+from typing import Optional
+
+from src.db.schema import Session, AgentOutput
+
+
+class SessionRepository:
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def create(self, session: Session) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO sessions (name, project_path, created_at) VALUES (?, ?, ?)",
+            (session.name, session.project_path, session.created_at),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get(self, session_id: int) -> Optional[Session]:
+        async with self._db.execute(
+            "SELECT id, name, project_path, created_at FROM sessions WHERE id = ?",
+            (session_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return Session(id=row[0], name=row[1], project_path=row[2], created_at=row[3])
+
+    async def list_all(self) -> list[Session]:
+        async with self._db.execute(
+            "SELECT id, name, project_path, created_at FROM sessions ORDER BY id DESC"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [Session(id=r[0], name=r[1], project_path=r[2], created_at=r[3]) for r in rows]
+
+
+class AgentOutputRepository:
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self._db = db
+
+    async def create(self, output: AgentOutput) -> int:
+        cursor = await self._db.execute(
+            "INSERT INTO agent_outputs (session_id, agent_type, raw_output, created_at) VALUES (?, ?, ?, ?)",
+            (output.session_id, output.agent_type, output.raw_output, output.created_at),
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_by_session(self, session_id: int) -> list[AgentOutput]:
+        async with self._db.execute(
+            "SELECT id, session_id, agent_type, raw_output, created_at FROM agent_outputs WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                AgentOutput(id=r[0], session_id=r[1], agent_type=r[2], raw_output=r[3], created_at=r[4])
+                for r in rows
+            ]
