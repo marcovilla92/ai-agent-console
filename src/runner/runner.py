@@ -37,7 +37,7 @@ async def stream_claude(
     *,
     system_prompt_file: str | None = None,
     extra_args: list[str] | None = None,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str | dict, None]:
     """
     Async generator that launches Claude CLI and yields text chunks.
 
@@ -96,6 +96,20 @@ async def stream_claude(
             for block in data.get("message", {}).get("content", []):
                 if block.get("type") == "text" and block.get("text"):
                     yield block["text"]
+
+        # Result event — yield as dict with usage/cost metadata
+        elif msg_type == "result":
+            usage = data.get("usage", {})
+            yield {
+                "type": "result",
+                "cost_usd": data.get("cost_usd", 0.0),
+                "num_turns": data.get("num_turns", 0),
+                "session_id": data.get("session_id", ""),
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+                "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+                "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),
+            }
 
     await proc.wait()
     stderr = await stderr_task

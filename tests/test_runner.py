@@ -27,7 +27,12 @@ async def test_stream_lines_yielded(mock_claude_proc, monkeypatch):
     async for chunk in stream_claude("test prompt"):
         result.append(chunk)
 
-    assert result == ["hello"]
+    # First chunk is text from assistant message, second is result dict
+    text_chunks = [c for c in result if isinstance(c, str)]
+    assert text_chunks == ["hello"]
+    result_chunks = [c for c in result if isinstance(c, dict)]
+    assert len(result_chunks) == 1
+    assert result_chunks[0]["type"] == "result"
 
 
 async def test_stream_terminates(mock_claude_proc, monkeypatch):

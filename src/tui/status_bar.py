@@ -25,6 +25,8 @@ class StatusBar(Static):
         self._state = "idle"
         self._step = ""
         self._next_action = "Enter a prompt and press Ctrl+S"
+        self._tokens = ""
+        self._cost = ""
         self._display_text = ""
 
     def set_status(
@@ -46,6 +48,25 @@ class StatusBar(Static):
             self._next_action = next_action
         self._refresh_text()
 
+    def set_usage(
+        self,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cost_usd: float = 0.0,
+    ) -> None:
+        """Update token/cost display and refresh."""
+        total = input_tokens + output_tokens
+        if total > 0:
+            self._tokens = f"Tokens: {input_tokens}in/{output_tokens}out"
+        else:
+            self._tokens = ""
+        if cost_usd > 0:
+            self._cost = f"Cost: ${cost_usd:.4f}"
+        else:
+            self._cost = ""
+        self._refresh_text()
+
     @property
     def display_text(self) -> str:
         """Current status bar text."""
@@ -58,6 +79,10 @@ class StatusBar(Static):
         ]
         if self._step:
             parts.append(f"Step: {self._step}")
+        if self._tokens:
+            parts.append(self._tokens)
+        if self._cost:
+            parts.append(self._cost)
         parts.append(f"Next: {self._next_action}")
         self._display_text = " | ".join(parts)
         self.update(self._display_text)

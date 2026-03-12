@@ -13,8 +13,8 @@ from textual.worker import Worker, WorkerState
 
 from src.agents.config import get_agent_config
 from src.context.assembler import assemble_workspace_context
-from src.db.repository import AgentOutputRepository
-from src.db.schema import AgentOutput
+from src.db.repository import AgentOutputRepository, UsageRepository
+from src.db.schema import AgentOutput, AgentUsage
 from src.parser.extractor import extract_sections
 from src.runner.runner import stream_claude
 from src.tui.actions import AGENT_PANEL_MAP, complete_agent_run
@@ -47,16 +47,29 @@ async def stream_agent_to_panel(
 
     # Stream output line by line into the panel
     chunks: list[str] = []
+    usage_data: dict | None = None
     async for chunk in stream_claude(
         full_prompt,
         system_prompt_file=config.system_prompt_file,
     ):
-        chunks.append(chunk)
-        # Write each chunk to the panel for real-time display
-        panel.write(chunk)
+        if isinstance(chunk, dict):
+            # Result event with usage metadata
+            usage_data = chunk
+        else:
+            chunks.append(chunk)
+            # Write each chunk to the panel for real-time display
+            panel.write(chunk)
 
     raw_output = "".join(chunks)
     sections = extract_sections(raw_output)
+
+    # Update status bar with usage info
+    if usage_data is not None and hasattr(app, "status_bar"):
+        app.status_bar.set_usage(
+            input_tokens=usage_data.get("input_tokens", 0),
+            output_tokens=usage_data.get("output_tokens", 0),
+            cost_usd=usage_data.get("cost_usd", 0.0),
+        )
 
     # Persist to DB if connection available
     if db is not None and session_id is not None:
@@ -67,6 +80,20 @@ async def stream_agent_to_panel(
             raw_output=raw_output,
             created_at=datetime.now(timezone.utc).isoformat(),
         ))
+
+        # Persist usage data
+        if usage_data is not None:
+            usage_repo = UsageRepository(db)
+            await usage_repo.create(AgentUsage(
+                session_id=session_id,
+                agent_type=agent_name,
+                input_tokens=usage_data.get("input_tokens", 0),
+                output_tokens=usage_data.get("output_tokens", 0),
+                cache_read_tokens=usage_data.get("cache_read_tokens", 0),
+                cache_creation_tokens=usage_data.get("cache_creation_tokens", 0),
+                cost_usd=usage_data.get("cost_usd", 0.0),
+                created_at=datetime.now(timezone.utc).isoformat(),
+            ))
 
     return sections
 
