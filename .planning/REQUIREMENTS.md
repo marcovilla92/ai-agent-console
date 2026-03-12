@@ -33,7 +33,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFR-01**: Claude CLI invoked via asyncio.create_subprocess_exec with streaming stdout
+- [x] **INFR-01**: Claude CLI invoked via asyncio.create_subprocess_exec with streaming stdout
 - [ ] **INFR-02**: Streaming output displays line-by-line in real-time in TUI panels
 - [ ] **INFR-03**: Sessions persisted in SQLite database (prompts, plans, execute outputs, reviews, orchestrator decisions)
 - [ ] **INFR-04**: User creates new project by entering name, system creates dedicated folder under workspace
@@ -97,7 +97,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORCH-02 | Phase 4 | Pending |
 | ORCH-03 | Phase 4 | Pending |
 | ORCH-04 | Phase 4 | Pending |
-| INFR-01 | Phase 1 | Pending |
+| INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 3 | Pending |
 | INFR-03 | Phase 1 | Pending |
 | INFR-04 | Phase 2 | Pending |
