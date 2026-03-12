@@ -23,7 +23,7 @@ Requirements for web platform release. Each maps to roadmap phases.
 - [x] **TASK-01**: User can cancel a running task with subprocess cleanup
 - [x] **TASK-02**: User can run up to 2 tasks concurrently
 - [x] **TASK-03**: User can choose supervised or autonomous mode per task
-- [ ] **TASK-04**: User can approve or reject agent actions via approval gate UI with context
+- [x] **TASK-04**: User can approve or reject agent actions via approval gate UI with context
 
 ### Infrastructure
 
@@ -74,7 +74,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TASK-01 | Phase 7 | Complete |
 | TASK-02 | Phase 7 | Complete |
 | TASK-03 | Phase 7 | Complete |
-| TASK-04 | Phase 9 | Pending |
+| TASK-04 | Phase 9 | Complete |
 | INFR-01 | Phase 6 | Complete |
 | INFR-02 | Phase 7 | Complete |
 | INFR-03 | Phase 11 | Pending |

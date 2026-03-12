@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Web Platform
 status: completed
 stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-03-12T20:05:40.731Z"
+last_updated: "2026-03-12T20:48:53.921Z"
 last_activity: 2026-03-12 -- Completed 08-01 WebSocket Streaming Core
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 8 -- WebSocket Streaming
+**Current focus:** Phase 9 -- Approval Gates
 
 ## Current Position
 
-Phase: 8 of 11 (WebSocket Streaming)
+Phase: 9 of 11 (Approval Gates)
 Plan: 1 of 1 in current phase (COMPLETE)
 Status: Phase Complete
-Last activity: 2026-03-12 -- Completed 08-01 WebSocket Streaming Core
+Last activity: 2026-03-12 -- Completed 09-01 Approval Gates
 
-Progress: [██████████] 100% (v2.0: 5/5 plans)
+Progress: [██████████] 100% (v2.0: 6/6 plans)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [██████████] 100% (v2.0: 5/5 plans)
 | Phase 07 P01 | 3min | 2 tasks | 8 files |
 | Phase 07 P02 | 3min | 2 tasks | 6 files |
 | Phase 08 P01 | 11min | 2 tasks | 7 files |
+| Phase 09 P01 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,10 @@ Progress: [██████████] 100% (v2.0: 5/5 plans)
 - [Phase 08]: ConnectionManager auto-prunes dead sockets on broadcast
 - [Phase 08]: Heartbeat ping every 25s keeps reverse proxy connections alive
 - [Phase 08]: connection_manager=None preserves backward compatibility for non-web contexts
+- [Phase 09]: asyncio.Event for approval gate pause/resume -- lightweight, no external deps
+- [Phase 09]: Status transitions: running -> awaiting_approval -> running on approve
+- [Phase 09]: Pydantic Literal['approve','reject','continue'] for decision validation (422 on invalid)
+- [Phase 09]: 409 Conflict for approve on non-awaiting task, 404 for missing task
 
 ### Pending Todos
 
@@ -86,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T19:44:15.000Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-03-12T20:39:04Z
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
