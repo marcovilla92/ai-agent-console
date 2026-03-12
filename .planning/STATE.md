@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Web Platform
-status: completed
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-03-12T19:19:43.007Z"
-last_activity: 2026-03-12 -- Completed 07-02 Task REST Endpoints
+status: in-progress
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-03-12T19:44:15.000Z"
+last_activity: 2026-03-12 -- Completed 08-01 WebSocket Streaming Core
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
   percent: 100
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 7 -- Task Engine and API
+**Current focus:** Phase 8 -- WebSocket Streaming
 
 ## Current Position
 
-Phase: 7 of 11 (Task Engine and API)
-Plan: 2 of 2 in current phase (COMPLETE)
+Phase: 8 of 11 (WebSocket Streaming)
+Plan: 1 of 1 in current phase (COMPLETE)
 Status: Phase Complete
-Last activity: 2026-03-12 -- Completed 07-02 Task REST Endpoints
+Last activity: 2026-03-12 -- Completed 08-01 WebSocket Streaming Core
 
-Progress: [██████████] 100% (v2.0: 4/4 plans)
+Progress: [██████████] 100% (v2.0: 5/5 plans)
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [██████████] 100% (v2.0: 4/4 plans)
 | Phase 06 P02 | 6min | 2 tasks | 8 files |
 | Phase 07 P01 | 3min | 2 tasks | 8 files |
 | Phase 07 P02 | 3min | 2 tasks | 6 files |
+| Phase 08 P01 | 11min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,10 @@ Progress: [██████████] 100% (v2.0: 4/4 plans)
 - [Phase 07]: HTTP Basic Auth with secrets.compare_digest for timing-safe credential comparison
 - [Phase 07]: Router-level auth dependency protects all /tasks endpoints, /health stays open
 - [Phase 07]: TaskManager created in lifespan after schema migration, shutdown before pool close
+- [Phase 08]: Base64 query token auth for WebSocket (browsers cannot set WS headers)
+- [Phase 08]: ConnectionManager auto-prunes dead sockets on broadcast
+- [Phase 08]: Heartbeat ping every 25s keeps reverse proxy connections alive
+- [Phase 08]: connection_manager=None preserves backward compatibility for non-web contexts
 
 ### Pending Todos
 
@@ -81,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-12T19:14:37.874Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-03-12T19:44:15.000Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None

@@ -16,7 +16,7 @@ Requirements for web platform release. Each maps to roadmap phases.
 
 ### Streaming
 
-- [ ] **STRM-01**: User sees real-time Claude CLI output streamed via WebSocket during task execution
+- [x] **STRM-01**: User sees real-time Claude CLI output streamed via WebSocket during task execution
 
 ### Task Management
 
@@ -70,7 +70,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-02 | Phase 10 | Pending |
 | DASH-03 | Phase 10 | Pending |
 | DASH-04 | Phase 10 | Pending |
-| STRM-01 | Phase 8 | Pending |
+| STRM-01 | Phase 8 | Complete |
 | TASK-01 | Phase 7 | Complete |
 | TASK-02 | Phase 7 | Complete |
 | TASK-03 | Phase 7 | Complete |
