@@ -1,0 +1,15 @@
+# Core dependencies
+aiosqlite>=0.20
+tenacity>=8.0
+textual>=0.50
+
+# v2.0 Web Platform
+asyncpg>=0.30
+fastapi>=0.115
+uvicorn>=0.34
+pydantic-settings>=2.0
+httpx>=0.28
+
+# Dev/Test
+pytest>=8.0
+pytest-asyncio>=0.24
