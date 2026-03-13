@@ -53,7 +53,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. Tasks table has a nullable project_id FK column -- existing tasks with NULL project_id continue to work
   3. ProjectRepository can insert, get, list, delete, and update_last_used for project records
   4. All existing tests pass unchanged (conftest teardown order updated for FK constraint)
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
 
 ### Phase 13: Template System
 **Goal**: Users can browse, inspect, create, update, and delete project templates, with 4 builtin templates ready for scaffolding
@@ -65,7 +67,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. GET /templates/{id} returns template detail including file manifest
   4. User can create, update, and delete custom templates via POST/PUT/DELETE /templates endpoints
   5. Builtin templates reject modification and deletion with 403 Forbidden
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
 
 ### Phase 14: Context Assembly
 **Goal**: The system can assemble rich project context from multiple sources and suggest the next development phase
@@ -77,7 +81,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. GET /projects/{id}/context returns the assembled context for a given project
   4. suggest_next_phase() parses STATE.md and ROADMAP.md to identify the current phase and next action
   5. GET /projects/{id}/suggested-phase returns the phase suggestion with name and description
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
 
 ### Phase 15: Project Service and API
 **Goal**: Users can create projects from templates, list all projects with auto-discovered folders, and delete project records through the API
@@ -89,7 +95,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. DELETE /projects/{id} removes the project record from the database without touching the filesystem
   4. Untracked folders in ~/projects/ are auto-registered on list with ON CONFLICT safety (no race condition errors)
   5. emit_event() stub is called at project.created, project.deleted, task.started, task.completed, task.failed, phase.suggested lifecycle points (no-op, no network calls)
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
 
 ### Phase 16: Task-Project Integration
 **Goal**: Task creation accepts a project context that enriches the prompt sent to Claude, linking tasks to projects
@@ -100,7 +108,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. When project_id is provided, assembled project context is prepended to the prompt before Claude receives it
   3. Creating a task with a project_id updates that project's last_used_at timestamp
   4. Existing tasks (project_id = NULL) remain visible and functional in the task list
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
 
 ### Phase 17: SPA Frontend
 **Goal**: Users interact with the console through a single-page Alpine.js app with project selection, creation, prompt composition with phase suggestions, and streaming output
@@ -112,7 +122,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. Project creation view lets user enter name, description, and pick a template -- submitting scaffolds the project
   4. Prompt view shows phase suggestion, context preview toggle, and prompt textarea -- submitting creates a task
   5. Running view streams WebSocket output reusing existing WS logic, with x-show view switching preserving the connection
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
 
 ## Progress
 
@@ -134,7 +146,7 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 9. Approval Gates | v2.0 | 1/1 | Complete | 2026-03-12 |
 | 10. Dashboard Frontend | v2.0 | 3/3 | Complete | 2026-03-13 |
 | 11. Docker Deployment | v2.0 | 1/1 | Complete | 2026-03-13 |
-| 12. DB Foundation | v2.1 | 0/0 | Not started | - |
+| 12. DB Foundation | v2.1 | 0/1 | Not started | - |
 | 13. Template System | v2.1 | 0/0 | Not started | - |
 | 14. Context Assembly | v2.1 | 0/0 | Not started | - |
 | 15. Project Service and API | v2.1 | 0/0 | Not started | - |
