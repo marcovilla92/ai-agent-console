@@ -27,7 +27,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [ ] **Phase 8: WebSocket Streaming** - Real-time Claude CLI output streamed to browser via WebSocket
 - [ ] **Phase 9: Approval Gates** - Supervised mode with per-task autonomy selection and approval/reject flow
 - [x] **Phase 10: Dashboard Frontend** - Alpine.js browser UI consuming all REST and WebSocket APIs (completed 2026-03-12)
-- [ ] **Phase 11: Docker Deployment** - Containerized application deployed on Coolify with Traefik proxy
+- [x] **Phase 11: Docker Deployment** - Containerized application deployed on Coolify with Traefik proxy (completed 2026-03-13)
 
 ## Phase Details
 
@@ -138,4 +138,4 @@ Phases execute in numeric order: 6 -> 7 -> 8 -> 9 -> 10 -> 11
 | 8. WebSocket Streaming | v2.0 | 0/1 | Not started | - |
 | 9. Approval Gates | v2.0 | 0/1 | Not started | - |
 | 10. Dashboard Frontend | 3/3 | Complete    | 2026-03-13 | - |
-| 11. Docker Deployment | v2.0 | 0/1 | Not started | - |
+| 11. Docker Deployment | 1/1 | Complete   | 2026-03-13 | - |

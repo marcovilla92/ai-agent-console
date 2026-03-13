@@ -29,7 +29,7 @@ Requirements for web platform release. Each maps to roadmap phases.
 
 - [x] **INFR-01**: Task data persists in PostgreSQL (tasks, outputs, usage, decisions)
 - [x] **INFR-02**: All endpoints require HTTP Basic Auth
-- [ ] **INFR-03**: Application deploys as Docker container on Coolify with Traefik proxy
+- [x] **INFR-03**: Application deploys as Docker container on Coolify with Traefik proxy
 
 ## Future Requirements
 
@@ -77,7 +77,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TASK-04 | Phase 9 | Complete |
 | INFR-01 | Phase 6 | Complete |
 | INFR-02 | Phase 7 | Complete |
-| INFR-03 | Phase 11 | Pending |
+| INFR-03 | Phase 11 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 12 total
