@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: {{ slug }}-app
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_DATABASE_URL=postgresql://{{ slug }}:password@db:5432/{{ slug }}
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    container_name: {{ slug }}-db
+    environment:
+      POSTGRES_USER: {{ slug }}
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: {{ slug }}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  pgdata:

@@ -1,0 +1,27 @@
+# {{ name }}
+
+{{ description }}
+
+## Tech Stack
+
+- **Framework:** FastAPI with async/await throughout
+- **Database:** PostgreSQL with asyncpg (no ORM)
+- **Validation:** Pydantic v2 models for request/response
+- **Testing:** pytest + pytest-asyncio + httpx
+
+## Conventions
+
+- Use async def for all route handlers and DB operations
+- Use Pydantic BaseModel for all request/response schemas
+- Use asyncpg connection pools (not per-query connections)
+- SQL queries use parameterized placeholders ($1, $2)
+- Migrations are idempotent (CREATE TABLE IF NOT EXISTS)
+- Environment config via pydantic-settings with APP_ prefix
+
+## Project Structure
+
+- src/main.py - Application entry point
+- src/config.py - Settings and environment config
+- src/db/ - Database schema and migrations
+- src/routers/ - API route handlers
+- tests/ - Test suite

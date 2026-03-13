@@ -1,0 +1,17 @@
+# {{ name }}
+
+{{ description }}
+
+## Tech Stack
+
+- **CLI Framework:** Typer with rich output
+- **Structure:** Command modules in src/commands/
+- **Packaging:** pyproject.toml with console_scripts entry point
+
+## Conventions
+
+- Use typer.Typer() app with sub-command pattern
+- Each command in its own module under src/commands/
+- Use rich for formatted console output
+- Use typer.Option and typer.Argument for CLI parameters
+- Include --help text for all commands and options

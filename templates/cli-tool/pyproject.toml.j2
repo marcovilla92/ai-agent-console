@@ -1,0 +1,17 @@
+[project]
+name = "{{ slug }}"
+version = "0.1.0"
+description = "{{ description }}"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.scripts]
+{{ slug }} = "src.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]

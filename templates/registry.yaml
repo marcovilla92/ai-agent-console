@@ -1,0 +1,17 @@
+templates:
+  - id: blank
+    name: Vuoto
+    description: Struttura minima con CLAUDE.md e .planning/
+    builtin: true
+  - id: fastapi-pg
+    name: FastAPI + PostgreSQL
+    description: API REST con agenti per migration, testing, deploy
+    builtin: true
+  - id: telegram-bot
+    name: Bot Telegram
+    description: Bot con agenti per handler testing e deploy
+    builtin: true
+  - id: cli-tool
+    name: CLI Tool
+    description: CLI Python con agenti per packaging e release
+    builtin: true

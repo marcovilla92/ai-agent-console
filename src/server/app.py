@@ -16,6 +16,7 @@ from src.engine.manager import TaskManager
 from src.server.config import get_settings
 from src.server.connection_manager import ConnectionManager
 from src.server.routers.tasks import task_router
+from src.server.routers.templates import template_router
 from src.server.routers.views import view_router
 from src.server.routers.ws import ws_router
 
@@ -68,4 +69,5 @@ def create_app() -> FastAPI:
     app.include_router(task_router)
     app.include_router(ws_router)
     app.include_router(view_router)
+    app.include_router(template_router)
     return app
