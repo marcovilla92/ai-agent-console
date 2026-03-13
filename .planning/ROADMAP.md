@@ -100,11 +100,12 @@ Plans:
   3. User can create a new task with a prompt input field and mode selector (supervised/autonomous)
   4. User can approve or reject pending actions from the task detail view
   5. Dashboard is accessible from any device with a browser at the configured URL
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 10-01-PLAN.md -- Views router, base template, task list page with create form, and integration tests
-- [ ] 10-02-PLAN.md -- Task detail template with streaming log, approval UI, and detail page tests
+- [x] 10-01-PLAN.md -- Views router, base template, task list page with create form, and integration tests
+- [x] 10-02-PLAN.md -- Task detail template with streaming log, approval UI, and detail page tests
+- [ ] 10-03-PLAN.md -- Gap closure: GET /tasks/{id}/outputs endpoint and loadOutputs() implementation for agent step history
 
 ### Phase 11: Docker Deployment
 **Goal**: Application runs as a Docker container on Coolify, accessible at console.amcsystem.uk behind Traefik
@@ -136,5 +137,5 @@ Phases execute in numeric order: 6 -> 7 -> 8 -> 9 -> 10 -> 11
 | 7. Task Engine and API | 2/2 | Complete   | 2026-03-12 | - |
 | 8. WebSocket Streaming | v2.0 | 0/1 | Not started | - |
 | 9. Approval Gates | v2.0 | 0/1 | Not started | - |
-| 10. Dashboard Frontend | 2/2 | Complete   | 2026-03-12 | - |
+| 10. Dashboard Frontend | 2/3 | In Progress | - | - |
 | 11. Docker Deployment | v2.0 | 0/1 | Not started | - |
