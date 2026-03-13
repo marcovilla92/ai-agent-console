@@ -97,9 +97,10 @@ Plans:
   3. DELETE /projects/{id} removes the project record from the database without touching the filesystem
   4. Untracked folders in ~/projects/ are auto-registered on list with ON CONFLICT safety (no race condition errors)
   5. emit_event() stub is called at project.created, project.deleted, task.started, task.completed, task.failed, phase.suggested lifecycle points (no-op, no network calls)
-**Plans**: 1 plan
+**Plans**: 2 plans
 Plans:
-- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
+- [ ] 15-01-PLAN.md -- Events stub, detect_stack, upsert_by_path, ProjectService list/delete
+- [ ] 15-02-PLAN.md -- Router endpoints (GET/POST/DELETE /projects), template scaffolding, emit_event wiring
 
 ### Phase 16: Task-Project Integration
 **Goal**: Task creation accepts a project context that enriches the prompt sent to Claude, linking tasks to projects
@@ -151,6 +152,6 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 12. DB Foundation | 1/1 | Complete    | 2026-03-13 | - |
 | 13. Template System | 2/2 | Complete    | 2026-03-13 | - |
 | 14. Context Assembly | 2/2 | Complete    | 2026-03-13 | - |
-| 15. Project Service and API | v2.1 | 0/0 | Not started | - |
+| 15. Project Service and API | v2.1 | 0/2 | Not started | - |
 | 16. Task-Project Integration | v2.1 | 0/0 | Not started | - |
 | 17. SPA Frontend | v2.1 | 0/0 | Not started | - |
