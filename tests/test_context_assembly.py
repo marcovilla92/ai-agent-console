@@ -1,9 +1,12 @@
-"""Tests for context assembly helpers: assemble_full_context() and suggest_next_phase()."""
+"""Tests for context assembly helpers and endpoint integration tests."""
 import asyncio
+import base64
+import os
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
 from src.context.assembler import (
     MAX_CONTEXT_CHARS,
@@ -14,6 +17,17 @@ from src.context.assembler import (
     get_recent_tasks,
     assemble_full_context,
     suggest_next_phase,
+)
+
+pytestmark = pytest.mark.asyncio
+
+AUTH_HEADERS = {
+    "Authorization": "Basic " + base64.b64encode(b"admin:changeme").decode()
+}
+
+TEST_DSN = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql://n8n:Amc2017!m@10.0.1.7:5432/agent_console_test",
 )
 
 
@@ -340,3 +354,139 @@ class TestSuggestNextPhase:
         assert "phase_name" in suggestion
         assert "status" in suggestion
         assert "reason" in suggestion
+
+
+# ---------------------------------------------------------------------------
+# Endpoint integration tests (Plan 02)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def app_with_pool():
+    os.environ["APP_DATABASE_URL"] = TEST_DSN
+    os.environ["APP_POOL_MIN_SIZE"] = "1"
+    os.environ["APP_POOL_MAX_SIZE"] = "2"
+    from src.server.config import get_settings
+    get_settings.cache_clear()
+
+    from src.server.app import create_app
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        yield app
+
+
+@pytest.fixture
+def client(app_with_pool):
+    transport = ASGITransport(app=app_with_pool)
+    return AsyncClient(transport=transport, base_url="http://test")
+
+
+@pytest.fixture
+async def project_in_db(app_with_pool, tmp_path):
+    """Insert a project pointing to tmp_path and return its id."""
+    from src.db.pg_repository import ProjectRepository
+    from src.db.pg_schema import Project
+
+    pool = app_with_pool.state.pool
+    # Create CLAUDE.md and .planning/ docs in tmp_path
+    (tmp_path / "CLAUDE.md").write_text("# Test Project\nSome instructions")
+    planning = tmp_path / ".planning"
+    planning.mkdir()
+    (planning / "ROADMAP.md").write_text(SAMPLE_ROADMAP)
+    (planning / "STATE.md").write_text(SAMPLE_STATE)
+    (planning / "PROJECT.md").write_text("# Project\nTest project")
+
+    repo = ProjectRepository(pool)
+    project = Project(
+        name="Test Project",
+        slug="test-project",
+        path=str(tmp_path),
+        created_at=datetime.utcnow(),
+    )
+    project_id = await repo.insert(project)
+    yield project_id
+    # Cleanup
+    await repo.delete(project_id)
+
+
+@pytest.fixture
+async def project_no_planning(app_with_pool, tmp_path):
+    """Insert a project pointing to empty tmp_path (no .planning/)."""
+    from src.db.pg_repository import ProjectRepository
+    from src.db.pg_schema import Project
+
+    pool = app_with_pool.state.pool
+    repo = ProjectRepository(pool)
+    project = Project(
+        name="Empty Project",
+        slug="empty-project",
+        path=str(tmp_path),
+        created_at=datetime.utcnow(),
+    )
+    project_id = await repo.insert(project)
+    yield project_id
+    await repo.delete(project_id)
+
+
+class TestContextEndpoint:
+    async def test_context_endpoint_returns_context(self, client, project_in_db):
+        resp = await client.get(
+            f"/projects/{project_in_db}/context", headers=AUTH_HEADERS
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert set(data.keys()) == {
+            "workspace", "claude_md", "planning_docs", "git_log", "recent_tasks"
+        }
+        assert "Test Project" in data["claude_md"]
+        assert isinstance(data["planning_docs"], dict)
+        assert isinstance(data["recent_tasks"], list)
+
+    async def test_context_endpoint_404_for_missing_project(self, client):
+        resp = await client.get(
+            "/projects/99999/context", headers=AUTH_HEADERS
+        )
+        assert resp.status_code == 404
+
+
+class TestSuggestedPhaseEndpoint:
+    async def test_suggested_phase_returns_suggestion(
+        self, client, project_in_db
+    ):
+        resp = await client.get(
+            f"/projects/{project_in_db}/suggested-phase", headers=AUTH_HEADERS
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "suggestion" in data
+        assert "all_phases" in data
+        assert data["suggestion"] is not None
+        assert data["suggestion"]["phase_id"] == "14"
+
+    async def test_suggested_phase_no_planning(
+        self, client, project_no_planning
+    ):
+        resp = await client.get(
+            f"/projects/{project_no_planning}/suggested-phase",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["suggestion"] is None
+        assert data["all_phases"] == []
+
+    async def test_suggested_phase_404_for_missing_project(self, client):
+        resp = await client.get(
+            "/projects/99999/suggested-phase", headers=AUTH_HEADERS
+        )
+        assert resp.status_code == 404
+
+
+class TestEndpointAuth:
+    async def test_context_requires_auth(self, client):
+        resp = await client.get("/projects/1/context")
+        assert resp.status_code == 401
+
+    async def test_suggested_phase_requires_auth(self, client):
+        resp = await client.get("/projects/1/suggested-phase")
+        assert resp.status_code == 401
