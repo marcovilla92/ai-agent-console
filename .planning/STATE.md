@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Project Router
 status: executing
-stopped_at: Completed 13-02-PLAN.md -- Custom template CRUD complete
-last_updated: "2026-03-13T21:50:38.677Z"
-last_activity: 2026-03-13 -- Completed 13-02 Custom Template CRUD plan
+stopped_at: Completed 14-01-PLAN.md -- Context assembly helpers with TDD
+last_updated: "2026-03-13T22:46:13Z"
+last_activity: 2026-03-13 -- Completed 14-01 Context assembly helpers
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 50
+  total_plans: 5
+  completed_plans: 5
+  percent: 93
 ---
 
 # Project State
@@ -21,26 +21,26 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 13 - Template System (v2.1 Project Router)
+**Current focus:** Phase 14 - Context Assembly (v2.1 Project Router)
 
 ## Current Position
 
-Phase: 13 of 17 (Template System)
-Plan: 02 of 03 (complete)
-Status: Phase 13 in progress
-Last activity: 2026-03-13 -- Completed 13-02 Custom Template CRUD plan
+Phase: 14 of 17 (Context Assembly)
+Plan: 01 of 02 (complete)
+Status: Phase 14 in progress
+Last activity: 2026-03-13 -- Completed 14-01 Context assembly helpers
 
-Progress: [██████░░░░] 50%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 20 (v1.0: 16, v2.0: 10, v2.1: 3)
+- Total plans completed: 21 (v1.0: 16, v2.0: 10, v2.1: 4)
 - Average duration: 5min
 - Total execution time: ~1.5 hours
 
 **Recent Trend:**
-- Last 5 plans: 2min, 2min, 6min, 5min, 4min
+- Last 5 plans: 2min, 6min, 5min, 4min, 5min
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -63,6 +63,9 @@ Progress: [██████░░░░] 50%
 - [13-02]: Path traversal prevention uses Path.resolve() + is_relative_to()
 - [13-02]: TemplateCreateResponse reused for PUT responses (same fields needed)
 - [13-02]: POST cleanup via shutil.rmtree on error after directory creation
+- [14-01]: read_file_truncated uses planning dir as project_path for nested doc resolution
+- [14-01]: suggest_next_phase declared async for router consistency
+- [14-01]: Phase in_progress detection cross-references STATE.md Phase line
 
 ### Pending Todos
 
@@ -79,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T21:34:26Z
-Stopped at: Completed 13-02-PLAN.md -- Custom template CRUD complete
+Last session: 2026-03-13T22:36:29Z
+Stopped at: Completed 14-01-PLAN.md -- Context assembly helpers with TDD
 Resume file: None

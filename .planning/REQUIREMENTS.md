@@ -62,9 +62,9 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ### Context Assembly
 
-- [ ] **CTX-01**: assemble_full_context() returns workspace + CLAUDE.md (2000 chars) + .planning/ docs (500 chars each) + git log (10 commits) + 5 recent tasks
+- [x] **CTX-01**: assemble_full_context() returns workspace + CLAUDE.md (2000 chars) + .planning/ docs (500 chars each) + git log (10 commits) + 5 recent tasks
 - [ ] **CTX-02**: User can view assembled context (GET /projects/{id}/context)
-- [ ] **CTX-03**: Phase suggestion engine parses STATE.md/ROADMAP.md to suggest next phase
+- [x] **CTX-03**: Phase suggestion engine parses STATE.md/ROADMAP.md to suggest next phase
 - [ ] **CTX-04**: User can view suggested phase (GET /projects/{id}/suggested-phase)
 
 ### Task Integration
@@ -148,9 +148,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TMPL-06 | Phase 13 | Complete |
 | TMPL-07 | Phase 13 | Complete |
 | TMPL-08 | Phase 13 | Complete |
-| CTX-01 | Phase 14 | Pending |
+| CTX-01 | Phase 14 | Complete |
 | CTX-02 | Phase 14 | Pending |
-| CTX-03 | Phase 14 | Pending |
+| CTX-03 | Phase 14 | Complete |
 | CTX-04 | Phase 14 | Pending |
 | PROJ-01 | Phase 15 | Pending |
 | PROJ-02 | Phase 15 | Pending |
