@@ -67,9 +67,10 @@ Plans:
   3. GET /templates/{id} returns template detail including file manifest
   4. User can create, update, and delete custom templates via POST/PUT/DELETE /templates endpoints
   5. Builtin templates reject modification and deletion with 403 Forbidden
-**Plans**: 1 plan
+**Plans**: 2 plans
 Plans:
-- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
+- [ ] 13-01-PLAN.md -- Builtin templates on disk, registry.yaml, GET /templates endpoints, Dockerfile update
+- [ ] 13-02-PLAN.md -- Custom template CRUD (POST/PUT/DELETE), builtin protection (403), path traversal safety
 
 ### Phase 14: Context Assembly
 **Goal**: The system can assemble rich project context from multiple sources and suggest the next development phase
@@ -147,7 +148,7 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 10. Dashboard Frontend | v2.0 | 3/3 | Complete | 2026-03-13 |
 | 11. Docker Deployment | v2.0 | 1/1 | Complete | 2026-03-13 |
 | 12. DB Foundation | 1/1 | Complete    | 2026-03-13 | - |
-| 13. Template System | v2.1 | 0/0 | Not started | - |
+| 13. Template System | v2.1 | 0/2 | Not started | - |
 | 14. Context Assembly | v2.1 | 0/0 | Not started | - |
 | 15. Project Service and API | v2.1 | 0/0 | Not started | - |
 | 16. Task-Project Integration | v2.1 | 0/0 | Not started | - |
