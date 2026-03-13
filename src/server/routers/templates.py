@@ -1,8 +1,10 @@
 """
-Template management REST endpoints (read-only).
+Template management REST endpoints (full CRUD).
 
-Provides listing and detail endpoints for builtin project templates.
+Provides listing, detail, create, update, and delete endpoints for project templates.
+Builtin templates are protected from mutation (403 Forbidden).
 """
+import shutil
 from pathlib import Path
 
 import yaml
@@ -44,6 +46,28 @@ class TemplateDetail(BaseModel):
     files: list[TemplateFile]
 
 
+class TemplateCreateRequest(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    files: dict[str, str] = {}  # {relative_path: content}
+
+
+class TemplateCreateResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    builtin: bool
+    file_count: int
+
+
+class TemplateUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    files_upsert: dict[str, str] | None = None  # {relative_path: content}
+    files_delete: list[str] | None = None  # [relative_path]
+
+
 # --- Helpers ---
 
 
@@ -73,6 +97,35 @@ def get_file_manifest(template_id: str) -> list[TemplateFile]:
         file_type = "jinja2" if file_path.suffix == ".j2" else "static"
         files.append(TemplateFile(path=rel, type=file_type, size=file_path.stat().st_size))
     return files
+
+
+def safe_write_template_file(
+    template_dir: Path, rel_path: str, content: str
+) -> None:
+    """Write a file inside template_dir, rejecting path traversal."""
+    target = (template_dir / rel_path).resolve()
+    if not target.is_relative_to(template_dir.resolve()):
+        raise ValueError(f"Path traversal attempt: {rel_path!r}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+
+
+def _get_entry_or_404(data: dict, template_id: str) -> dict:
+    """Find a registry entry by id or raise 404."""
+    entry = next((t for t in data["templates"] if t["id"] == template_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return entry
+
+
+def _count_files(template_dir: Path) -> int:
+    """Count files in a template directory (excluding EXCLUDE_DIRS)."""
+    count = 0
+    if template_dir.is_dir():
+        for f in template_dir.rglob("*"):
+            if f.is_file() and not any(part in EXCLUDE_DIRS for part in f.parts):
+                count += 1
+    return count
 
 
 # --- Router ---
@@ -115,3 +168,110 @@ async def get_template(template_id: str):
         builtin=entry["builtin"],
         files=files,
     )
+
+
+@template_router.post(
+    "",
+    response_model=TemplateCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_template(req: TemplateCreateRequest):
+    """Create a new custom template."""
+    data = load_registry()
+    # Check for duplicate id
+    if any(t["id"] == req.id for t in data["templates"]):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Template '{req.id}' already exists",
+        )
+    template_dir = TEMPLATES_ROOT / req.id
+    template_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for rel_path, content in req.files.items():
+            try:
+                safe_write_template_file(template_dir, rel_path, content)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
+        # Add to registry
+        data["templates"].append(
+            {
+                "id": req.id,
+                "name": req.name,
+                "description": req.description,
+                "builtin": False,
+            }
+        )
+        save_registry(data)
+    except Exception:
+        # Clean up on failure
+        if template_dir.exists():
+            shutil.rmtree(template_dir)
+        raise
+    return TemplateCreateResponse(
+        id=req.id,
+        name=req.name,
+        description=req.description,
+        builtin=False,
+        file_count=_count_files(template_dir),
+    )
+
+
+@template_router.put("/{template_id}", response_model=TemplateCreateResponse)
+async def update_template(template_id: str, req: TemplateUpdateRequest):
+    """Update an existing custom template."""
+    data = load_registry()
+    entry = _get_entry_or_404(data, template_id)
+    if entry.get("builtin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot modify builtin template",
+        )
+    # Update metadata
+    if req.name is not None:
+        entry["name"] = req.name
+    if req.description is not None:
+        entry["description"] = req.description
+    template_dir = TEMPLATES_ROOT / template_id
+    # Upsert files
+    if req.files_upsert:
+        for rel_path, content in req.files_upsert.items():
+            try:
+                safe_write_template_file(template_dir, rel_path, content)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
+    # Delete files
+    if req.files_delete:
+        for rel_path in req.files_delete:
+            target = template_dir / rel_path
+            if target.exists():
+                target.unlink()
+    save_registry(data)
+    return TemplateCreateResponse(
+        id=template_id,
+        name=entry["name"],
+        description=entry["description"],
+        builtin=False,
+        file_count=_count_files(template_dir),
+    )
+
+
+@template_router.delete("/{template_id}")
+async def delete_template(template_id: str):
+    """Delete a custom template."""
+    data = load_registry()
+    entry = _get_entry_or_404(data, template_id)
+    if entry.get("builtin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete builtin template",
+        )
+    template_dir = TEMPLATES_ROOT / template_id
+    if template_dir.exists():
+        shutil.rmtree(template_dir)
+    data["templates"] = [t for t in data["templates"] if t["id"] != template_id]
+    save_registry(data)
+    return {"status": "deleted", "id": template_id}
