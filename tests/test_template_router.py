@@ -142,3 +142,196 @@ async def test_templates_requires_auth(client):
     """GET /templates without auth returns 401."""
     resp = await client.get("/templates")
     assert resp.status_code == 401
+
+
+# --- Custom CRUD tests (Plan 02) ---
+
+
+@pytest.fixture
+def tmp_templates(tmp_path, monkeypatch):
+    """Create isolated template directory with registry for testing."""
+    import src.server.routers.templates as tmpl_mod
+
+    registry = {
+        "templates": [
+            {
+                "id": "blank",
+                "name": "Vuoto",
+                "description": "Minimal",
+                "builtin": True,
+            },
+        ]
+    }
+    (tmp_path / "registry.yaml").write_text(yaml.safe_dump(registry))
+    (tmp_path / "blank").mkdir()
+    (tmp_path / "blank" / "CLAUDE.md.j2").write_text("# {{ name }}")
+    monkeypatch.setattr(tmpl_mod, "TEMPLATES_ROOT", tmp_path)
+    monkeypatch.setattr(tmpl_mod, "REGISTRY_PATH", tmp_path / "registry.yaml")
+    return tmp_path
+
+
+@pytest.fixture
+def crud_client(app_with_pool, tmp_templates):
+    transport = ASGITransport(app=app_with_pool)
+    return AsyncClient(transport=transport, base_url="http://test")
+
+
+async def test_create_custom_template(crud_client):
+    """POST /templates creates custom template and returns 201."""
+    payload = {
+        "id": "my-tpl",
+        "name": "My Template",
+        "description": "A custom template",
+        "files": {"README.md": "# Hello"},
+    }
+    resp = await crud_client.post(
+        "/templates", json=payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "my-tpl"
+    assert data["name"] == "My Template"
+    assert data["description"] == "A custom template"
+    assert data["builtin"] is False
+    assert data["file_count"] == 1
+
+
+async def test_create_custom_template_files_on_disk(crud_client, tmp_templates):
+    """After POST, template files exist on disk."""
+    payload = {
+        "id": "disk-tpl",
+        "name": "Disk Test",
+        "files": {"src/main.py": "print('hello')", "README.md": "# Hi"},
+    }
+    resp = await crud_client.post(
+        "/templates", json=payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 201
+    assert (tmp_templates / "disk-tpl" / "src" / "main.py").is_file()
+    assert (tmp_templates / "disk-tpl" / "README.md").is_file()
+    assert (tmp_templates / "disk-tpl" / "README.md").read_text() == "# Hi"
+
+
+async def test_create_duplicate_template(crud_client):
+    """POST /templates with existing id returns 409."""
+    payload = {"id": "blank", "name": "Duplicate", "files": {}}
+    resp = await crud_client.post(
+        "/templates", json=payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 409
+
+
+async def test_create_template_path_traversal(crud_client):
+    """POST /templates with '../' in file path returns 400."""
+    payload = {
+        "id": "evil-tpl",
+        "name": "Evil",
+        "files": {"../../../etc/passwd": "hacked"},
+    }
+    resp = await crud_client.post(
+        "/templates", json=payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 400
+
+
+async def test_update_custom_template(crud_client, tmp_templates):
+    """PUT /templates/{id} updates metadata and files."""
+    # First create a template
+    create_payload = {
+        "id": "upd-tpl",
+        "name": "Original",
+        "description": "Original desc",
+        "files": {"a.txt": "aaa", "b.txt": "bbb"},
+    }
+    resp = await crud_client.post(
+        "/templates", json=create_payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 201
+
+    # Now update it
+    update_payload = {
+        "name": "Updated",
+        "files_upsert": {"a.txt": "AAA", "c.txt": "ccc"},
+        "files_delete": ["b.txt"],
+    }
+    resp = await crud_client.put(
+        "/templates/upd-tpl", json=update_payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "Updated"
+    assert data["builtin"] is False
+    # a.txt updated, c.txt created, b.txt deleted -> 2 files
+    assert data["file_count"] == 2
+    assert (tmp_templates / "upd-tpl" / "a.txt").read_text() == "AAA"
+    assert (tmp_templates / "upd-tpl" / "c.txt").read_text() == "ccc"
+    assert not (tmp_templates / "upd-tpl" / "b.txt").exists()
+
+
+async def test_update_builtin_template_forbidden(crud_client):
+    """PUT /templates/blank returns 403."""
+    resp = await crud_client.put(
+        "/templates/blank", json={"name": "Hacked"}, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 403
+
+
+async def test_update_nonexistent_template(crud_client):
+    """PUT /templates/nonexistent returns 404."""
+    resp = await crud_client.put(
+        "/templates/nonexistent", json={"name": "Nope"}, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 404
+
+
+async def test_delete_custom_template(crud_client, tmp_templates):
+    """DELETE /templates/{id} removes dir + registry entry."""
+    # Create first
+    payload = {"id": "del-tpl", "name": "To Delete", "files": {"x.txt": "x"}}
+    resp = await crud_client.post(
+        "/templates", json=payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 201
+
+    # Delete
+    resp = await crud_client.delete(
+        "/templates/del-tpl", headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "deleted"
+    assert data["id"] == "del-tpl"
+    assert not (tmp_templates / "del-tpl").exists()
+
+
+async def test_delete_builtin_template_forbidden(crud_client):
+    """DELETE /templates/blank returns 403."""
+    resp = await crud_client.delete(
+        "/templates/blank", headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 403
+
+
+async def test_delete_nonexistent_template(crud_client):
+    """DELETE /templates/nonexistent returns 404."""
+    resp = await crud_client.delete(
+        "/templates/nonexistent", headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 404
+
+
+async def test_list_includes_custom_after_create(crud_client):
+    """After POST, GET /templates includes the new custom template."""
+    payload = {"id": "listed-tpl", "name": "Listed", "files": {}}
+    resp = await crud_client.post(
+        "/templates", json=payload, headers=AUTH_HEADERS
+    )
+    assert resp.status_code == 201
+
+    resp = await crud_client.get("/templates", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    ids = {t["id"] for t in resp.json()["templates"]}
+    assert "listed-tpl" in ids
+    # Check it's marked as non-builtin
+    custom = next(t for t in resp.json()["templates"] if t["id"] == "listed-tpl")
+    assert custom["builtin"] is False
