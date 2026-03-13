@@ -14,6 +14,7 @@ Limits:
 import asyncio
 import itertools
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -192,4 +193,74 @@ async def assemble_full_context(
         "planning_docs": planning_docs,
         "git_log": git_log,
         "recent_tasks": recent_tasks,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase suggestion engine (Phase 14)
+# ---------------------------------------------------------------------------
+
+_PHASE_RE = re.compile(r"- \[([ x])\] \*\*Phase (\d+): (.+?)\*\*")
+_STATE_PHASE_RE = re.compile(r"Phase:\s*(\d+)\s+of\s+\d+")
+
+
+async def suggest_next_phase(project_path: str) -> dict[str, Any] | None:
+    """Parse ROADMAP.md and STATE.md to suggest the next development phase.
+
+    Returns None if .planning/ directory or ROADMAP.md is missing.
+    Returns dict with:
+    - suggestion: dict with phase_id, phase_name, status, reason (or None if all complete)
+    - all_phases: list of phase dicts
+    """
+    planning_dir = Path(project_path) / ".planning"
+    if not planning_dir.is_dir():
+        return None
+
+    roadmap_path = planning_dir / "ROADMAP.md"
+    if not roadmap_path.is_file():
+        return None
+
+    roadmap_text = roadmap_path.read_text(encoding="utf-8", errors="replace")
+
+    # Detect current in-progress phase from STATE.md
+    current_phase_id: str | None = None
+    state_path = planning_dir / "STATE.md"
+    if state_path.is_file():
+        state_text = state_path.read_text(encoding="utf-8", errors="replace")
+        state_match = _STATE_PHASE_RE.search(state_text)
+        if state_match:
+            current_phase_id = state_match.group(1)
+
+    # Parse all phases from ROADMAP.md
+    all_phases: list[dict[str, str]] = []
+    for match in _PHASE_RE.finditer(roadmap_text):
+        checkbox, phase_id, phase_name = match.group(1), match.group(2), match.group(3)
+        if checkbox == "x":
+            status = "complete"
+        elif current_phase_id and phase_id == current_phase_id:
+            status = "in_progress"
+        else:
+            status = "pending"
+
+        all_phases.append({
+            "phase_id": phase_id,
+            "phase_name": phase_name,
+            "status": status,
+        })
+
+    # Find first non-complete phase as suggestion
+    suggestion: dict[str, str] | None = None
+    for phase in all_phases:
+        if phase["status"] != "complete":
+            suggestion = {
+                "phase_id": phase["phase_id"],
+                "phase_name": phase["phase_name"],
+                "status": phase["status"],
+                "reason": f"Phase {phase['phase_id']} ({phase['phase_name']}) is the next {'in-progress' if phase['status'] == 'in_progress' else 'pending'} phase",
+            }
+            break
+
+    return {
+        "suggestion": suggestion,
+        "all_phases": all_phases,
     }
