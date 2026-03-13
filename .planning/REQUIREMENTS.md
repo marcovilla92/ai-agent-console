@@ -37,9 +37,9 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ### Database & Infrastructure
 
-- [ ] **DB-01**: Projects table created with id, name, slug, path, description, created_at, last_used_at
-- [ ] **DB-02**: Tasks table gains nullable project_id FK referencing projects
-- [ ] **DB-03**: ProjectRepository provides get, list, insert, delete, update_last_used
+- [x] **DB-01**: Projects table created with id, name, slug, path, description, created_at, last_used_at
+- [x] **DB-02**: Tasks table gains nullable project_id FK referencing projects
+- [x] **DB-03**: ProjectRepository provides get, list, insert, delete, update_last_used
 
 ### Project Management
 
@@ -137,9 +137,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DB-01 | Phase 12 | Pending |
-| DB-02 | Phase 12 | Pending |
-| DB-03 | Phase 12 | Pending |
+| DB-01 | Phase 12 | Complete |
+| DB-02 | Phase 12 | Complete |
+| DB-03 | Phase 12 | Complete |
 | TMPL-01 | Phase 13 | Pending |
 | TMPL-02 | Phase 13 | Pending |
 | TMPL-03 | Phase 13 | Pending |

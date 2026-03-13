@@ -35,7 +35,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 ### v2.1 Project Router
 
-- [ ] **Phase 12: DB Foundation** - Projects table, tasks.project_id nullable FK, ProjectRepository CRUD
+- [x] **Phase 12: DB Foundation** - Projects table, tasks.project_id nullable FK, ProjectRepository CRUD (completed 2026-03-13)
 - [ ] **Phase 13: Template System** - 4 builtin templates, registry.yaml, template CRUD API endpoints
 - [ ] **Phase 14: Context Assembly** - Full context aggregator, phase suggestion engine, context/phase API endpoints
 - [ ] **Phase 15: Project Service and API** - ProjectService with scaffold engine, events stub, project CRUD endpoints with auto-scan
@@ -146,7 +146,7 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 9. Approval Gates | v2.0 | 1/1 | Complete | 2026-03-12 |
 | 10. Dashboard Frontend | v2.0 | 3/3 | Complete | 2026-03-13 |
 | 11. Docker Deployment | v2.0 | 1/1 | Complete | 2026-03-13 |
-| 12. DB Foundation | v2.1 | 0/1 | Not started | - |
+| 12. DB Foundation | 1/1 | Complete   | 2026-03-13 | - |
 | 13. Template System | v2.1 | 0/0 | Not started | - |
 | 14. Context Assembly | v2.1 | 0/0 | Not started | - |
 | 15. Project Service and API | v2.1 | 0/0 | Not started | - |
