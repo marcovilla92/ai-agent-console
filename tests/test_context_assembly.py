@@ -13,6 +13,7 @@ from src.context.assembler import (
     get_recent_git_log,
     get_recent_tasks,
     assemble_full_context,
+    suggest_next_phase,
 )
 
 
@@ -214,3 +215,128 @@ class TestAssembleFullContext:
         total += sum(len(str(t)) for t in result["recent_tasks"])
         # Individual limits budget to roughly 6000 chars
         assert total <= MAX_CONTEXT_CHARS + 2000  # workspace context can vary
+
+
+# ---------------------------------------------------------------------------
+# suggest_next_phase
+# ---------------------------------------------------------------------------
+
+SAMPLE_ROADMAP = """\
+# Roadmap
+
+### v2.1 Project Router
+
+- [x] **Phase 12: DB Foundation** - Projects table
+- [x] **Phase 13: Template System** - Template CRUD
+- [ ] **Phase 14: Context Assembly** - Context aggregator
+- [ ] **Phase 15: Project Service** - Project CRUD
+- [ ] **Phase 16: Task Integration** - Task-project link
+- [ ] **Phase 17: SPA Frontend** - Alpine.js app
+"""
+
+SAMPLE_STATE = """\
+---
+status: executing
+---
+
+# Project State
+
+## Current Position
+
+Phase: 14 of 17 (Context Assembly)
+Plan: 01 of 02
+"""
+
+SAMPLE_STATE_PHASE_13 = """\
+---
+status: executing
+---
+
+# Project State
+
+## Current Position
+
+Phase: 13 of 17 (Template System)
+Plan: 02 of 02
+"""
+
+
+class TestSuggestNextPhase:
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_planning_dir(self, tmp_path):
+        result = await suggest_next_phase(str(tmp_path))
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_roadmap(self, tmp_path):
+        (tmp_path / ".planning").mkdir()
+        result = await suggest_next_phase(str(tmp_path))
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_identifies_first_incomplete_phase(self, tmp_path):
+        planning = tmp_path / ".planning"
+        planning.mkdir()
+        (planning / "ROADMAP.md").write_text(SAMPLE_ROADMAP)
+        (planning / "STATE.md").write_text(SAMPLE_STATE)
+
+        result = await suggest_next_phase(str(tmp_path))
+        assert result is not None
+        assert result["suggestion"] is not None
+        assert result["suggestion"]["phase_id"] == "14"
+        assert "Context Assembly" in result["suggestion"]["phase_name"]
+
+    @pytest.mark.asyncio
+    async def test_all_phases_populated(self, tmp_path):
+        planning = tmp_path / ".planning"
+        planning.mkdir()
+        (planning / "ROADMAP.md").write_text(SAMPLE_ROADMAP)
+        (planning / "STATE.md").write_text(SAMPLE_STATE)
+
+        result = await suggest_next_phase(str(tmp_path))
+        assert len(result["all_phases"]) == 6
+        # First two should be complete
+        assert result["all_phases"][0]["status"] == "complete"
+        assert result["all_phases"][1]["status"] == "complete"
+
+    @pytest.mark.asyncio
+    async def test_detects_in_progress_from_state(self, tmp_path):
+        planning = tmp_path / ".planning"
+        planning.mkdir()
+        (planning / "ROADMAP.md").write_text(SAMPLE_ROADMAP)
+        (planning / "STATE.md").write_text(SAMPLE_STATE)
+
+        result = await suggest_next_phase(str(tmp_path))
+        # Phase 14 should be in_progress since STATE.md says Phase: 14
+        phase_14 = [p for p in result["all_phases"] if p["phase_id"] == "14"][0]
+        assert phase_14["status"] == "in_progress"
+
+    @pytest.mark.asyncio
+    async def test_all_complete_returns_none_suggestion(self, tmp_path):
+        planning = tmp_path / ".planning"
+        planning.mkdir()
+        all_complete = """\
+# Roadmap
+- [x] **Phase 12: DB Foundation** - Done
+- [x] **Phase 13: Template System** - Done
+"""
+        (planning / "ROADMAP.md").write_text(all_complete)
+
+        result = await suggest_next_phase(str(tmp_path))
+        assert result is not None
+        assert result["suggestion"] is None
+        assert len(result["all_phases"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_suggestion_has_required_fields(self, tmp_path):
+        planning = tmp_path / ".planning"
+        planning.mkdir()
+        (planning / "ROADMAP.md").write_text(SAMPLE_ROADMAP)
+        (planning / "STATE.md").write_text(SAMPLE_STATE)
+
+        result = await suggest_next_phase(str(tmp_path))
+        suggestion = result["suggestion"]
+        assert "phase_id" in suggestion
+        assert "phase_name" in suggestion
+        assert "status" in suggestion
+        assert "reason" in suggestion
