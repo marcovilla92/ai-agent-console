@@ -6,7 +6,7 @@ Safe to run multiple times (idempotent).
 """
 import asyncpg
 
-from src.db.pg_schema import PG_SCHEMA_SQL, ALTER_TASKS_SQL
+from src.db.pg_schema import PG_SCHEMA_SQL, ALTER_TASKS_SQL, PROJECTS_DDL, ALTER_TASKS_PROJECT_FK
 
 
 async def apply_schema(pool: asyncpg.Pool) -> None:
@@ -14,3 +14,5 @@ async def apply_schema(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
         await conn.execute(PG_SCHEMA_SQL)
         await conn.execute(ALTER_TASKS_SQL)
+        await conn.execute(PROJECTS_DDL)
+        await conn.execute(ALTER_TASKS_PROJECT_FK)

@@ -2,7 +2,7 @@
 import pytest
 from datetime import datetime, timezone
 
-from src.db.pg_schema import Project
+from src.db.pg_schema import Project, Task
 from src.db.pg_repository import TaskRepository
 
 
@@ -41,7 +41,7 @@ async def test_existing_task_crud_with_null_project_id(pg_pool):
     """Existing task CRUD should work with project_id defaulting to None."""
     repo = TaskRepository(pg_pool)
     task_id = await repo.create(
-        __import__("src.db.pg_schema", fromlist=["Task"]).Task(
+        Task(
             name="test-task",
             project_path="/tmp/test",
             created_at=datetime.now(timezone.utc),

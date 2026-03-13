@@ -60,6 +60,24 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS error TEXT;
 """
 
+# --- Projects DDL --------------------------------------------------------
+
+PROJECTS_DDL = """
+CREATE TABLE IF NOT EXISTS projects (
+    id            SERIAL PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    slug          TEXT NOT NULL UNIQUE,
+    path          TEXT NOT NULL UNIQUE,
+    description   TEXT DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at  TIMESTAMPTZ
+);
+"""
+
+ALTER_TASKS_PROJECT_FK = """
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id);
+"""
+
 # --- Dataclasses ---------------------------------------------------------
 
 
@@ -75,6 +93,19 @@ class Task:
     prompt: str = ""
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
+    project_id: Optional[int] = None
+
+
+@dataclass
+class Project:
+    """A project grouping tasks together in v2.1."""
+    name: str
+    slug: str
+    path: str
+    created_at: datetime
+    id: Optional[int] = None
+    description: str = ""
+    last_used_at: Optional[datetime] = None
 
 
 @dataclass

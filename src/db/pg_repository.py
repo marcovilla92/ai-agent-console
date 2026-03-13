@@ -29,7 +29,7 @@ class TaskRepository:
     async def get(self, task_id: int) -> Optional[Task]:
         row = await self._pool.fetchrow(
             "SELECT id, name, project_path, created_at, "
-            "status, mode, prompt, completed_at, error "
+            "status, mode, prompt, completed_at, error, project_id "
             "FROM tasks WHERE id = $1",
             task_id,
         )
@@ -45,12 +45,13 @@ class TaskRepository:
             prompt=row["prompt"],
             completed_at=row["completed_at"],
             error=row["error"],
+            project_id=row["project_id"],
         )
 
     async def list_all(self) -> list[Task]:
         rows = await self._pool.fetch(
             "SELECT id, name, project_path, created_at, "
-            "status, mode, prompt, completed_at, error "
+            "status, mode, prompt, completed_at, error, project_id "
             "FROM tasks ORDER BY id DESC"
         )
         return [
@@ -64,6 +65,7 @@ class TaskRepository:
                 prompt=r["prompt"],
                 completed_at=r["completed_at"],
                 error=r["error"],
+                project_id=r["project_id"],
             )
             for r in rows
         ]

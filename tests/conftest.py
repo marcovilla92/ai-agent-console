@@ -100,6 +100,7 @@ async def pg_pool():
         await conn.execute("DELETE FROM agent_usage")
         await conn.execute("DELETE FROM agent_outputs")
         await conn.execute("DELETE FROM tasks")
+        await conn.execute("DELETE FROM projects")
     await pool.close()
 
 
