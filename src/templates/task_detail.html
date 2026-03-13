@@ -76,9 +76,11 @@ function taskDetail(taskId) {
     },
 
     async loadOutputs() {
-      // Agent outputs are included if the API supports it;
-      // for now, load task and display what we have
-      // Future: dedicated endpoint for agent_outputs
+      const resp = await fetch(`/tasks/${taskId}/outputs`, {credentials: 'same-origin'});
+      if (resp.ok) {
+        const data = await resp.json();
+        this.agentOutputs = data.outputs;
+      }
     },
 
     connectWS() {
@@ -104,6 +106,7 @@ function taskDetail(taskId) {
           this.task.status = msg.data;
           if (['completed', 'failed', 'cancelled'].includes(msg.data)) {
             this.loadTask();
+            this.loadOutputs();
           }
         } else if (msg.type === 'approval_required') {
           this.approvalPending = true;

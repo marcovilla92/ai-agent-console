@@ -6,12 +6,14 @@ Provides CRUD and cancel operations for tasks, protected by HTTP Basic Auth.
 from datetime import datetime
 from typing import Literal, Optional
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from src.db.pg_repository import AgentOutputRepository
 from src.engine.manager import TaskManager
 from src.server.config import get_settings
-from src.server.dependencies import get_task_manager, verify_credentials
+from src.server.dependencies import get_pool, get_task_manager, verify_credentials
 
 task_router = APIRouter(
     prefix="/tasks",
@@ -54,6 +56,20 @@ class ApprovalResponse(BaseModel):
     """Response for approval endpoint."""
     status: str
     decision: str
+
+
+class AgentOutputResponse(BaseModel):
+    """Response model for a single agent output record."""
+    id: Optional[int] = None
+    agent_type: str
+    raw_output: str
+    created_at: datetime
+
+
+class AgentOutputListResponse(BaseModel):
+    """Response model for listing agent outputs."""
+    outputs: list[AgentOutputResponse]
+    count: int
 
 
 @task_router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskResponse)
@@ -128,6 +144,28 @@ async def get_task(
         created_at=task.created_at,
         completed_at=task.completed_at,
         error=task.error,
+    )
+
+
+@task_router.get("/{task_id}/outputs", response_model=AgentOutputListResponse)
+async def get_task_outputs(
+    task_id: int,
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Get agent output history for a task."""
+    repo = AgentOutputRepository(pool)
+    outputs = await repo.get_by_session(task_id)
+    return AgentOutputListResponse(
+        outputs=[
+            AgentOutputResponse(
+                id=o.id,
+                agent_type=o.agent_type,
+                raw_output=o.raw_output,
+                created_at=o.created_at,
+            )
+            for o in outputs
+        ],
+        count=len(outputs),
     )
 
 
