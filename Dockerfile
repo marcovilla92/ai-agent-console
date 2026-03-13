@@ -20,6 +20,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY pyproject.toml .
 COPY src/ ./src/
 
+# Non-root user (required: Claude CLI refuses --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
 
 CMD ["python", "-m", "uvicorn", "src.server.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
