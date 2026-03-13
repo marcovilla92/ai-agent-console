@@ -82,9 +82,10 @@ Plans:
   3. GET /projects/{id}/context returns the assembled context for a given project
   4. suggest_next_phase() parses STATE.md and ROADMAP.md to identify the current phase and next action
   5. GET /projects/{id}/suggested-phase returns the phase suggestion with name and description
-**Plans**: 1 plan
+**Plans**: 2 plans
 Plans:
-- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
+- [ ] 14-01-PLAN.md -- Context assembly helpers, assemble_full_context(), suggest_next_phase() with TDD
+- [ ] 14-02-PLAN.md -- Projects router (GET context, GET suggested-phase), app wiring, integration tests
 
 ### Phase 15: Project Service and API
 **Goal**: Users can create projects from templates, list all projects with auto-discovered folders, and delete project records through the API
@@ -149,7 +150,7 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 11. Docker Deployment | v2.0 | 1/1 | Complete | 2026-03-13 |
 | 12. DB Foundation | 1/1 | Complete    | 2026-03-13 | - |
 | 13. Template System | 2/2 | Complete    | 2026-03-13 | - |
-| 14. Context Assembly | v2.1 | 0/0 | Not started | - |
+| 14. Context Assembly | v2.1 | 0/2 | Not started | - |
 | 15. Project Service and API | v2.1 | 0/0 | Not started | - |
 | 16. Task-Project Integration | v2.1 | 0/0 | Not started | - |
 | 17. SPA Frontend | v2.1 | 0/0 | Not started | - |
