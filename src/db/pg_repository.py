@@ -9,7 +9,7 @@ from typing import Optional
 
 import asyncpg
 
-from src.db.pg_schema import Task, AgentOutput, AgentUsage, OrchestratorDecisionRecord
+from src.db.pg_schema import Task, Project, AgentOutput, AgentUsage, OrchestratorDecisionRecord
 
 
 class TaskRepository:
@@ -82,6 +82,56 @@ class TaskRepository:
             "UPDATE tasks SET status = $1, error = $2, completed_at = $3 "
             "WHERE id = $4",
             status, error, completed_at, task_id,
+        )
+
+
+class ProjectRepository:
+    """CRUD operations for the projects table (v2.1)."""
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def insert(self, project: Project) -> int:
+        return await self._pool.fetchval(
+            "INSERT INTO projects (name, slug, path, description, created_at) "
+            "VALUES ($1, $2, $3, $4, $5) RETURNING id",
+            project.name, project.slug, project.path,
+            project.description, project.created_at,
+        )
+
+    async def get(self, project_id: int) -> Optional[Project]:
+        row = await self._pool.fetchrow(
+            "SELECT id, name, slug, path, description, created_at, last_used_at "
+            "FROM projects WHERE id = $1", project_id
+        )
+        if row is None:
+            return None
+        return Project(
+            id=row["id"], name=row["name"], slug=row["slug"],
+            path=row["path"], description=row["description"],
+            created_at=row["created_at"], last_used_at=row["last_used_at"],
+        )
+
+    async def list_all(self) -> list[Project]:
+        rows = await self._pool.fetch(
+            "SELECT id, name, slug, path, description, created_at, last_used_at "
+            "FROM projects ORDER BY last_used_at DESC NULLS LAST, created_at DESC"
+        )
+        return [
+            Project(
+                id=r["id"], name=r["name"], slug=r["slug"],
+                path=r["path"], description=r["description"],
+                created_at=r["created_at"], last_used_at=r["last_used_at"],
+            )
+            for r in rows
+        ]
+
+    async def delete(self, project_id: int) -> None:
+        await self._pool.execute("DELETE FROM projects WHERE id = $1", project_id)
+
+    async def update_last_used(self, project_id: int) -> None:
+        await self._pool.execute(
+            "UPDATE projects SET last_used_at = NOW() WHERE id = $1", project_id
         )
 
 
