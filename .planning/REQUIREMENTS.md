@@ -1,68 +1,122 @@
 # Requirements: AI Agent Workflow Console
 
-**Defined:** 2026-03-12
+**Defined:** 2026-03-13
 **Core Value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
 
-## v2.0 Requirements
+## v2.0 Requirements (Complete)
 
-Requirements for web platform release. Each maps to roadmap phases.
+All v2.0 requirements shipped and verified.
 
 ### Dashboard
 
-- [x] **DASH-01**: User can view list of all tasks with status indicators (queued/running/awaiting_approval/completed/failed/cancelled)
-- [x] **DASH-02**: User can view detailed agent output log for any task with step labels
+- [x] **DASH-01**: User can view list of all tasks with status indicators
+- [x] **DASH-02**: User can view detailed agent output log for any task
 - [x] **DASH-03**: User can create a new task with prompt input and mode selection
 - [x] **DASH-04**: User can access tasks from any device via browser
 
 ### Streaming
 
-- [x] **STRM-01**: User sees real-time Claude CLI output streamed via WebSocket during task execution
+- [x] **STRM-01**: User sees real-time Claude CLI output streamed via WebSocket
 
 ### Task Management
 
 - [x] **TASK-01**: User can cancel a running task with subprocess cleanup
 - [x] **TASK-02**: User can run up to 2 tasks concurrently
 - [x] **TASK-03**: User can choose supervised or autonomous mode per task
-- [x] **TASK-04**: User can approve or reject agent actions via approval gate UI with context
+- [x] **TASK-04**: User can approve or reject agent actions via approval gate UI
 
 ### Infrastructure
 
-- [x] **INFR-01**: Task data persists in PostgreSQL (tasks, outputs, usage, decisions)
+- [x] **INFR-01**: Task data persists in PostgreSQL
 - [x] **INFR-02**: All endpoints require HTTP Basic Auth
-- [x] **INFR-03**: Application deploys as Docker container on Coolify with Traefik proxy
+- [x] **INFR-03**: Application deploys as Docker container on Coolify
 
-## Future Requirements
+## v2.1 Requirements
 
-Deferred to v2.1+. Tracked but not in current roadmap.
+Requirements for Project Router milestone. Each maps to roadmap phases.
 
-### Streaming Enhancements (v2.1)
+### Database & Infrastructure
 
-- **STRM-02**: Late-join WebSocket replay shows buffered context when connecting to running task
-- **STRM-03**: Token usage and estimated cost per task displayed in dashboard
+- [ ] **DB-01**: Projects table created with id, name, slug, path, description, created_at, last_used_at
+- [ ] **DB-02**: Tasks table gains nullable project_id FK referencing projects
+- [ ] **DB-03**: ProjectRepository provides get, list, insert, delete, update_last_used
 
-### GitHub Integration (v2.2)
+### Project Management
 
-- **GIT-01**: User can clone a GitHub repo into workspace from dashboard
-- **GIT-02**: User can commit and push generated code to GitHub
-- **GIT-03**: User can create a pull request from dashboard
+- [ ] **PROJ-01**: User can list all projects (GET /projects) with auto-scan of ~/projects/
+- [ ] **PROJ-02**: User can create a new project from a template (POST /projects) with folder scaffolding + git init
+- [ ] **PROJ-03**: User can delete a project record (DELETE /projects/{id}) without removing filesystem
+- [ ] **PROJ-04**: System auto-registers untracked folders found in ~/projects/ with ON CONFLICT safety
+- [ ] **PROJ-05**: Project list shows detected stack and last_used_at
+
+### Template System
+
+- [ ] **TMPL-01**: 4 builtin templates available: blank, fastapi-pg, telegram-bot, cli-tool
+- [ ] **TMPL-02**: Each builtin template includes CLAUDE.md, .claude/ agents+commands, and source scaffolding
+- [ ] **TMPL-03**: User can list templates (GET /templates) from registry.yaml
+- [ ] **TMPL-04**: User can view template detail with file list (GET /templates/{id})
+- [ ] **TMPL-05**: User can create custom template with inline files (POST /templates)
+- [ ] **TMPL-06**: User can update custom template metadata and files (PUT /templates/{id})
+- [ ] **TMPL-07**: User can delete custom template (DELETE /templates/{id})
+- [ ] **TMPL-08**: Builtin templates are protected from modification/deletion (403 Forbidden)
+
+### Context Assembly
+
+- [ ] **CTX-01**: assemble_full_context() returns workspace + CLAUDE.md (2000 chars) + .planning/ docs (500 chars each) + git log (10 commits) + 5 recent tasks
+- [ ] **CTX-02**: User can view assembled context (GET /projects/{id}/context)
+- [ ] **CTX-03**: Phase suggestion engine parses STATE.md/ROADMAP.md to suggest next phase
+- [ ] **CTX-04**: User can view suggested phase (GET /projects/{id}/suggested-phase)
+
+### Task Integration
+
+- [ ] **TASK-11**: TaskCreate accepts optional project_id, falls back to settings.project_path
+- [ ] **TASK-12**: Task creation prepends assembled project context to prompt
+- [ ] **TASK-13**: Task creation updates project last_used_at
+
+### Event System
+
+- [ ] **EVT-01**: emit_event() no-op placeholder called at project.created, project.deleted, task.started, task.completed, task.failed, phase.suggested
+
+### Frontend SPA
+
+- [ ] **SPA-01**: Single index.html replaces all Jinja2 server-rendered pages
+- [ ] **SPA-02**: Project selection view with list, stack badges, and "New Project" button
+- [ ] **SPA-03**: Project creation view with name, description, and template picker
+- [ ] **SPA-04**: Prompt view with phase suggestion, context preview, and prompt textarea
+- [ ] **SPA-05**: Running view with WebSocket streaming output (reuses existing WS logic)
+- [ ] **SPA-06**: Alpine.store for cross-view state, x-show for view switching (preserves WebSocket)
+
+## v2.2 Requirements
+
+Deferred to future release. Tracked but not in current roadmap.
+
+### Webhooks
+
+- **HOOK-01**: emit_event() sends HTTP POST to configured n8n webhook URL
+- **HOOK-02**: User can configure webhook URL and enabled events in settings
+
+### GitHub Integration
+
+- **GH-01**: User can clone a GitHub repo as a new project
+- **GH-02**: User can push changes and create PRs from the console
 
 ## Out of Scope
 
-Explicitly excluded. Documented to prevent scope creep.
-
 | Feature | Reason |
 |---------|--------|
-| Multi-user / team features | Single-user with basic auth sufficient |
-| Multi-model support (OpenAI, Gemini) | Claude CLI only by design |
-| React/Vue/Svelte frontend | Alpine.js sufficient for single-user, no build step |
-| Message queues (Celery/Redis/RabbitMQ) | asyncio semaphore sufficient for 2-task concurrency |
-| TUI maintenance | v2.0 replaces TUI with web interface |
+| Multi-user / team features | Single-user with basic auth by design |
+| Multi-model support (OpenAI, Gemini) | Claude CLI only |
+| Auto-detect project from prompt | Manual selection is explicit and predictable |
+| Template sharing/export | Single-user, no need for distribution |
+| Real-time filesystem watching | Scan-on-demand is sufficient for single user |
+| n8n webhook HTTP implementation | Only hook points in v2.1, full impl in v2.2 |
 | Mobile-responsive polish | Desktop-first, functional on mobile but not optimized |
-| Task templates / saved prompts | Nice-to-have, defer to v2.2+ |
 
 ## Traceability
 
 Which phases cover which requirements. Updated during roadmap creation.
+
+### v2.0 (Complete)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
@@ -79,11 +133,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFR-02 | Phase 7 | Complete |
 | INFR-03 | Phase 11 | Complete |
 
+### v2.1 (Active)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DB-01 | — | Pending |
+| DB-02 | — | Pending |
+| DB-03 | — | Pending |
+| PROJ-01 | — | Pending |
+| PROJ-02 | — | Pending |
+| PROJ-03 | — | Pending |
+| PROJ-04 | — | Pending |
+| PROJ-05 | — | Pending |
+| TMPL-01 | — | Pending |
+| TMPL-02 | — | Pending |
+| TMPL-03 | — | Pending |
+| TMPL-04 | — | Pending |
+| TMPL-05 | — | Pending |
+| TMPL-06 | — | Pending |
+| TMPL-07 | — | Pending |
+| TMPL-08 | — | Pending |
+| CTX-01 | — | Pending |
+| CTX-02 | — | Pending |
+| CTX-03 | — | Pending |
+| CTX-04 | — | Pending |
+| TASK-11 | — | Pending |
+| TASK-12 | — | Pending |
+| TASK-13 | — | Pending |
+| EVT-01 | — | Pending |
+| SPA-01 | — | Pending |
+| SPA-02 | — | Pending |
+| SPA-03 | — | Pending |
+| SPA-04 | — | Pending |
+| SPA-05 | — | Pending |
+| SPA-06 | — | Pending |
+
 **Coverage:**
-- v2.0 requirements: 12 total
-- Mapped to phases: 12
-- Unmapped: 0
+- v2.1 requirements: 30 total
+- Mapped to phases: 0
+- Unmapped: 30 ⚠️
 
 ---
-*Requirements defined: 2026-03-12*
-*Last updated: 2026-03-12 after roadmap creation*
+*Requirements defined: 2026-03-13*
+*Last updated: 2026-03-13 after initial definition*
