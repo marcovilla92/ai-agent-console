@@ -1,36 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Web Platform
-status: completed
-stopped_at: "Phase 11 fully deployed and E2E verified on Coolify"
-last_updated: "2026-03-13T14:40:00.000Z"
-last_activity: 2026-03-13 -- Phase 11 completed. App live at console.amcsystem.uk, E2E verified.
+milestone: v2.1
+milestone_name: Project Router
+status: active
+stopped_at: ""
+last_updated: "2026-03-13T16:00:00.000Z"
+last_activity: 2026-03-13 -- Milestone v2.1 started
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-12)
+See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 11 -- Docker Deployment
+**Current focus:** Defining requirements for v2.1 Project Router
 
 ## Current Position
 
-Phase: 11 of 11 (Docker Deployment)
-Plan: 1 of 1 in current phase (all tasks completed)
-Status: Phase Completed
-Last activity: 2026-03-13 -- Phase 11 fully deployed and E2E verified on Coolify
-
-Progress: [██████████] 100% (v2.0: 10/10 plans)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-13 — Milestone v2.1 started
 
 ## Performance Metrics
 

@@ -8,18 +8,18 @@ A web-based multi-agent platform that orchestrates AI workflows using Claude CLI
 
 The orchestrator must reliably coordinate agents through iterative cycles — taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
 
-## Current Milestone: v2.0 Web Platform
+## Current Milestone: v2.1 Project Router
 
-**Goal:** Transform from local TUI to persistent web platform accessible from any device, with task parallelism, GitHub integration, and hybrid autonomy.
+**Goal:** Multi-project support with template scaffolding, context assembly, phase suggestion, and a reworked SPA frontend replacing Jinja2 server-rendered pages.
 
 **Target features:**
-- FastAPI backend with WebSocket streaming and REST API
-- PostgreSQL persistence (tasks, steps, logs) replacing SQLite
-- Browser-based dashboard with Alpine.js (no build step)
-- Task parallelism with asyncio semaphore (max 2 concurrent Claude CLI)
-- Hybrid autonomy: supervised (approve each stage) or autonomous per-task
-- GitHub integration: clone repos, commit, push, create PRs
-- Docker deployment on Coolify at console.amcsystem.uk
+- Project CRUD (create/list/delete) with auto-registration of ~/projects/ folders
+- Template system: 4 builtin templates (blank, fastapi-pg, telegram-bot, cli-tool) + custom CRUD via API
+- Enhanced context assembler (workspace + CLAUDE.md + .planning/ + git log + task history)
+- Phase suggestion engine parsing STATE.md/ROADMAP.md
+- Task creation requires project_id, context prepended to prompt
+- Full SPA frontend (Alpine.js): project select → prompt with phase suggestion → streaming
+- n8n webhook hook points (emit_event placeholder, not implemented)
 
 ## Requirements
 
@@ -35,17 +35,23 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 - ✓ Retry logic (3 attempts, exponential backoff) on Claude CLI errors — v1.0
 - ✓ Git auto-commit after successful execution cycles — v1.0
 - ✓ Token usage and cost tracking — v1.0
+- ✓ Web-based dashboard accessible from any browser — v2.0
+- ✓ Persistent tasks visible across devices — v2.0
+- ✓ Hybrid autonomy (supervised or autonomous per-task) — v2.0
+- ✓ Task parallelism (multiple concurrent tasks) — v2.0
+- ✓ WebSocket streaming with late-join replay — v2.0
+- ✓ PostgreSQL persistence replacing SQLite — v2.0
+- ✓ Docker deployment on Coolify — v2.0
 
 ### Active
 
-- [ ] Web-based dashboard accessible from any browser
-- [ ] Persistent tasks visible across devices
-- [ ] Hybrid autonomy (supervised or autonomous per-task)
-- [ ] GitHub integration (clone, push, PR)
-- [ ] Task parallelism (multiple concurrent tasks)
-- [ ] WebSocket streaming with late-join replay
-- [ ] PostgreSQL persistence replacing SQLite
-- [ ] Docker deployment on Coolify
+- [ ] Project CRUD with auto-registration of ~/projects/ folders
+- [ ] Template system (builtin + custom CRUD)
+- [ ] Enhanced context assembler per project
+- [ ] Phase suggestion from .planning/ docs
+- [ ] Task creation with project_id and context enrichment
+- [ ] SPA frontend replacing Jinja2 server-rendered pages
+- [ ] n8n webhook hook points (placeholder)
 
 ### Out of Scope
 
@@ -56,16 +62,18 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 - Message queues (Celery/Redis/RabbitMQ) — asyncio semaphore sufficient for single user
 - React/Vue/Svelte — Alpine.js sufficient for single-user dashboard
 - TUI maintenance — v2.0 replaces TUI with web interface
+- GitHub integration (clone, push, PR) — deferred from v2.0, not needed for project router
+- n8n webhook implementation — only hook points/placeholders in v2.1
 
 ## Context
 
 v1.0 shipped as TUI with 4,524 LOC Python, 160 tests, 5 phases.
-~70% of core modules (agents, runner, parser, context, pipeline) reusable directly.
-TUI modules (app, panels, actions, streaming, status_bar) and SQLite layer fully replaced.
+v2.0 shipped as web platform: FastAPI + asyncpg + Alpine.js, 6 phases (06-11), deployed on Coolify.
+App live at console.amcsystem.uk with WebSocket streaming, approval gates, task parallelism.
 
 VPS: OVH 4-core, 7.6GB RAM, Ubuntu 24.04, Coolify 4.0.
 Existing services: PostgreSQL 16, n8n (amcsystem.uk), Evolution API (evo.amcsystem.uk).
-Estimated RAM budget: ~2.45GB used / 7.6GB total (5GB margin).
+Design spec: docs/project-router-spec.md (808 lines, full API/DB/UX spec for v2.1).
 
 ## Constraints
 
@@ -85,11 +93,14 @@ Estimated RAM budget: ~2.45GB used / 7.6GB total (5GB margin).
 | Textual for TUI (v1.0) | Modern Python TUI framework | ✓ Good — validated agent pipeline patterns |
 | AI-driven orchestrator | More flexible than rule-based | ✓ Good — JSON schema enforcement works |
 | stream_claude yields dict for result events | isinstance check distinguishes text from metadata | ✓ Good — reusable in web version |
-| FastAPI over Django/Flask | Async-native, WebSocket support, Pydantic models | — Pending |
-| PostgreSQL over SQLite | VPS already has it, multi-writer, accessible from n8n | — Pending |
-| asyncio.Event for approval gates | Simplest pause/resume pattern for supervised mode | — Pending |
-| Alpine.js over React/Vue | No build step, sufficient for single-user dashboard | — Pending |
-| No message broker | Single user, 2-3 concurrent tasks, asyncio semaphore enough | — Pending |
+| FastAPI over Django/Flask | Async-native, WebSocket support, Pydantic models | ✓ Good — v2.0 shipped successfully |
+| PostgreSQL over SQLite | VPS already has it, multi-writer, accessible from n8n | ✓ Good — asyncpg works well |
+| asyncio.Event for approval gates | Simplest pause/resume pattern for supervised mode | ✓ Good — lightweight, no external deps |
+| Alpine.js over React/Vue | No build step, sufficient for single-user dashboard | ✓ Good — simple and effective |
+| No message broker | Single user, 2-3 concurrent tasks, asyncio semaphore enough | ✓ Good — sufficient for workload |
+| Full SPA replacing Jinja2 templates | No delimiter conflicts, clean API separation | — Pending |
+| templates/ for project scaffolding | Jinja2 HTML templates removed, directory repurposed | — Pending |
+| Manual project selection (no auto-detect) | Explicit user choice, predictable behavior | — Pending |
 
 ---
-*Last updated: 2026-03-12 after v2.0 milestone start*
+*Last updated: 2026-03-13 after v2.1 milestone start*
