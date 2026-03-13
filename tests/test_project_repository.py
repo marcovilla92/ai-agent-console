@@ -3,7 +3,7 @@ import pytest
 from datetime import datetime, timezone
 
 from src.db.pg_schema import Project, Task
-from src.db.pg_repository import TaskRepository
+from src.db.pg_repository import TaskRepository, ProjectRepository
 
 
 # --- Task 1: Schema validation tests ---
@@ -50,3 +50,69 @@ async def test_existing_task_crud_with_null_project_id(pg_pool):
     task = await repo.get(task_id)
     assert task is not None
     assert task.project_id is None
+
+
+# --- Task 2: ProjectRepository CRUD tests ---
+
+
+@pytest.mark.asyncio
+async def test_project_crud(pg_pool):
+    """Insert, get, list_all, delete cycle for ProjectRepository."""
+    repo = ProjectRepository(pg_pool)
+    project = Project(
+        name="My Project",
+        slug="my-project",
+        path="/home/ubuntu/projects/my-project",
+        created_at=datetime.now(timezone.utc),
+        description="A test project",
+    )
+    # Insert
+    pid = await repo.insert(project)
+    assert isinstance(pid, int)
+
+    # Get
+    fetched = await repo.get(pid)
+    assert fetched is not None
+    assert fetched.id == pid
+    assert fetched.name == "My Project"
+    assert fetched.slug == "my-project"
+    assert fetched.path == "/home/ubuntu/projects/my-project"
+    assert fetched.description == "A test project"
+    assert fetched.last_used_at is None
+
+    # List all
+    all_projects = await repo.list_all()
+    assert any(p.id == pid for p in all_projects)
+
+    # Delete
+    await repo.delete(pid)
+    assert await repo.get(pid) is None
+
+
+@pytest.mark.asyncio
+async def test_update_last_used(pg_pool):
+    """update_last_used should set a non-None timestamp."""
+    repo = ProjectRepository(pg_pool)
+    project = Project(
+        name="Updated Project",
+        slug="updated-project",
+        path="/home/ubuntu/projects/updated",
+        created_at=datetime.now(timezone.utc),
+    )
+    pid = await repo.insert(project)
+    fetched = await repo.get(pid)
+    assert fetched.last_used_at is None
+
+    await repo.update_last_used(pid)
+    fetched = await repo.get(pid)
+    assert fetched.last_used_at is not None
+
+    # cleanup
+    await repo.delete(pid)
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_project(pg_pool):
+    """get() should return None for non-existent id."""
+    repo = ProjectRepository(pg_pool)
+    assert await repo.get(99999) is None
