@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Web Platform
-status: verifying
-stopped_at: "Completed 11-01 Task 1, awaiting checkpoint:human-verify for Coolify deployment"
-last_updated: "2026-03-13T08:48:59.902Z"
-last_activity: 2026-03-13 -- Completed 11-01 Task 1 (Dockerfile), awaiting Coolify deployment
+status: completed
+stopped_at: "Phase 11 fully deployed and E2E verified on Coolify"
+last_updated: "2026-03-13T14:40:00.000Z"
+last_activity: 2026-03-13 -- Phase 11 completed. App live at console.amcsystem.uk, E2E verified.
 progress:
   total_phases: 6
   completed_phases: 6
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-12)
 ## Current Position
 
 Phase: 11 of 11 (Docker Deployment)
-Plan: 1 of 1 in current phase (Task 2 checkpoint:human-verify pending)
-Status: Awaiting User Verification
-Last activity: 2026-03-13 -- Completed 11-01 Task 1 (Dockerfile), awaiting Coolify deployment
+Plan: 1 of 1 in current phase (all tasks completed)
+Status: Phase Completed
+Last activity: 2026-03-13 -- Phase 11 fully deployed and E2E verified on Coolify
 
 Progress: [██████████] 100% (v2.0: 10/10 plans)
 
@@ -94,6 +94,9 @@ Progress: [██████████] 100% (v2.0: 10/10 plans)
 - [Phase 11]: Pin Claude CLI to v2.1.74 for reproducible builds
 - [Phase 11]: Single requirements.txt (no prod/dev split) -- acceptable for single-user project
 - [Phase 11]: No HEALTHCHECK directive -- Coolify handles health checks via /health endpoint
+- [Phase 11]: Non-root appuser in container -- Claude CLI refuses --dangerously-skip-permissions as root
+- [Phase 11]: Reused existing PostgreSQL with dedicated agent_console database
+- [Phase 11]: uvicorn[standard] for WebSocket support, jinja2 for templates
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T08:48:58.946Z
-Stopped at: Completed 11-01 Task 1, awaiting checkpoint:human-verify for Coolify deployment
+Last session: 2026-03-13T14:40:00.000Z
+Stopped at: Phase 11 fully deployed and E2E verified on Coolify
 Resume file: None
