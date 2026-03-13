@@ -51,10 +51,10 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ### Template System
 
-- [ ] **TMPL-01**: 4 builtin templates available: blank, fastapi-pg, telegram-bot, cli-tool
-- [ ] **TMPL-02**: Each builtin template includes CLAUDE.md, .claude/ agents+commands, and source scaffolding
-- [ ] **TMPL-03**: User can list templates (GET /templates) from registry.yaml
-- [ ] **TMPL-04**: User can view template detail with file list (GET /templates/{id})
+- [x] **TMPL-01**: 4 builtin templates available: blank, fastapi-pg, telegram-bot, cli-tool
+- [x] **TMPL-02**: Each builtin template includes CLAUDE.md, .claude/ agents+commands, and source scaffolding
+- [x] **TMPL-03**: User can list templates (GET /templates) from registry.yaml
+- [x] **TMPL-04**: User can view template detail with file list (GET /templates/{id})
 - [ ] **TMPL-05**: User can create custom template with inline files (POST /templates)
 - [ ] **TMPL-06**: User can update custom template metadata and files (PUT /templates/{id})
 - [ ] **TMPL-07**: User can delete custom template (DELETE /templates/{id})
@@ -140,10 +140,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DB-01 | Phase 12 | Complete |
 | DB-02 | Phase 12 | Complete |
 | DB-03 | Phase 12 | Complete |
-| TMPL-01 | Phase 13 | Pending |
-| TMPL-02 | Phase 13 | Pending |
-| TMPL-03 | Phase 13 | Pending |
-| TMPL-04 | Phase 13 | Pending |
+| TMPL-01 | Phase 13 | Complete |
+| TMPL-02 | Phase 13 | Complete |
+| TMPL-03 | Phase 13 | Complete |
+| TMPL-04 | Phase 13 | Complete |
 | TMPL-05 | Phase 13 | Pending |
 | TMPL-06 | Phase 13 | Pending |
 | TMPL-07 | Phase 13 | Pending |

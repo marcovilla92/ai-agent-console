@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Project Router
-status: completed
-stopped_at: Completed 12-01-PLAN.md -- Phase 12 DB Foundation complete
-last_updated: "2026-03-13T18:57:42.550Z"
-last_activity: 2026-03-13 -- Completed 12-01 DB Foundation plan
+status: in_progress
+stopped_at: Completed 13-01-PLAN.md -- Template system foundation complete
+last_updated: "2026-03-13T20:01:30Z"
+last_activity: 2026-03-13 -- Completed 13-01 Template System Foundation plan
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 17
+  total_plans: 2
+  completed_plans: 2
+  percent: 33
 ---
 
 # Project State
@@ -21,26 +21,26 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 12 - DB Foundation (v2.1 Project Router)
+**Current focus:** Phase 13 - Template System (v2.1 Project Router)
 
 ## Current Position
 
-Phase: 12 of 17 (DB Foundation) -- first phase of v2.1
-Plan: 01 of 01 (complete)
-Status: Phase 12 complete
-Last activity: 2026-03-13 -- Completed 12-01 DB Foundation plan
+Phase: 13 of 17 (Template System)
+Plan: 01 of 03 (complete)
+Status: Phase 13 in progress
+Last activity: 2026-03-13 -- Completed 13-01 Template System Foundation plan
 
-Progress: [██░░░░░░░░] 17%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18 (v1.0: 16, v2.0: 10, v2.1: 1)
+- Total plans completed: 19 (v1.0: 16, v2.0: 10, v2.1: 2)
 - Average duration: 5min
 - Total execution time: ~1.5 hours
 
 **Recent Trend:**
-- Last 5 plans: 2min, 2min, 2min, 2min, 6min
+- Last 5 plans: 2min, 2min, 2min, 6min, 5min
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -57,6 +57,9 @@ Progress: [██░░░░░░░░] 17%
 - [v2.1]: SPA last -- same "APIs before UI" pattern as v2.0
 - [12-01]: project_id FK nullable on tasks -- backward compatible, existing tasks unaffected
 - [12-01]: ProjectRepository follows same pool-based pattern as TaskRepository
+- [13-01]: TEMPLATES_ROOT resolved via Path(__file__).resolve() for Docker compatibility
+- [13-01]: File type detection: .j2 suffix = jinja2, else static
+- [13-01]: EXCLUDE_DIRS filters .git, __pycache__, node_modules from manifests
 
 ### Pending Todos
 
@@ -73,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T18:39:00.000Z
-Stopped at: Completed 12-01-PLAN.md -- Phase 12 DB Foundation complete
+Last session: 2026-03-13T19:56:27Z
+Stopped at: Completed 13-01-PLAN.md -- Template system foundation complete
 Resume file: None
