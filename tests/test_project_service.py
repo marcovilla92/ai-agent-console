@@ -7,6 +7,7 @@ from src.pipeline.events import ProjectEvent, emit_event
 from src.context.assembler import detect_stack
 from src.db.pg_schema import Project
 from src.db.pg_repository import ProjectRepository
+from src.pipeline.project_service import ProjectService
 
 
 # ---------------------------------------------------------------------------
@@ -115,3 +116,127 @@ class TestUpsertByPath:
 
         # Cleanup
         await repo.delete(first_id)
+
+
+# ---------------------------------------------------------------------------
+# TestListProjects (integration, requires pg_pool)
+# ---------------------------------------------------------------------------
+
+
+class TestListProjects:
+    """Tests for ProjectService.list_projects()."""
+
+    @pytest.mark.asyncio
+    async def test_empty_workspace_returns_empty(self, pg_pool, tmp_path):
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        result = await svc.list_projects()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_auto_registers_untracked_folders(self, pg_pool, tmp_path):
+        # Create two subdirs, one with pyproject.toml
+        (tmp_path / "alpha").mkdir()
+        (tmp_path / "beta").mkdir()
+        (tmp_path / "beta" / "pyproject.toml").touch()
+
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        result = await svc.list_projects()
+
+        assert len(result) == 2
+        names = {p["name"] for p in result}
+        assert names == {"alpha", "beta"}
+
+        # Check stack detection
+        beta = next(p for p in result if p["name"] == "beta")
+        assert "Python" in beta["stack"]
+
+        alpha = next(p for p in result if p["name"] == "alpha")
+        assert alpha["stack"] == "unknown"
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        for p in result:
+            await repo.delete(p["id"])
+
+    @pytest.mark.asyncio
+    async def test_no_duplicates_on_second_call(self, pg_pool, tmp_path):
+        (tmp_path / "gamma").mkdir()
+
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        first = await svc.list_projects()
+        second = await svc.list_projects()
+
+        assert len(first) == len(second) == 1
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        for p in second:
+            await repo.delete(p["id"])
+
+    @pytest.mark.asyncio
+    async def test_skips_hidden_dirs(self, pg_pool, tmp_path):
+        (tmp_path / ".hidden").mkdir()
+        (tmp_path / "visible").mkdir()
+
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        result = await svc.list_projects()
+
+        assert len(result) == 1
+        assert result[0]["name"] == "visible"
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        for p in result:
+            await repo.delete(p["id"])
+
+
+# ---------------------------------------------------------------------------
+# TestDeleteProject (integration, requires pg_pool)
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteProject:
+    """Tests for ProjectService.delete_project()."""
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_from_db(self, pg_pool):
+        repo = ProjectRepository(pg_pool)
+        project = Project(
+            name="to-delete",
+            slug="to-delete",
+            path="/tmp/to-delete-unique",
+            description="",
+            created_at=datetime.now(timezone.utc),
+        )
+        pid = await repo.insert(project)
+
+        svc = ProjectService(pg_pool)
+        await svc.delete_project(pid)
+
+        assert await repo.get(pid) is None
+
+    @pytest.mark.asyncio
+    async def test_delete_emits_event(self, pg_pool):
+        repo = ProjectRepository(pg_pool)
+        project = Project(
+            name="to-delete-evt",
+            slug="to-delete-evt",
+            path="/tmp/to-delete-evt-unique",
+            description="",
+            created_at=datetime.now(timezone.utc),
+        )
+        pid = await repo.insert(project)
+
+        svc = ProjectService(pg_pool)
+        with patch("src.pipeline.project_service.emit_event", new_callable=AsyncMock) as mock_emit:
+            await svc.delete_project(pid)
+            mock_emit.assert_called_once()
+            args = mock_emit.call_args[0]
+            assert args[0] == ProjectEvent.PROJECT_DELETED
+            assert args[1]["id"] == pid
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_raises(self, pg_pool):
+        svc = ProjectService(pg_pool)
+        with pytest.raises(ValueError):
+            await svc.delete_project(99999)
