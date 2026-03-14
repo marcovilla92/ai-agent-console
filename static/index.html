@@ -303,6 +303,25 @@
           this.submitting = false;
         },
 
+        async deleteProject(id) {
+          this.error = null;
+          try {
+            var resp = await apiFetch('/projects/' + id, {
+              method: 'DELETE'
+            });
+            if (resp.ok) {
+              this.selectedProject = null;
+              this.view = 'select';
+              await this.loadProjects();
+            } else {
+              var err = await resp.json().catch(function() { return {}; });
+              this.error = err.detail || 'Failed to delete project';
+            }
+          } catch (e) {
+            this.error = 'Failed to delete project';
+          }
+        },
+
         /* --- File Browser --- */
         async loadFileTree() {
           if (!this.selectedProject) return;
@@ -455,6 +474,32 @@
             this.error = 'Failed to submit task';
             this.submitting = false;
           }
+        },
+
+        /* --- Open a running task from Task History --- */
+        openRunningTask(task) {
+          this.activeTaskId = task.id;
+          this.logText = '';
+          this.taskStatus = 'running';
+          this.currentAgent = null;
+          this.currentStep = null;
+          this.currentNextAction = null;
+          this.pipelineHistory = [];
+          this.taskStartedAt = task.created_at ? new Date(task.created_at).getTime() : Date.now();
+          this.taskElapsed = '0s';
+          this.approvalPending = false;
+          this.approvalData = null;
+          this.view = 'running';
+          /* Start elapsed timer */
+          var self2 = this;
+          if (this._elapsedTimer) clearInterval(this._elapsedTimer);
+          this._elapsedTimer = setInterval(function() {
+            var secs = Math.floor((Date.now() - self2.taskStartedAt) / 1000);
+            if (secs < 60) { self2.taskElapsed = secs + 's'; }
+            else if (secs < 3600) { self2.taskElapsed = Math.floor(secs / 60) + 'm ' + (secs % 60) + 's'; }
+            else { self2.taskElapsed = Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm'; }
+          }, 1000);
+          this.connectWS(task.id);
         },
 
         /* --- Running View (WebSocket) --- */
@@ -764,17 +809,27 @@
             <!-- Project cards -->
             <div x-show="!$store.app.loading && $store.app.projects.length > 0" class="grid gap-4 sm:grid-cols-2">
               <template x-for="project in $store.app.projects" :key="project.id">
-                <div @click="$store.app.selectProject(project)"
-                     class="bg-white border border-surface-200 rounded-lg p-5 cursor-pointer hover:border-primary-400 hover:shadow-md transition-all min-h-[44px]">
-                  <div class="flex items-start justify-between mb-2">
-                    <span class="font-semibold text-surface-900" x-text="project.name"></span>
-                    <span class="text-xs text-surface-400 shrink-0 ml-2" x-text="timeAgo(project.last_used_at)"></span>
+                <div class="bg-white border border-surface-200 rounded-lg p-5 cursor-pointer hover:border-primary-400 hover:shadow-md transition-all min-h-[44px] relative group">
+                  <div @click="$store.app.selectProject(project)">
+                    <div class="flex items-start justify-between mb-2">
+                      <span class="font-semibold text-surface-900" x-text="project.name"></span>
+                      <span class="text-xs text-surface-400 shrink-0 ml-2" x-text="timeAgo(project.last_used_at)"></span>
+                    </div>
+                    <p x-show="project.description" x-text="project.description" class="text-sm text-surface-500 mb-3"></p>
+                    <div class="flex flex-wrap gap-1.5">
+                      <template x-for="badge in stackBadges(project.stack)" :key="badge">
+                        <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-primary-50 text-primary-700" x-text="badge"></span>
+                      </template>
+                    </div>
                   </div>
-                  <p x-show="project.description" x-text="project.description" class="text-sm text-surface-500 mb-3"></p>
-                  <div class="flex flex-wrap gap-1.5">
-                    <template x-for="badge in stackBadges(project.stack)" :key="badge">
-                      <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-primary-50 text-primary-700" x-text="badge"></span>
-                    </template>
+                  <!-- Delete button on hover -->
+                  <div class="absolute top-3 right-3 hidden group-hover:flex" @click.stop>
+                    <button @click="if(confirm('Delete project: ' + project.name + '?')) $store.app.deleteProject(project.id)"
+                            class="p-1.5 bg-white text-surface-400 hover:text-red-600 hover:bg-red-50 rounded-md shadow-sm border border-surface-200 transition-colors" title="Delete project">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </template>
@@ -854,10 +909,26 @@
             <!-- Header with back + new task -->
             <div class="flex items-center justify-between flex-wrap gap-3">
               <a href="#" @click.prevent="$store.app.selectedProject = null; $store.app.view = 'select'" class="text-sm text-primary-600 hover:text-primary-700 min-h-[44px] inline-flex items-center">&larr; All Projects</a>
-              <button @click="$store.app.view = 'prompt'"
-                      class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]">
-                + New Task
-              </button>
+              <div class="flex items-center gap-2">
+                <button @click="if(confirm('Delete project: ' + $store.app.selectedProject.name + '?')) $store.app.deleteProject($store.app.selectedProject.id)"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 text-sm font-medium rounded-lg transition-colors min-h-[44px]">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                  </svg>
+                  Delete
+                </button>
+                <button @click="$store.app.browseFiles()"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-surface-200 hover:bg-surface-50 text-surface-700 text-sm font-medium rounded-lg transition-colors min-h-[44px]">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                  </svg>
+                  Browse Files
+                </button>
+                <button @click="$store.app.view = 'prompt'"
+                        class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]">
+                  + New Task
+                </button>
+              </div>
             </div>
 
             <!-- Project description -->
@@ -911,7 +982,7 @@
               <div class="space-y-2">
                 <template x-for="task in $store.app.projectTasks" :key="task.id">
                   <div x-data="{ expanded: false }" class="bg-white border border-surface-200 rounded-lg overflow-hidden">
-                    <button @click="expanded = !expanded" class="w-full px-4 py-3 flex items-center justify-between text-left min-h-[44px]">
+                    <button @click="(task.status === 'running' || task.status === 'queued') ? $store.app.openRunningTask(task) : (expanded = !expanded)" class="w-full px-4 py-3 flex items-center justify-between text-left min-h-[44px]">
                       <div class="flex-1 min-w-0 mr-3">
                         <p class="text-sm font-medium text-surface-900 truncate" x-text="task.prompt"></p>
                         <div class="flex items-center gap-3 mt-0.5">
@@ -932,6 +1003,184 @@
                     </div>
                   </div>
                 </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============================================================ -->
+          <!-- PAGE: Projects > Files                                       -->
+          <!-- ============================================================ -->
+          <div x-show="$store.app.page === 'projects' && $store.app.view === 'files'"
+               x-transition:enter="transition ease-out duration-200"
+               x-transition:enter-start="opacity-0 translate-y-1"
+               x-transition:enter-end="opacity-100 translate-y-0"
+               class="space-y-4">
+
+            <!-- Header -->
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <a href="#" @click.prevent="$store.app.view = 'dashboard'" class="text-sm text-primary-600 hover:text-primary-700 min-h-[44px] inline-flex items-center">&larr; Back to dashboard</a>
+              <span class="text-xs text-surface-400" x-text="$store.app.selectedProject?.path"></span>
+            </div>
+
+            <!-- File browser layout -->
+            <div class="flex flex-col lg:flex-row gap-4" style="min-height: 500px;">
+
+              <!-- File tree panel -->
+              <div class="w-full lg:w-72 xl:w-80 shrink-0 bg-white border border-surface-200 rounded-lg overflow-hidden flex flex-col">
+                <div class="px-4 py-3 border-b border-surface-200 bg-surface-50">
+                  <h3 class="text-sm font-semibold text-surface-700">File Tree</h3>
+                </div>
+                <div class="flex-1 overflow-y-auto p-2 text-sm" style="max-height: 600px;">
+                  <div x-show="$store.app.fileLoading && $store.app.fileTree.length === 0" class="text-center py-8 text-surface-400">
+                    <div class="w-5 h-5 border-2 border-primary-300 border-t-primary-600 rounded-full spinner mx-auto mb-2"></div>
+                    Loading...
+                  </div>
+                  <div x-show="!$store.app.fileLoading && $store.app.fileTree.length === 0" class="text-center py-8 text-surface-400 text-xs">
+                    No files found
+                  </div>
+                  <!-- Recursive tree -->
+                  <div x-data="{ renderTree: $store.app.fileTree }" x-effect="renderTree = $store.app.fileTree">
+                    <template x-for="entry in renderTree" :key="entry.path">
+                      <div>
+                        <!-- Directory (level 0) -->
+                        <template x-if="entry.is_dir">
+                          <div>
+                            <button @click="$store.app.toggleDir(entry.path)"
+                                    class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[32px]">
+                              <svg class="w-3.5 h-3.5 text-surface-400 transition-transform duration-150 shrink-0"
+                                   :class="{ 'rotate-90': $store.app.fileExpandedDirs[entry.path] }"
+                                   fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                              </svg>
+                              <svg class="w-4 h-4 shrink-0" :class="$store.app.fileExpandedDirs[entry.path] ? 'text-primary-500' : 'text-amber-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                              </svg>
+                              <span class="truncate text-surface-700 font-medium text-xs" x-text="entry.name"></span>
+                            </button>
+                            <div x-show="$store.app.fileExpandedDirs[entry.path]" class="ml-4">
+                              <template x-for="child in (entry.children || [])" :key="child.path">
+                                <div>
+                                  <!-- Sub-directory (level 1) -->
+                                  <template x-if="child.is_dir">
+                                    <div>
+                                      <button @click="$store.app.toggleDir(child.path)"
+                                              class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[32px]">
+                                        <svg class="w-3.5 h-3.5 text-surface-400 transition-transform duration-150 shrink-0"
+                                             :class="{ 'rotate-90': $store.app.fileExpandedDirs[child.path] }"
+                                             fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                                        </svg>
+                                        <svg class="w-4 h-4 shrink-0" :class="$store.app.fileExpandedDirs[child.path] ? 'text-primary-500' : 'text-amber-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                                        </svg>
+                                        <span class="truncate text-surface-700 font-medium text-xs" x-text="child.name"></span>
+                                      </button>
+                                      <div x-show="$store.app.fileExpandedDirs[child.path]" class="ml-4">
+                                        <template x-for="grandchild in (child.children || [])" :key="grandchild.path">
+                                          <div>
+                                            <!-- Sub-directory (level 2) -->
+                                            <template x-if="grandchild.is_dir">
+                                              <div>
+                                                <button @click="$store.app.toggleDir(grandchild.path)"
+                                                        class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[32px]">
+                                                  <svg class="w-3.5 h-3.5 text-surface-400 transition-transform duration-150 shrink-0"
+                                                       :class="{ 'rotate-90': $store.app.fileExpandedDirs[grandchild.path] }"
+                                                       fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                                                  </svg>
+                                                  <svg class="w-4 h-4 shrink-0" :class="$store.app.fileExpandedDirs[grandchild.path] ? 'text-primary-500' : 'text-amber-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                                                  </svg>
+                                                  <span class="truncate text-surface-700 font-medium text-xs" x-text="grandchild.name"></span>
+                                                </button>
+                                                <div x-show="$store.app.fileExpandedDirs[grandchild.path]" class="ml-4">
+                                                  <template x-for="ggchild in (grandchild.children || [])" :key="ggchild.path">
+                                                    <button @click="if (!ggchild.is_dir) $store.app.openFile(ggchild.path); else $store.app.toggleDir(ggchild.path)"
+                                                            class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[28px]"
+                                                            :class="{ 'bg-primary-50': $store.app.filePath === ggchild.path }">
+                                                      <svg class="w-3.5 h-3.5 shrink-0" :class="ggchild.is_dir ? 'text-amber-500' : 'text-surface-300'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                                        <path x-show="ggchild.is_dir" stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                                                        <path x-show="!ggchild.is_dir" stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                                      </svg>
+                                                      <span class="truncate text-xs" :class="ggchild.is_dir ? 'text-surface-700 font-medium' : 'text-surface-600'" x-text="ggchild.name"></span>
+                                                      <span x-show="!ggchild.is_dir" class="ml-auto text-[10px] text-surface-400 shrink-0" x-text="formatSize(ggchild.size)"></span>
+                                                    </button>
+                                                  </template>
+                                                </div>
+                                              </div>
+                                            </template>
+                                            <!-- File (level 2) -->
+                                            <template x-if="!grandchild.is_dir">
+                                              <button @click="$store.app.openFile(grandchild.path)"
+                                                      class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[28px]"
+                                                      :class="{ 'bg-primary-50': $store.app.filePath === grandchild.path }">
+                                                <svg class="w-3.5 h-3.5 text-surface-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                                </svg>
+                                                <span class="truncate text-xs text-surface-600" x-text="grandchild.name"></span>
+                                                <span class="ml-auto text-[10px] text-surface-400 shrink-0" x-text="formatSize(grandchild.size)"></span>
+                                              </button>
+                                            </template>
+                                          </div>
+                                        </template>
+                                      </div>
+                                    </div>
+                                  </template>
+                                  <!-- File (level 1) -->
+                                  <template x-if="!child.is_dir">
+                                    <button @click="$store.app.openFile(child.path)"
+                                            class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[28px]"
+                                            :class="{ 'bg-primary-50': $store.app.filePath === child.path }">
+                                      <svg class="w-3.5 h-3.5 text-surface-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                      </svg>
+                                      <span class="truncate text-xs text-surface-600" x-text="child.name"></span>
+                                      <span class="ml-auto text-[10px] text-surface-400 shrink-0" x-text="formatSize(child.size)"></span>
+                                    </button>
+                                  </template>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                        <!-- File (root level) -->
+                        <template x-if="!entry.is_dir">
+                          <button @click="$store.app.openFile(entry.path)"
+                                  class="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface-50 text-left min-h-[28px]"
+                                  :class="{ 'bg-primary-50': $store.app.filePath === entry.path }">
+                            <svg class="w-3.5 h-3.5 text-surface-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                            </svg>
+                            <span class="truncate text-xs text-surface-600" x-text="entry.name"></span>
+                            <span class="ml-auto text-[10px] text-surface-400 shrink-0" x-text="formatSize(entry.size)"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- File content panel -->
+              <div class="flex-1 bg-white border border-surface-200 rounded-lg overflow-hidden flex flex-col min-w-0">
+                <div class="px-4 py-3 border-b border-surface-200 bg-surface-50 flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <h3 class="text-sm font-semibold text-surface-700 truncate" x-text="$store.app.filePath || 'Select a file'"></h3>
+                    <span x-show="$store.app.fileLanguage" class="text-xs px-1.5 py-0.5 bg-primary-50 text-primary-600 rounded font-medium shrink-0" x-text="$store.app.fileLanguage"></span>
+                  </div>
+                  <span x-show="$store.app.fileLoading" class="w-4 h-4 border-2 border-primary-300 border-t-primary-600 rounded-full spinner shrink-0"></span>
+                </div>
+                <div class="flex-1 overflow-auto" style="max-height: 600px;">
+                  <div x-show="!$store.app.filePath && !$store.app.fileLoading" class="flex items-center justify-center h-full text-surface-400 py-20">
+                    <div class="text-center">
+                      <svg class="w-12 h-12 mx-auto mb-3 text-surface-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                      </svg>
+                      <p class="text-sm">Click a file to view its content</p>
+                    </div>
+                  </div>
+                  <pre x-show="$store.app.filePath" class="p-4 text-xs font-mono leading-relaxed bg-surface-900 text-emerald-400 whitespace-pre overflow-x-auto h-full"><code x-text="$store.app.fileContent"></code></pre>
+                </div>
               </div>
             </div>
           </div>
