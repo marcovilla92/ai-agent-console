@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Template System Overhaul
-status: completed
-stopped_at: Completed 28-02-PLAN.md
-last_updated: "2026-03-14T18:37:24.070Z"
-last_activity: 2026-03-14 -- Completed 28-02 Registry Pipeline Wiring
+status: in-progress
+stopped_at: Completed 29-01-PLAN.md
+last_updated: "2026-03-14T18:49:00.000Z"
+last_activity: 2026-03-14 -- Completed 29-01 AI Template Generation Endpoint
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 90
 ---
 
@@ -21,21 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 28 - Orchestrator Dynamic Registry
+**Current focus:** Phase 29 - AI Template Generation
 
 ## Current Position
 
-Phase: 28 of 30 (Orchestrator Dynamic Registry) -- COMPLETE
-Plan: 2 of 2 in current phase (28-02 COMPLETE)
-Status: Phase 28 complete
-Last activity: 2026-03-14 -- Completed 28-02 Registry Pipeline Wiring
+Phase: 29 of 30 (AI Template Generation)
+Plan: 1 of 1 in current phase (29-01 COMPLETE)
+Status: Phase 29 in progress
+Last activity: 2026-03-14 -- Completed 29-01 AI Template Generation Endpoint
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 42 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 5)
+- Total plans completed: 43 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 6)
 - Average duration: 5min
 - Total execution time: ~3 hours
 
@@ -65,6 +65,9 @@ Progress: [█████████░] 90%
 - [Phase 28]: Per-task schema and system prompt built once at orchestrate_pipeline entry
 - [Phase 28]: Registry=None fallback creates dict copy of DEFAULT_REGISTRY for isolation
 - [Phase 28]: Per-task schema and system prompt built once at orchestrate_pipeline entry
+- [Phase 29]: asyncio.Lock (not Semaphore) for generation concurrency -- simpler locked() check
+- [Phase 29]: Validation writes to tempdir and runs discover_project_agents/commands
+- [Phase 29]: System prompt is plain text (~50 lines), no Jinja2 in prompts
 
 ### Pending Todos
 
@@ -76,6 +79,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T18:33:32.420Z
-Stopped at: Completed 28-02-PLAN.md
+Last session: 2026-03-14T18:49:00Z
+Stopped at: Completed 29-01-PLAN.md
 Resume file: None

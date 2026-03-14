@@ -208,9 +208,9 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 
 ### AI Template Generation
 
-- [ ] **AIGEN-01**: L'utente può descrivere un progetto in linguaggio naturale e ricevere un template completo generato dall'AI
-- [ ] **AIGEN-02**: I file generati (agenti, comandi) vengono validati server-side prima della risposta
-- [ ] **AIGEN-03**: La generazione usa un semaforo separato dal pipeline (non consuma slot task)
+- [x] **AIGEN-01**: L'utente può descrivere un progetto in linguaggio naturale e ricevere un template completo generato dall'AI
+- [x] **AIGEN-02**: I file generati (agenti, comandi) vengono validati server-side prima della risposta
+- [x] **AIGEN-03**: La generazione usa un semaforo separato dal pipeline (non consuma slot task)
 
 ### Template Editor
 
@@ -405,9 +405,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ORCH-01 | Phase 28 | Complete |
 | ORCH-02 | Phase 28 | Complete |
 | ORCH-03 | Phase 28 | Complete |
-| AIGEN-01 | Phase 29 | Pending |
-| AIGEN-02 | Phase 29 | Pending |
-| AIGEN-03 | Phase 29 | Pending |
+| AIGEN-01 | Phase 29 | Complete |
+| AIGEN-02 | Phase 29 | Complete |
+| AIGEN-03 | Phase 29 | Complete |
 | EDIT-01 | Phase 30 | Pending |
 | EDIT-02 | Phase 30 | Pending |
 | EDIT-03 | Phase 30 | Pending |
