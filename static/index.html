@@ -1341,14 +1341,14 @@
             </div>
 
             <!-- File browser layout -->
-            <div class="flex flex-col lg:flex-row gap-4" style="min-height: 500px;">
+            <div class="flex flex-col lg:flex-row gap-4" style="min-height: calc(100vh - 200px);">
 
               <!-- File tree panel -->
               <div class="w-full lg:w-72 xl:w-80 shrink-0 bg-white border border-surface-200 rounded-lg overflow-hidden flex flex-col">
                 <div class="px-4 py-3 border-b border-surface-200 bg-surface-50">
                   <h3 class="text-sm font-semibold text-surface-700">File Tree</h3>
                 </div>
-                <div class="flex-1 overflow-y-auto p-2 text-sm" style="max-height: 600px;">
+                <div class="flex-1 overflow-y-auto p-2 text-sm" style="max-height: calc(100vh - 280px);">
                   <div x-show="$store.app.fileLoading && $store.app.fileTree.length === 0" class="text-center py-8 text-surface-400">
                     <div class="w-5 h-5 border-2 border-primary-300 border-t-primary-600 rounded-full spinner mx-auto mb-2"></div>
                     Loading...
@@ -1480,15 +1480,122 @@
               </div>
 
               <!-- File content panel -->
-              <div class="flex-1 bg-white border border-surface-200 rounded-lg overflow-hidden flex flex-col min-w-0">
-                <div class="px-4 py-3 border-b border-surface-200 bg-surface-50 flex items-center justify-between gap-3">
+              <div class="flex-1 bg-white border border-surface-200 rounded-lg overflow-hidden flex flex-col min-w-0 file-viewer"
+                   :class="{ 'file-viewer-wrap': fileViewerWrap }"
+                   x-data="{
+                     fileViewerWrap: false,
+                     showSearch: false,
+                     searchQuery: '',
+                     matchCount: 0,
+                     currentMatch: -1,
+                     copied: false,
+                     get lineCount() { return ($store.app.fileContent || '').split('\n').length; },
+                     highlightCode() {
+                       var el = this.$refs.codeEl;
+                       if (!el || !$store.app.fileContent) return;
+                       el.textContent = $store.app.fileContent;
+                       el.className = $store.app.fileLanguage ? ('language-' + $store.app.fileLanguage) : '';
+                       hljs.highlightElement(el);
+                     },
+                     copyToClipboard() {
+                       var self = this;
+                       navigator.clipboard.writeText($store.app.fileContent || '').then(function() {
+                         self.copied = true;
+                         setTimeout(function() { self.copied = false; }, 2000);
+                       });
+                     },
+                     doSearch() {
+                       this.highlightCode();
+                       var el = this.$refs.codeEl;
+                       if (!el || !this.searchQuery) { this.matchCount = 0; this.currentMatch = -1; return; }
+                       var q = this.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                       var re = new RegExp('(' + q + ')', 'gi');
+                       var count = 0;
+                       el.innerHTML = el.innerHTML.replace(re, function(m) { return '<mark class=\"file-search-match\" data-match=\"' + (count++) + '\">' + m + '</mark>'; });
+                       this.matchCount = count;
+                       this.currentMatch = count > 0 ? 0 : -1;
+                       if (count > 0) this.scrollToMatch(0);
+                     },
+                     scrollToMatch(idx) {
+                       var marks = this.$refs.codeEl.querySelectorAll('mark.file-search-match');
+                       marks.forEach(function(m) { m.classList.remove('file-search-match-active'); });
+                       if (marks[idx]) {
+                         marks[idx].classList.add('file-search-match-active');
+                         marks[idx].scrollIntoView({ block: 'center', behavior: 'smooth' });
+                       }
+                     },
+                     nextMatch() {
+                       if (this.matchCount === 0) return;
+                       this.currentMatch = (this.currentMatch + 1) % this.matchCount;
+                       this.scrollToMatch(this.currentMatch);
+                     },
+                     prevMatch() {
+                       if (this.matchCount === 0) return;
+                       this.currentMatch = (this.currentMatch - 1 + this.matchCount) % this.matchCount;
+                       this.scrollToMatch(this.currentMatch);
+                     },
+                     closeSearch() {
+                       this.showSearch = false;
+                       this.searchQuery = '';
+                       this.matchCount = 0;
+                       this.currentMatch = -1;
+                       this.highlightCode();
+                     }
+                   }"
+                   x-effect="if ($store.app.fileContent) { $nextTick(function() { highlightCode(); }); showSearch = false; searchQuery = ''; matchCount = 0; currentMatch = -1; }"
+                   @keydown.window="if ($event.ctrlKey && $event.key === 'f' && $store.app.view === 'files' && $store.app.filePath) { $event.preventDefault(); showSearch = true; $nextTick(function() { $refs.searchInput && $refs.searchInput.focus(); }); }">
+
+                <!-- Toolbar -->
+                <div class="px-4 py-2.5 border-b border-surface-200 bg-surface-50 flex items-center justify-between gap-3">
                   <div class="flex items-center gap-2 min-w-0">
                     <h3 class="text-sm font-semibold text-surface-700 truncate" x-text="$store.app.filePath || 'Select a file'"></h3>
-                    <span x-show="$store.app.fileLanguage" class="text-xs px-1.5 py-0.5 bg-primary-50 text-primary-600 rounded font-medium shrink-0" x-text="$store.app.fileLanguage"></span>
+                    <span x-show="$store.app.fileLanguage" class="text-[10px] px-1.5 py-0.5 bg-primary-50 text-primary-600 rounded font-medium shrink-0" x-text="$store.app.fileLanguage"></span>
+                    <span x-show="$store.app.filePath" class="text-[10px] text-surface-400 shrink-0" x-text="lineCount + ' lines'"></span>
                   </div>
-                  <span x-show="$store.app.fileLoading" class="w-4 h-4 border-2 border-primary-300 border-t-primary-600 rounded-full spinner shrink-0"></span>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <!-- Search toggle -->
+                    <button x-show="$store.app.filePath" @click="showSearch = !showSearch; if (showSearch) $nextTick(function() { $refs.searchInput && $refs.searchInput.focus(); }); else closeSearch();"
+                            class="p-1.5 rounded hover:bg-surface-200 text-surface-500 hover:text-surface-700 transition-colors" title="Search (Ctrl+F)">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
+                    </button>
+                    <!-- Word wrap toggle -->
+                    <button x-show="$store.app.filePath" @click="fileViewerWrap = !fileViewerWrap"
+                            class="p-1.5 rounded hover:bg-surface-200 transition-colors"
+                            :class="fileViewerWrap ? 'text-primary-600 bg-primary-50' : 'text-surface-500 hover:text-surface-700'" title="Word wrap">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a4 4 0 0 1 0 8H9m4 0-3 3m3-3-3-3M3 6h18M3 14h4"/></svg>
+                    </button>
+                    <!-- Copy button -->
+                    <button x-show="$store.app.filePath" @click="copyToClipboard()"
+                            class="p-1.5 rounded hover:bg-surface-200 text-surface-500 hover:text-surface-700 transition-colors" title="Copy file content">
+                      <svg x-show="!copied" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
+                      <svg x-show="copied" class="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                    </button>
+                    <!-- Loading spinner -->
+                    <span x-show="$store.app.fileLoading" class="w-4 h-4 border-2 border-primary-300 border-t-primary-600 rounded-full spinner shrink-0"></span>
+                  </div>
                 </div>
-                <div class="flex-1 overflow-auto" style="max-height: 600px;">
+
+                <!-- Search bar -->
+                <div x-show="showSearch" x-transition class="px-4 py-2 border-b border-surface-200 bg-surface-50 flex items-center gap-2">
+                  <div class="flex-1 relative">
+                    <input x-ref="searchInput" type="text" x-model="searchQuery" @input.debounce.200ms="doSearch()" @keydown.enter.prevent="nextMatch()" @keydown.escape.prevent="closeSearch()"
+                           placeholder="Search in file..." class="w-full pl-3 pr-16 py-1.5 text-xs border border-surface-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500">
+                    <span x-show="searchQuery" class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-surface-400" x-text="matchCount > 0 ? ((currentMatch + 1) + '/' + matchCount) : 'No results'"></span>
+                  </div>
+                  <button @click="prevMatch()" :disabled="matchCount === 0" class="p-1 rounded hover:bg-surface-200 text-surface-500 disabled:opacity-30" title="Previous">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5"/></svg>
+                  </button>
+                  <button @click="nextMatch()" :disabled="matchCount === 0" class="p-1 rounded hover:bg-surface-200 text-surface-500 disabled:opacity-30" title="Next">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                  </button>
+                  <button @click="closeSearch()" class="p-1 rounded hover:bg-surface-200 text-surface-500" title="Close">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Code area -->
+                <div class="flex-1 overflow-auto" style="max-height: calc(100vh - 280px);">
+                  <!-- Empty state -->
                   <div x-show="!$store.app.filePath && !$store.app.fileLoading" class="flex items-center justify-center h-full text-surface-400 py-20">
                     <div class="text-center">
                       <svg class="w-12 h-12 mx-auto mb-3 text-surface-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
@@ -1497,7 +1604,11 @@
                       <p class="text-sm">Click a file to view its content</p>
                     </div>
                   </div>
-                  <pre x-show="$store.app.filePath" class="p-4 text-xs font-mono leading-relaxed bg-surface-900 text-emerald-400 whitespace-pre overflow-x-auto h-full"><code x-text="$store.app.fileContent"></code></pre>
+                  <!-- Highlighted code with line numbers -->
+                  <div x-show="$store.app.filePath" class="flex bg-surface-900 h-full">
+                    <div class="file-viewer-gutter py-4 pl-3 pr-2 border-r border-surface-700/50 shrink-0 bg-surface-900/50" x-html="'<span></span>'.repeat(lineCount)"></div>
+                    <pre class="flex-1 p-4 overflow-x-auto"><code x-ref="codeEl" class="!bg-transparent"></code></pre>
+                  </div>
                 </div>
               </div>
             </div>
