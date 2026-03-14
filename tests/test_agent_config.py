@@ -211,7 +211,7 @@ class TestGetProjectRegistry:
 
     def test_project_registry_is_isolated(self):
         """Modifying returned registry does not affect DEFAULT_REGISTRY."""
-        with patch("src.agents.config.discover_project_agents", return_value={
+        with patch("src.agents.loader.discover_project_agents", return_value={
             "custom": _make_project_agent("custom"),
         }):
             reg = get_project_registry("/some/path")

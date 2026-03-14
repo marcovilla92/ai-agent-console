@@ -5,8 +5,11 @@ Each agent is defined declaratively with a name, system prompt path,
 expected output sections, and optional next agent in the pipeline.
 Adding a new agent requires only a new entry here -- no code changes.
 """
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -25,7 +28,8 @@ class AgentConfig:
     file_path: str | None = None
 
 
-AGENT_REGISTRY: dict[str, AgentConfig] = {
+# Canonical registry -- never mutate this dict at runtime.
+DEFAULT_REGISTRY: dict[str, AgentConfig] = {
     "plan": AgentConfig(
         name="plan",
         system_prompt_file=str(PROMPTS_DIR / "plan_system.txt"),
@@ -70,6 +74,12 @@ AGENT_REGISTRY: dict[str, AgentConfig] = {
     ),
 }
 
+# Backward-compatible alias
+AGENT_REGISTRY = DEFAULT_REGISTRY
+
+# Core agents that cannot be overridden by project agents
+PROTECTED_AGENTS: frozenset[str] = frozenset({"plan", "execute", "test", "review"})
+
 
 # Sections the orchestrator should consider when making routing decisions
 # after each agent type. Unlisted sections are excluded from the routing prompt.
@@ -81,40 +91,89 @@ ROUTING_SECTIONS: dict[str, list[str]] = {
 }
 
 
-def build_agent_enum() -> list[str]:
+def merge_registries(
+    default: dict[str, AgentConfig],
+    project: dict[str, AgentConfig],
+) -> dict[str, AgentConfig]:
+    """Merge project agents into a copy of the default registry.
+
+    Core agents (in PROTECTED_AGENTS) cannot be overridden -- a warning
+    is logged and the project agent is skipped.
+
+    Returns a new dict; neither input is mutated.
+    """
+    merged = dict(default)
+    for name, config in project.items():
+        if name in PROTECTED_AGENTS:
+            log.warning(
+                "Project agent %r conflicts with core agent -- skipped",
+                name,
+            )
+            continue
+        merged[name] = config
+    return merged
+
+
+def get_project_registry(project_path: str | None = None) -> dict[str, AgentConfig]:
+    """Build an isolated registry for a specific project.
+
+    If project_path is None/empty or has no agents directory, returns
+    a plain copy of DEFAULT_REGISTRY.
+    """
+    if not project_path:
+        return dict(DEFAULT_REGISTRY)
+
+    # Lazy import to avoid circular dependency (loader imports AgentConfig)
+    from src.agents.loader import discover_project_agents
+
+    project_agents = discover_project_agents(project_path)
+    if not project_agents:
+        return dict(DEFAULT_REGISTRY)
+
+    return merge_registries(DEFAULT_REGISTRY, project_agents)
+
+
+def build_agent_enum(registry: dict[str, AgentConfig] | None = None) -> list[str]:
     """Build the list of valid routing targets from the registry.
 
     Returns agent names + "approved" for the orchestrator schema enum.
     """
-    return sorted(list(AGENT_REGISTRY.keys()) + ["approved"])
+    reg = registry if registry is not None else AGENT_REGISTRY
+    return sorted(list(reg.keys()) + ["approved"])
 
 
-def build_agent_descriptions() -> str:
+def build_agent_descriptions(registry: dict[str, AgentConfig] | None = None) -> str:
     """Build a dynamic agent description block for the orchestrator prompt."""
+    reg = registry if registry is not None else AGENT_REGISTRY
     lines = []
-    for name, config in AGENT_REGISTRY.items():
+    for name, config in reg.items():
         desc = config.description or f"Agent: {name}"
         lines.append(f"- {name.upper()}: {desc}")
     return "\n".join(lines)
 
 
-def validate_transition(from_agent: str, to_agent: str) -> str:
+def validate_transition(
+    from_agent: str,
+    to_agent: str,
+    registry: dict[str, AgentConfig] | None = None,
+) -> str:
     """Validate a routing transition and return the target agent.
 
     If the transition is not allowed, falls back to the from_agent's
     configured next_agent. If that is also None, returns "approved".
     """
+    reg = registry if registry is not None else AGENT_REGISTRY
+
     if to_agent == "approved":
         return "approved"
 
-    config = AGENT_REGISTRY.get(from_agent)
+    config = reg.get(from_agent)
     if not config:
         return to_agent
 
     if config.allowed_transitions and to_agent not in config.allowed_transitions:
         fallback = config.next_agent or "approved"
-        import logging
-        logging.getLogger(__name__).warning(
+        log.warning(
             "Invalid transition %s -> %s, falling back to %s",
             from_agent, to_agent, fallback,
         )
@@ -123,19 +182,27 @@ def validate_transition(from_agent: str, to_agent: str) -> str:
     return to_agent
 
 
-def get_agent_config(name: str) -> AgentConfig:
+def get_agent_config(
+    name: str,
+    registry: dict[str, AgentConfig] | None = None,
+) -> AgentConfig:
     """Get agent config by name. Raises KeyError if not found."""
-    if name not in AGENT_REGISTRY:
-        raise KeyError(f"Unknown agent: {name!r}. Available: {list(AGENT_REGISTRY)}")
-    return AGENT_REGISTRY[name]
+    reg = registry if registry is not None else AGENT_REGISTRY
+    if name not in reg:
+        raise KeyError(f"Unknown agent: {name!r}. Available: {list(reg)}")
+    return reg[name]
 
 
-def resolve_pipeline_order(start_agent: str = "plan") -> list[str]:
+def resolve_pipeline_order(
+    start_agent: str = "plan",
+    registry: dict[str, AgentConfig] | None = None,
+) -> list[str]:
     """Walk the next_agent chain from start_agent, returning ordered agent names.
 
-    Raises KeyError if start_agent is not in AGENT_REGISTRY.
+    Raises KeyError if start_agent is not in the registry.
     Raises ValueError if a circular next_agent chain is detected.
     """
+    reg = registry if registry is not None else AGENT_REGISTRY
     order: list[str] = []
     seen: set[str] = set()
     current: str | None = start_agent
@@ -143,10 +210,10 @@ def resolve_pipeline_order(start_agent: str = "plan") -> list[str]:
     while current is not None:
         if current in seen:
             raise ValueError("Circular next_agent chain detected")
-        if current not in AGENT_REGISTRY:
-            raise KeyError(f"Unknown agent: {current!r}. Available: {list(AGENT_REGISTRY)}")
+        if current not in reg:
+            raise KeyError(f"Unknown agent: {current!r}. Available: {list(reg)}")
         seen.add(current)
         order.append(current)
-        current = AGENT_REGISTRY[current].next_agent
+        current = reg[current].next_agent
 
     return order
