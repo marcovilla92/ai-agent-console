@@ -422,7 +422,7 @@ async def generate_template(req: GenerateTemplateRequest):
                     schema=TEMPLATE_GEN_SCHEMA,
                     system_prompt=system_prompt_text,
                 ),
-                timeout=120,
+                timeout=300,
             )
         except asyncio.TimeoutError:
             raise HTTPException(
