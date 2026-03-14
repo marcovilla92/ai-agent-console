@@ -422,7 +422,7 @@ async def generate_template(req: GenerateTemplateRequest):
                     prompt=prompt,
                     schema=TEMPLATE_GEN_SCHEMA,
                     system_prompt=system_prompt_text,
-                    extra_args=["--max-turns", "3"],
+                    extra_args=["--tools", ""],
                 ),
                 timeout=600,
             )
