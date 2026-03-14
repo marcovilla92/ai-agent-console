@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Template System Overhaul
-status: in-progress
-stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-03-14T18:49:00.000Z"
-last_activity: 2026-03-14 -- Completed 29-01 AI Template Generation Endpoint
+status: executing
+stopped_at: Completed 29-02-PLAN.md
+last_updated: "2026-03-14T18:53:00.000Z"
+last_activity: 2026-03-14 -- Completed 29-02 AI Template Generation Tests
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
-  percent: 90
+  completed_plans: 8
+  percent: 91
 ---
 
 # Project State
@@ -26,16 +26,16 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 ## Current Position
 
 Phase: 29 of 30 (AI Template Generation)
-Plan: 1 of 1 in current phase (29-01 COMPLETE)
-Status: Phase 29 in progress
-Last activity: 2026-03-14 -- Completed 29-01 AI Template Generation Endpoint
+Plan: 2 of 2 in current phase (29-02 COMPLETE)
+Status: Phase 29 complete
+Last activity: 2026-03-14 -- Completed 29-02 AI Template Generation Tests
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 43 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 6)
+- Total plans completed: 44 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 7)
 - Average duration: 5min
 - Total execution time: ~3 hours
 
@@ -68,6 +68,8 @@ Progress: [█████████░] 88%
 - [Phase 29]: asyncio.Lock (not Semaphore) for generation concurrency -- simpler locked() check
 - [Phase 29]: Validation writes to tempdir and runs discover_project_agents/commands
 - [Phase 29]: System prompt is plain text (~50 lines), no Jinja2 in prompts
+- [Phase 29]: raise_app_exceptions=False on ASGITransport for error recovery testing
+- [Phase 29]: Override verify_credentials via dependency_overrides for test auth bypass
 
 ### Pending Todos
 
@@ -79,6 +81,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T18:49:00Z
-Stopped at: Completed 29-01-PLAN.md
+Last session: 2026-03-14T18:53:00Z
+Stopped at: Completed 29-02-PLAN.md
 Resume file: None
