@@ -1,45 +1,39 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Agent Console</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <style>
-    [data-status="running"] { color: #0ea5e9; }
-    [data-status="completed"] { color: #22c55e; }
-    [data-status="failed"] { color: #ef4444; }
-    [data-status="queued"] { color: #6b7280; }
-    [data-status="awaiting_approval"] { color: #f59e0b; }
-    [data-status="cancelled"] { color: #9ca3af; }
-    .log-output { max-height: 70vh; overflow-y: auto; font-size: 0.85em; }
-    .badge {
-      display: inline-block;
-      padding: 0.15em 0.5em;
-      margin: 0.1em 0.15em;
-      font-size: 0.75em;
-      border-radius: 4px;
-      background: var(--pico-secondary-background);
-      color: var(--pico-secondary-inverse);
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+            surface: { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a' }
+          }
+        }
+      }
     }
-    .time-ago { font-size: 0.8em; color: var(--pico-muted-color); }
-    .error-msg { color: var(--pico-del-color); }
-    .phase-reason { font-size: 0.9em; color: var(--pico-muted-color); }
-    article.project-card { cursor: pointer; }
-    article.project-card:hover { outline: 2px solid var(--pico-primary); }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin 0.8s linear infinite; }
   </style>
 
   <script>
     /* Helper functions */
     function timeAgo(dateStr) {
       if (!dateStr) return 'never';
-      const diff = Date.now() - new Date(dateStr).getTime();
-      const mins = Math.floor(diff / 60000);
+      var diff = Date.now() - new Date(dateStr).getTime();
+      var mins = Math.floor(diff / 60000);
       if (mins < 1) return 'just now';
       if (mins < 60) return mins + 'm ago';
-      const hrs = Math.floor(mins / 60);
+      var hrs = Math.floor(mins / 60);
       if (hrs < 24) return hrs + 'h ago';
-      const days = Math.floor(hrs / 24);
+      var days = Math.floor(hrs / 24);
       return days + 'd ago';
     }
 
@@ -65,18 +59,22 @@
         approvalData: null,
         ws: null,
         error: null,
+        loading: false,
+        submitting: false,
 
         /* --- Project Selection --- */
         async loadProjects() {
+          this.loading = true;
           try {
-            const resp = await fetch('/projects', { credentials: 'same-origin' });
+            var resp = await fetch('/projects', { credentials: 'same-origin' });
             if (resp.ok) {
-              const data = await resp.json();
+              var data = await resp.json();
               this.projects = data.projects;
             }
           } catch (e) {
             this.error = 'Failed to load projects';
           }
+          this.loading = false;
         },
 
         selectProject(project) {
@@ -91,9 +89,9 @@
         /* --- Project Creation --- */
         async loadTemplates() {
           try {
-            const resp = await fetch('/templates', { credentials: 'same-origin' });
+            var resp = await fetch('/templates', { credentials: 'same-origin' });
             if (resp.ok) {
-              const data = await resp.json();
+              var data = await resp.json();
               this.templates = data.templates;
             }
           } catch (e) {
@@ -104,7 +102,7 @@
         async createProject(name, description, template) {
           this.error = null;
           try {
-            const resp = await fetch('/projects', {
+            var resp = await fetch('/projects', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'same-origin',
@@ -114,7 +112,7 @@
               await this.loadProjects();
               this.view = 'select';
             } else {
-              const err = await resp.json().catch(function() { return {}; });
+              var err = await resp.json().catch(function() { return {}; });
               this.error = err.detail || 'Failed to create project';
             }
           } catch (e) {
@@ -126,7 +124,7 @@
         async loadSuggestion() {
           if (!this.selectedProject) return;
           try {
-            const resp = await fetch(
+            var resp = await fetch(
               '/projects/' + this.selectedProject.id + '/suggested-phase',
               { credentials: 'same-origin' }
             );
@@ -139,7 +137,7 @@
         async loadContext() {
           if (!this.selectedProject) return;
           try {
-            const resp = await fetch(
+            var resp = await fetch(
               '/projects/' + this.selectedProject.id + '/context',
               { credentials: 'same-origin' }
             );
@@ -151,8 +149,9 @@
 
         async submitTask(prompt, mode) {
           this.error = null;
+          this.submitting = true;
           try {
-            const resp = await fetch('/tasks', {
+            var resp = await fetch('/tasks', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'same-origin',
@@ -163,20 +162,23 @@
               })
             });
             if (resp.ok) {
-              const task = await resp.json();
+              var task = await resp.json();
               this.activeTaskId = task.id;
               this.logText = '';
               this.taskStatus = 'running';
               this.approvalPending = false;
               this.approvalData = null;
               this.view = 'running';
+              this.submitting = false;
               this.connectWS(task.id);
             } else {
-              const err = await resp.json().catch(function() { return {}; });
+              var err = await resp.json().catch(function() { return {}; });
               this.error = err.detail || 'Failed to submit task';
+              this.submitting = false;
             }
           } catch (e) {
             this.error = 'Failed to submit task';
+            this.submitting = false;
           }
         },
 
@@ -198,7 +200,6 @@
             var msg = JSON.parse(e.data);
             if (msg.type === 'chunk') {
               self.logText += msg.data;
-              /* Auto-scroll handled in x-effect on the log container */
             } else if (msg.type === 'status') {
               self.taskStatus = msg.data;
             } else if (msg.type === 'approval_required') {
@@ -246,94 +247,131 @@
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 </head>
-<body>
+<body class="bg-surface-50 min-h-screen text-surface-700" x-cloak>
 
   <!-- Navigation -->
-  <nav class="container">
-    <ul><li><strong>AI Agent Console</strong></li></ul>
-    <ul>
-      <li x-data x-show="$store.app.selectedProject && ($store.app.view === 'prompt' || $store.app.view === 'running')" x-text="$store.app.selectedProject?.name"></li>
-    </ul>
+  <nav class="bg-white border-b border-surface-200 px-6 py-4 flex items-center justify-between">
+    <span class="text-lg font-bold text-surface-900">AI Agent Console</span>
+    <span x-data x-show="$store.app.selectedProject && ($store.app.view === 'prompt' || $store.app.view === 'running')"
+          x-text="$store.app.selectedProject?.name"
+          class="text-sm text-surface-500 font-medium"></span>
   </nav>
 
-  <main class="container" x-data>
+  <main class="max-w-3xl mx-auto px-6 py-8 space-y-6" x-data>
 
     <!-- Error banner -->
-    <p class="error-msg" x-show="$store.app.error" x-text="$store.app.error"></p>
+    <div x-show="$store.app.error"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center justify-between">
+      <span x-text="$store.app.error"></span>
+      <button @click="$store.app.error = null" class="text-red-400 hover:text-red-600 ml-3">&times;</button>
+    </div>
 
     <!-- ============================================================ -->
     <!-- VIEW: Select Project                                         -->
     <!-- ============================================================ -->
-    <div x-show="$store.app.view === 'select'" x-init="$store.app.loadProjects()">
+    <div x-show="$store.app.view === 'select'" x-init="$store.app.loadProjects()"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="space-y-6">
 
-      <hgroup>
-        <h2>Select Project</h2>
-        <p>Choose a project to work on or create a new one</p>
-      </hgroup>
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-2xl font-bold text-surface-900">Projects</h2>
+          <p class="text-sm text-surface-500 mt-1">Choose a project to work on or create a new one</p>
+        </div>
+        <button @click="$store.app.loadTemplates(); $store.app.view = 'create'"
+                class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors">
+          + New Project
+        </button>
+      </div>
 
-      <button @click="$store.app.loadTemplates(); $store.app.view = 'create'">New Project</button>
+      <!-- Loading spinner -->
+      <div x-show="$store.app.loading" class="flex justify-center py-12">
+        <div class="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full spinner"></div>
+      </div>
 
       <!-- Project cards -->
-      <div x-show="$store.app.projects.length > 0">
+      <div x-show="!$store.app.loading && $store.app.projects.length > 0" class="grid gap-4">
         <template x-for="project in $store.app.projects" :key="project.id">
-          <article class="project-card" @click="$store.app.selectProject(project)">
-            <header>
-              <strong x-text="project.name"></strong>
-              <span class="time-ago" x-text="timeAgo(project.last_used_at)"></span>
-            </header>
-            <p x-show="project.description" x-text="project.description"></p>
-            <footer>
+          <div @click="$store.app.selectProject(project)"
+               class="bg-white border border-surface-200 rounded-lg p-5 cursor-pointer hover:border-primary-400 hover:shadow-md transition-all">
+            <div class="flex items-start justify-between mb-2">
+              <span class="font-semibold text-surface-900" x-text="project.name"></span>
+              <span class="text-xs text-surface-400" x-text="timeAgo(project.last_used_at)"></span>
+            </div>
+            <p x-show="project.description" x-text="project.description" class="text-sm text-surface-500 mb-3"></p>
+            <div class="flex flex-wrap gap-1.5">
               <template x-for="badge in stackBadges(project.stack)" :key="badge">
-                <span class="badge" x-text="badge"></span>
+                <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-primary-50 text-primary-700" x-text="badge"></span>
               </template>
-            </footer>
-          </article>
+            </div>
+          </div>
         </template>
       </div>
 
       <!-- Empty state -->
-      <p x-show="$store.app.projects.length === 0">No projects found. Create one to get started.</p>
+      <div x-show="!$store.app.loading && $store.app.projects.length === 0" class="text-center py-12 text-surface-400">
+        <p class="text-lg">No projects found</p>
+        <p class="text-sm mt-1">Create one to get started</p>
+      </div>
 
     </div>
 
     <!-- ============================================================ -->
     <!-- VIEW: Create Project                                         -->
     <!-- ============================================================ -->
-    <div x-show="$store.app.view === 'create'">
+    <div x-show="$store.app.view === 'create'"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="space-y-6">
 
-      <hgroup>
-        <h2>Create Project</h2>
-        <p>
-          <a href="#" @click.prevent="$store.app.view = 'select'">&larr; Back to projects</a>
-        </p>
-      </hgroup>
+      <div>
+        <h2 class="text-2xl font-bold text-surface-900">Create Project</h2>
+        <a href="#" @click.prevent="$store.app.view = 'select'" class="text-sm text-primary-600 hover:text-primary-700">&larr; Back to projects</a>
+      </div>
 
       <form @submit.prevent="$store.app.createProject(
               $refs.projName.value,
               $refs.projDesc.value,
               $refs.projTemplate.value
-            )">
-        <label>
-          Name
-          <input type="text" x-ref="projName" required placeholder="my-project">
-        </label>
+            )"
+            class="bg-white border border-surface-200 rounded-lg p-6 space-y-5">
 
-        <label>
-          Description
-          <textarea x-ref="projDesc" placeholder="Optional project description" rows="2"></textarea>
-        </label>
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-surface-700">Name</label>
+          <input type="text" x-ref="projName" required placeholder="my-project"
+                 class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors">
+        </div>
 
-        <label>
-          Template
-          <select x-ref="projTemplate">
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-surface-700">Description</label>
+          <textarea x-ref="projDesc" placeholder="Optional project description" rows="2"
+                    class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"></textarea>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-surface-700">Template</label>
+          <select x-ref="projTemplate"
+                  class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors bg-white">
             <option value="">No template</option>
             <template x-for="tmpl in $store.app.templates" :key="tmpl.id">
               <option :value="tmpl.id" x-text="tmpl.name"></option>
             </template>
           </select>
-        </label>
+        </div>
 
-        <button type="submit">Create Project</button>
+        <button type="submit"
+                class="w-full px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors">
+          Create Project
+        </button>
       </form>
 
     </div>
@@ -341,63 +379,92 @@
     <!-- ============================================================ -->
     <!-- VIEW: Prompt                                                 -->
     <!-- ============================================================ -->
-    <div x-show="$store.app.view === 'prompt'">
+    <div x-show="$store.app.view === 'prompt'"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="space-y-6">
 
-      <hgroup>
-        <h2 x-text="$store.app.selectedProject?.name || 'Project'"></h2>
-        <p>
-          <a href="#" @click.prevent="$store.app.selectedProject = null; $store.app.view = 'select'">&larr; Back to projects</a>
-        </p>
-      </hgroup>
+      <div>
+        <h2 class="text-2xl font-bold text-surface-900" x-text="$store.app.selectedProject?.name || 'Project'"></h2>
+        <a href="#" @click.prevent="$store.app.selectedProject = null; $store.app.view = 'select'" class="text-sm text-primary-600 hover:text-primary-700">&larr; Back to projects</a>
+      </div>
 
       <!-- Phase suggestion -->
-      <article x-show="$store.app.phaseSuggestion">
-        <header><strong>Suggested Phase</strong></header>
-        <p x-show="$store.app.phaseSuggestion?.suggestion">
-          <span x-text="$store.app.phaseSuggestion?.suggestion?.phase_name"></span>
-          <span class="badge" x-text="$store.app.phaseSuggestion?.suggestion?.status" :data-status="$store.app.phaseSuggestion?.suggestion?.status"></span>
-        </p>
-        <p class="phase-reason" x-show="$store.app.phaseSuggestion?.suggestion?.reason" x-text="$store.app.phaseSuggestion?.suggestion?.reason"></p>
-        <p x-show="!$store.app.phaseSuggestion?.suggestion">No phase suggestion available</p>
-      </article>
+      <div x-show="$store.app.phaseSuggestion" class="bg-white border border-surface-200 rounded-lg p-5">
+        <h3 class="text-sm font-semibold text-surface-700 mb-2">Suggested Phase</h3>
+        <div x-show="$store.app.phaseSuggestion?.suggestion" class="flex items-center gap-2">
+          <span class="text-surface-900 font-medium" x-text="$store.app.phaseSuggestion?.suggestion?.phase_name"></span>
+          <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full"
+                :class="{
+                  'bg-sky-50 text-sky-600': $store.app.phaseSuggestion?.suggestion?.status === 'running' || $store.app.phaseSuggestion?.suggestion?.status === 'in_progress',
+                  'bg-emerald-50 text-emerald-600': $store.app.phaseSuggestion?.suggestion?.status === 'completed',
+                  'bg-red-50 text-red-600': $store.app.phaseSuggestion?.suggestion?.status === 'failed',
+                  'bg-surface-100 text-surface-500': !['running','in_progress','completed','failed'].includes($store.app.phaseSuggestion?.suggestion?.status)
+                }"
+                x-text="$store.app.phaseSuggestion?.suggestion?.status"></span>
+        </div>
+        <p class="text-sm text-surface-500 mt-1" x-show="$store.app.phaseSuggestion?.suggestion?.reason" x-text="$store.app.phaseSuggestion?.suggestion?.reason"></p>
+        <p class="text-sm text-surface-400" x-show="!$store.app.phaseSuggestion?.suggestion">No phase suggestion available</p>
+      </div>
 
       <!-- Context preview -->
-      <details>
-        <summary @click="if (!$store.app.contextData) { $store.app.loadContext(); }">Show context</summary>
-        <div x-show="$store.app.contextData">
-          <p><strong>Workspace:</strong> <span x-text="$store.app.contextData?.workspace"></span></p>
-          <details x-show="$store.app.contextData?.claude_md">
-            <summary>CLAUDE.md</summary>
-            <pre><code x-text="($store.app.contextData?.claude_md || '').substring(0, 2000)"></code></pre>
-          </details>
-          <details x-show="$store.app.contextData?.git_log">
-            <summary>Git Log</summary>
-            <pre><code x-text="$store.app.contextData?.git_log"></code></pre>
-          </details>
-          <details x-show="$store.app.contextData?.planning_docs">
-            <summary>Planning Docs</summary>
-            <pre><code x-text="$store.app.contextData?.planning_docs"></code></pre>
-          </details>
+      <div x-data="{ open: false }" class="bg-white border border-surface-200 rounded-lg overflow-hidden">
+        <button @click="open = !open; if (!$store.app.contextData) { $store.app.loadContext(); }"
+                class="w-full px-5 py-3 flex items-center justify-between text-sm font-medium text-surface-700 hover:bg-surface-50 transition-colors">
+          <span>Show context</span>
+          <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="open" x-transition class="px-5 pb-4 border-t border-surface-100">
+          <div x-show="$store.app.contextData" class="space-y-3 pt-3">
+            <p class="text-sm"><span class="font-medium text-surface-700">Workspace:</span> <span class="text-surface-500" x-text="$store.app.contextData?.workspace"></span></p>
+
+            <div x-data="{ showClaude: false }" x-show="$store.app.contextData?.claude_md">
+              <button @click="showClaude = !showClaude" class="text-sm text-primary-600 hover:text-primary-700 font-medium">CLAUDE.md</button>
+              <pre x-show="showClaude" x-transition class="bg-surface-50 rounded-lg p-3 text-xs text-surface-600 overflow-x-auto max-h-48 overflow-y-auto mt-2"><code x-text="($store.app.contextData?.claude_md || '').substring(0, 2000)"></code></pre>
+            </div>
+
+            <div x-data="{ showGit: false }" x-show="$store.app.contextData?.git_log">
+              <button @click="showGit = !showGit" class="text-sm text-primary-600 hover:text-primary-700 font-medium">Git Log</button>
+              <pre x-show="showGit" x-transition class="bg-surface-50 rounded-lg p-3 text-xs text-surface-600 overflow-x-auto max-h-48 overflow-y-auto mt-2"><code x-text="$store.app.contextData?.git_log"></code></pre>
+            </div>
+
+            <div x-data="{ showPlanning: false }" x-show="$store.app.contextData?.planning_docs">
+              <button @click="showPlanning = !showPlanning" class="text-sm text-primary-600 hover:text-primary-700 font-medium">Planning Docs</button>
+              <pre x-show="showPlanning" x-transition class="bg-surface-50 rounded-lg p-3 text-xs text-surface-600 overflow-x-auto max-h-48 overflow-y-auto mt-2"><code x-text="$store.app.contextData?.planning_docs"></code></pre>
+            </div>
+          </div>
+          <div x-show="!$store.app.contextData" class="flex items-center gap-2 text-sm text-surface-500 pt-3">
+            <div class="w-4 h-4 border-2 border-primary-200 border-t-primary-600 rounded-full spinner"></div>
+            Loading context...
+          </div>
         </div>
-        <p x-show="!$store.app.contextData">Loading context...</p>
-      </details>
+      </div>
 
       <!-- Prompt form -->
-      <form @submit.prevent="$store.app.submitTask($refs.taskPrompt.value, $refs.taskMode.value)">
-        <label>
-          Prompt
-          <textarea x-ref="taskPrompt" required rows="5" placeholder="Describe what you want the agent to do..."></textarea>
-        </label>
+      <form @submit.prevent="$store.app.submitTask($refs.taskPrompt.value, $refs.taskMode.value)"
+            class="bg-white border border-surface-200 rounded-lg p-6 space-y-5">
 
-        <label>
-          Mode
-          <select x-ref="taskMode">
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-surface-700">Prompt</label>
+          <textarea x-ref="taskPrompt" required rows="5" placeholder="Describe what you want the agent to do..."
+                    class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"></textarea>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium text-surface-700">Mode</label>
+          <select x-ref="taskMode"
+                  class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors bg-white">
             <option value="autonomous" selected>Autonomous</option>
             <option value="supervised">Supervised</option>
           </select>
-        </label>
+        </div>
 
-        <button type="submit">Run Task</button>
+        <button type="submit" :disabled="$store.app.submitting"
+                class="w-full px-4 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+          <div x-show="$store.app.submitting" class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spinner"></div>
+          <span x-text="$store.app.submitting ? 'Submitting...' : 'Run Task'"></span>
+        </button>
       </form>
 
     </div>
@@ -405,47 +472,67 @@
     <!-- ============================================================ -->
     <!-- VIEW: Running                                                -->
     <!-- ============================================================ -->
-    <div x-show="$store.app.view === 'running'">
+    <div x-show="$store.app.view === 'running'"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         class="space-y-6">
 
-      <hgroup>
-        <h2 x-text="['completed','failed','cancelled'].includes($store.app.taskStatus) ? 'Task ' + $store.app.taskStatus.charAt(0).toUpperCase() + $store.app.taskStatus.slice(1) : 'Task Running'"></h2>
-        <p>
-          Status: <span :data-status="$store.app.taskStatus" x-text="$store.app.taskStatus || 'connecting...'"></span>
-        </p>
-      </hgroup>
+      <div>
+        <h2 class="text-2xl font-bold text-surface-900"
+            x-text="['completed','failed','cancelled'].includes($store.app.taskStatus) ? 'Task ' + $store.app.taskStatus.charAt(0).toUpperCase() + $store.app.taskStatus.slice(1) : 'Task Running'"></h2>
+        <div class="flex items-center gap-2 mt-1">
+          <span class="text-sm text-surface-500">Status:</span>
+          <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full"
+                :class="{
+                  'bg-sky-50 text-sky-600': $store.app.taskStatus === 'running',
+                  'bg-emerald-50 text-emerald-600': $store.app.taskStatus === 'completed',
+                  'bg-red-50 text-red-600': $store.app.taskStatus === 'failed',
+                  'bg-surface-100 text-surface-500': $store.app.taskStatus === 'queued',
+                  'bg-amber-50 text-amber-600': $store.app.taskStatus === 'awaiting_approval',
+                  'bg-surface-100 text-surface-400': $store.app.taskStatus === 'cancelled'
+                }"
+                x-text="$store.app.taskStatus || 'connecting...'"></span>
+        </div>
+      </div>
 
       <!-- Action buttons -->
-      <div role="group">
-        <button
-          @click="$store.app.cancelTask()"
-          x-show="$store.app.taskStatus === 'running' || $store.app.taskStatus === 'queued'"
-          class="secondary"
-        >Cancel Task</button>
-        <button
-          @click="$store.app.backToSelect()"
-          x-show="$store.app.taskStatus === 'completed' || $store.app.taskStatus === 'failed' || $store.app.taskStatus === 'cancelled'"
-          class="contrast"
-        >Back to Projects</button>
+      <div class="flex gap-3">
+        <button @click="$store.app.cancelTask()"
+                x-show="$store.app.taskStatus === 'running' || $store.app.taskStatus === 'queued'"
+                class="px-4 py-2 bg-white border border-red-300 text-red-600 text-sm font-medium rounded-lg hover:bg-red-50 transition-colors">
+          Cancel Task
+        </button>
+        <button @click="$store.app.backToSelect()"
+                x-show="['completed','failed','cancelled'].includes($store.app.taskStatus)"
+                class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors">
+          Back to Projects
+        </button>
       </div>
 
       <!-- Approval UI -->
-      <article x-show="$store.app.approvalPending">
-        <header>Approval Required</header>
-        <pre x-text="$store.app.approvalData"></pre>
-        <footer>
-          <div role="group">
-            <button @click="$store.app.sendApproval('approve')">Approve</button>
-            <button @click="$store.app.sendApproval('reject')" class="secondary">Reject</button>
-            <button @click="$store.app.sendApproval('continue')" class="contrast">Continue</button>
-          </div>
-        </footer>
-      </article>
+      <div x-show="$store.app.approvalPending"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-y-1"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           class="bg-amber-50 border border-amber-200 rounded-lg p-5">
+        <h3 class="text-sm font-semibold text-amber-800 mb-3">Approval Required</h3>
+        <pre class="bg-white rounded-lg p-3 text-xs text-surface-700 overflow-x-auto mb-4 max-h-48 overflow-y-auto" x-text="$store.app.approvalData"></pre>
+        <div class="flex gap-2">
+          <button @click="$store.app.sendApproval('approve')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors">Approve</button>
+          <button @click="$store.app.sendApproval('reject')" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors">Reject</button>
+          <button @click="$store.app.sendApproval('continue')" class="px-4 py-2 bg-white border border-surface-300 text-surface-700 text-sm font-medium rounded-lg hover:bg-surface-50 transition-colors">Continue</button>
+        </div>
+      </div>
 
       <!-- Streaming log output -->
-      <h3>Live Output</h3>
-      <pre class="log-output" x-ref="logContainer"
-           x-effect="if ($store.app.logText) { $nextTick(() => { $el.scrollTop = $el.scrollHeight; }); }"
-      ><code x-text="$store.app.logText"></code></pre>
+      <div>
+        <h3 class="text-sm font-semibold text-surface-700 mb-2">Live Output</h3>
+        <pre class="bg-surface-900 rounded-lg p-4 text-xs text-emerald-400 font-mono max-h-[70vh] overflow-y-auto"
+             x-ref="logContainer"
+             x-effect="if ($store.app.logText) { $nextTick(() => { $el.scrollTop = $el.scrollHeight; }); }"
+        ><code x-text="$store.app.logText"></code></pre>
+      </div>
 
     </div>
 
