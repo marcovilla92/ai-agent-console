@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Template System Overhaul
-status: planning
-stopped_at: Defining requirements
-last_updated: "2026-03-14T16:00:00.000Z"
-last_activity: 2026-03-14 -- Milestone v2.4 started
+status: ready_to_plan
+stopped_at: Roadmap created, ready to plan Phase 26
+last_updated: "2026-03-14T17:00:00.000Z"
+last_activity: 2026-03-14 -- Roadmap created for v2.4
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** v2.4 Template System Overhaul
+**Current focus:** Phase 26 - Agent Loader Foundation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: --
-Status: Defining requirements
-Last activity: 2026-03-14 -- Milestone v2.4 started
+Phase: 26 of 30 (Agent Loader Foundation)
+Plan: -- of -- in current phase
+Status: Ready to plan
+Last activity: 2026-03-14 -- Roadmap created for v2.4 (5 phases, 18 requirements)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -48,7 +48,9 @@ Progress: [░░░░░░░░░░] 0%
 - [v2.3]: File writer overwrites always, git for recovery
 - [v2.3]: Test agent does static code review, no subprocess execution
 - [v2.3]: Autonomous mode is default, no confirmations even with low confidence
-- [v2.3]: Supervised mode remains as opt-in option
+- [v2.4]: python-frontmatter 1.1.0 for YAML parsing (only new dependency)
+- [v2.4]: Never mutate global registry; per-task copies with core agent protection
+- [v2.4]: Separate semaphore for AI generation (not pipeline slots)
 
 ### Pending Todos
 
@@ -60,6 +62,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T16:00:00.000Z
-Stopped at: Defining requirements
+Last session: 2026-03-14T17:00:00.000Z
+Stopped at: Roadmap created for v2.4
 Resume file: None

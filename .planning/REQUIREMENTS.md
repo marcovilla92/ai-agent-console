@@ -386,37 +386,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 **Coverage:**
 - v2.3 requirements: 21 total
 - Mapped to phases: 21
-- Complete: 21 ✓
-- Unmapped: 0 ✓
+- Complete: 21
+- Unmapped: 0
 
 ### v2.4 (In Progress)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AGLD-01 | TBD | Pending |
-| AGLD-02 | TBD | Pending |
-| AGLD-03 | TBD | Pending |
-| AGLD-04 | TBD | Pending |
-| CMLD-01 | TBD | Pending |
-| CMLD-02 | TBD | Pending |
-| CMLD-03 | TBD | Pending |
-| SETG-01 | TBD | Pending |
-| SETG-02 | TBD | Pending |
-| ORCH-01 | TBD | Pending |
-| ORCH-02 | TBD | Pending |
-| ORCH-03 | TBD | Pending |
-| AIGEN-01 | TBD | Pending |
-| AIGEN-02 | TBD | Pending |
-| AIGEN-03 | TBD | Pending |
-| EDIT-01 | TBD | Pending |
-| EDIT-02 | TBD | Pending |
-| EDIT-03 | TBD | Pending |
+| AGLD-01 | Phase 26 | Pending |
+| AGLD-02 | Phase 26 | Pending |
+| AGLD-03 | Phase 26 | Pending |
+| AGLD-04 | Phase 26 | Pending |
+| CMLD-01 | Phase 27 | Pending |
+| CMLD-02 | Phase 27 | Pending |
+| CMLD-03 | Phase 28 | Pending |
+| SETG-01 | Phase 27 | Pending |
+| SETG-02 | Phase 27 | Pending |
+| ORCH-01 | Phase 28 | Pending |
+| ORCH-02 | Phase 28 | Pending |
+| ORCH-03 | Phase 28 | Pending |
+| AIGEN-01 | Phase 29 | Pending |
+| AIGEN-02 | Phase 29 | Pending |
+| AIGEN-03 | Phase 29 | Pending |
+| EDIT-01 | Phase 30 | Pending |
+| EDIT-02 | Phase 30 | Pending |
+| EDIT-03 | Phase 30 | Pending |
 
 **Coverage:**
 - v2.4 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-14*
-*Last updated: 2026-03-14 after v2.4 requirements definition*
+*Last updated: 2026-03-14 after v2.4 roadmap creation*

@@ -6,7 +6,8 @@
 - ✅ **v2.0 Web Platform** -- Phases 6-11 (shipped 2026-03-13)
 - ✅ **v2.1 Project Router** -- Phases 12-17 (shipped 2026-03-14)
 - ✅ **v2.2 UI Redesign** -- Phases 18-21 (shipped 2026-03-14)
-- 🚧 **v2.3 Orchestration Improvements** -- Phases 22-25 (in progress)
+- ✅ **v2.3 Orchestration Improvements** -- Phases 22-25 (shipped 2026-03-14)
+- 🚧 **v2.4 Template System Overhaul** -- Phases 26-30 (in progress)
 
 ## Phases
 
@@ -57,73 +58,84 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
-### v2.3 Orchestration Improvements
+<details>
+<summary>v2.3 Orchestration Improvements (Phases 22-25) -- SHIPPED 2026-03-14</summary>
 
-- [x] **Phase 22: Bug Fixes & Foundation** - Fix agent/orchestrator system prompts and implement bounded handoff windowing (completed 2026-03-14)
-- [x] **Phase 23: Core Output** - File writer module, targeted re-route prompts, and smart section filtering (completed 2026-03-14)
-- [x] **Phase 24: Pipeline Extension** - Dynamic schema from registry, routing validation, and test agent (completed 2026-03-14)
-- [x] **Phase 25: Autonomy Refinement** - Confidence-based gating with autonomous-by-default mode (completed 2026-03-14)
+- [x] Phase 22: Bug Fixes & Foundation (2/2 plans) -- completed 2026-03-14
+- [x] Phase 23: Core Output (2/2 plans) -- completed 2026-03-14
+- [x] Phase 24: Pipeline Extension (1/1 plans) -- completed 2026-03-14
+- [x] Phase 25: Autonomy Refinement (1/1 plans) -- completed 2026-03-14
+
+</details>
+
+### v2.4 Template System Overhaul
+
+- [ ] **Phase 26: Agent Loader Foundation** - Discover agents from project `.claude/agents/`, parse frontmatter, build per-project registry with core agent protection
+- [ ] **Phase 27: Commands & Settings Loaders** - Discover commands from `.claude/commands/` and apply project settings from `.claude/settings.local.json`
+- [ ] **Phase 28: Orchestrator Dynamic Registry** - Build orchestrator schema per-task from injected registry, enable routing to project-specific agents and commands
+- [ ] **Phase 29: AI Template Generation** - Generate complete templates from natural language descriptions via Claude CLI with validation
+- [ ] **Phase 30: Template Editor UI** - Preview file tree, edit file contents inline, save with preview-before-save flow
 
 ## Phase Details
 
-### Phase 22: Bug Fixes & Foundation
-**Goal**: Agents follow their formatting rules and the orchestrator knows its routing role -- the pipeline produces structured, predictable output with bounded context growth
-**Depends on**: Phase 21 (v2.2 complete)
-**Requirements**: FIX-01, FIX-02, CTX-05, CTX-06
+### Phase 26: Agent Loader Foundation
+**Goal**: The system discovers and loads project-specific agents from `.claude/agents/*.md` into an isolated per-project registry -- templates become live environments where custom agents participate in the pipeline
+**Depends on**: Phase 25 (v2.3 complete)
+**Requirements**: AGLD-01, AGLD-02, AGLD-03, AGLD-04
 **Success Criteria** (what must be TRUE):
-  1. Every agent (plan, execute, review) produces output that follows its system prompt formatting sections -- visible in the streaming output log
-  2. Orchestrator routing decisions reference its role definition and agent descriptions -- decisions are no longer generic "pick next"
-  3. Handoff context passed between agents contains only the last complete cycle (plan+execute+review) and stays under 8000 characters -- older cycles are dropped
-  4. On re-route cycles, the original plan handoff is always preserved in context regardless of windowing -- execute never loses the initial task description
-**Plans**: 2 plans
-Plans:
-- [ ] 22-01-PLAN.md — Fix system prompts for agents and orchestrator (FIX-01, FIX-02)
-- [ ] 22-02-PLAN.md — Bounded handoff windowing with pinned first plan (CTX-05, CTX-06)
+  1. When a task starts for a project that has `.claude/agents/*.md` files, those agents appear in the project's agent registry without any manual configuration
+  2. Agent markdown files with YAML frontmatter are parsed correctly; plain-text files without frontmatter load with sensible defaults (name from filename, broad transitions)
+  3. Two concurrent tasks on different projects each see only their own project agents -- no cross-contamination between registries
+  4. Core pipeline agents (plan, execute, test, review) cannot be overridden by a project agent file with the same name -- core agents always win
+**Plans**: TBD
 
-### Phase 23: Core Output
-**Goal**: The pipeline writes real code files to disk and provides focused feedback on re-route cycles -- execute output becomes usable artifacts, not just text in a database
-**Depends on**: Phase 22
-**Requirements**: FWRT-01, FWRT-02, FWRT-03, FWRT-04, FWRT-05, FWRT-06, CTX-07, CTX-08
+### Phase 27: Commands & Settings Loaders
+**Goal**: The system discovers project commands and applies project-level settings -- templates ship commands that agents can reference and settings that configure pipeline behavior
+**Depends on**: Phase 26
+**Requirements**: CMLD-01, CMLD-02, SETG-01, SETG-02
 **Success Criteria** (what must be TRUE):
-  1. After execute completes, code blocks with file path annotations are parsed and written as actual files under the project workspace -- files exist on disk
-  2. The file writer reports exactly which files were written -- the list appears in the task log and feeds into auto-commit
-  3. If execute produces a non-empty CODE section but zero files are extracted, a warning is logged instead of silent success
-  4. When review triggers a re-route back to execute, the execute agent receives a targeted prompt listing specific ISSUES/IMPROVEMENTS from review -- not the full handoff dump
-  5. Orchestrator routing prompt includes only sections relevant to the last agent type (via ROUTING_SECTIONS map) -- CODE sections from execute do not pollute routing decisions
-**Plans**: 2 plans
-Plans:
-- [ ] 22-01-PLAN.md — Fix system prompts for agents and orchestrator (FIX-01, FIX-02)
-- [ ] 22-02-PLAN.md — Bounded handoff windowing with pinned first plan (CTX-05, CTX-06)
+  1. When a task starts for a project with `.claude/commands/*.md` files, those commands are discovered and injected into the agent context as available instructions
+  2. Agents in the pipeline can see the list of available commands and their descriptions in their context -- commands are not invisible
+  3. When a project has `.claude/settings.local.json`, its values are read and merged with global settings (project overrides where specified)
+  4. Security-sensitive global settings (system-level flags) cannot be overridden by project settings -- the merge is whitelisted
+**Plans**: TBD
 
-### Phase 24: Pipeline Extension
-**Goal**: Adding a new agent to the pipeline requires only a registry entry -- the orchestrator auto-discovers agents, validates routing transitions, and a test agent performs static code review between execute and review
-**Depends on**: Phase 23
-**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05
+### Phase 28: Orchestrator Dynamic Registry
+**Goal**: The orchestrator builds its routing schema dynamically per-task from the injected registry -- project agents and commands become routable targets in the pipeline
+**Depends on**: Phase 27
+**Requirements**: ORCH-01, ORCH-02, ORCH-03, CMLD-03
 **Success Criteria** (what must be TRUE):
-  1. Orchestrator JSON schema enum is generated from AGENT_REGISTRY keys at runtime -- adding a new agent config automatically makes it routable
-  2. Orchestrator system prompt dynamically lists available agents and their descriptions from the registry -- no hardcoded agent names
-  3. Invalid routing transitions (e.g., review to test skipping execute) are caught and fall back to the agent's configured next_agent
-  4. A test agent exists in the pipeline that performs static code review via LLM (no subprocess execution) and produces findings for the review agent
-  5. The default pipeline flow is plan -> execute -> [file_write] -> test -> review with the orchestrator able to re-route as needed
-**Plans**: 2 plans
-Plans:
-- [ ] 22-01-PLAN.md — Fix system prompts for agents and orchestrator (FIX-01, FIX-02)
-- [ ] 22-02-PLAN.md — Bounded handoff windowing with pinned first plan (CTX-05, CTX-06)
+  1. The orchestrator JSON schema enum is rebuilt for each task using `build_orchestrator_schema(registry)` -- adding a project agent automatically makes it appear in routing options
+  2. The pipeline accepts a registry as an injected parameter instead of reading a module-level constant -- `orchestrate_pipeline()` works with any registry
+  3. The orchestrator can route to project-specific agents (e.g., a `db-migrator` from a FastAPI template) and execution proceeds with that agent's system prompt
+  4. Commands discovered from `.claude/commands/` can be targeted by the orchestrator as routing destinations
+  5. Project-specific agents appear in the orchestrator's system prompt with their descriptions so it knows when to route to them
+**Plans**: TBD
 
-### Phase 25: Autonomy Refinement
-**Goal**: Tasks run fully autonomously by default with no user confirmations -- supervised mode remains as an opt-in option for when the user wants control
-**Depends on**: Phase 24
-**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04
+### Phase 29: AI Template Generation
+**Goal**: Users can describe a project in natural language and receive a complete, validated template with files, agents, commands, and settings -- generated by AI
+**Depends on**: Phase 26
+**Requirements**: AIGEN-01, AIGEN-02, AIGEN-03
 **Success Criteria** (what must be TRUE):
-  1. New tasks default to autonomous mode -- the pipeline runs from prompt to completion without any user confirmations
-  2. In autonomous mode, low confidence decisions (< 0.5) log a visible warning in the task output but never block execution
-  3. In supervised mode, low confidence decisions (< 0.5) trigger a user confirmation gate before proceeding
-  4. Users can still select supervised mode when creating a task -- it works exactly as before with approval gates at each stage
+  1. User can type a natural language description (e.g., "a FastAPI app with Stripe billing and email notifications") and receive a complete template with source files, CLAUDE.md, agents, commands, and settings
+  2. All generated agent and command files are validated through the same loader used at runtime before being returned to the user -- invalid files produce `validation_errors` in the response
+  3. AI template generation uses a separate semaphore from the pipeline tasks -- generating a template does not consume a task slot, and returns HTTP 429 if the generation slot is busy
+**Plans**: TBD
+
+### Phase 30: Template Editor UI
+**Goal**: Users can preview and modify template contents before and after saving -- full visibility and control over what a template contains
+**Depends on**: Phase 29
+**Requirements**: EDIT-01, EDIT-02, EDIT-03
+**Success Criteria** (what must be TRUE):
+  1. User can view a template's complete file structure as a collapsible tree (directories and files) in the browser
+  2. User can click any file in the tree to view and edit its contents inline via a textarea
+  3. User can save modifications with a preview-before-save flow -- changes are visible before committing
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 22 -> 23 -> 24 -> 25
+Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -152,3 +164,8 @@ Phases execute in numeric order: 22 -> 23 -> 24 -> 25
 | 23. Core Output | v2.3 | 2/2 | Complete | 2026-03-14 |
 | 24. Pipeline Extension | v2.3 | 1/1 | Complete | 2026-03-14 |
 | 25. Autonomy Refinement | v2.3 | 1/1 | Complete | 2026-03-14 |
+| 26. Agent Loader Foundation | v2.4 | 0/0 | Not started | - |
+| 27. Commands & Settings Loaders | v2.4 | 0/0 | Not started | - |
+| 28. Orchestrator Dynamic Registry | v2.4 | 0/0 | Not started | - |
+| 29. AI Template Generation | v2.4 | 0/0 | Not started | - |
+| 30. Template Editor UI | v2.4 | 0/0 | Not started | - |

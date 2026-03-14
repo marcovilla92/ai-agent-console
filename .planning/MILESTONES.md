@@ -48,16 +48,32 @@
 
 ---
 
-## v2.3 Orchestration Improvements (In Progress)
+## v2.3 Orchestration Improvements (Shipped: 2026-03-14)
 
-**Phases:** 4 (22-25) | **Plans:** TBD | **Timeline:** Started 2026-03-14
+**Phases:** 4 (22-25) | **Plans:** 6 | **Timeline:** 1 day (2026-03-14)
 
 **Goal:** Make the agent pipeline produce real output end-to-end -- file writing, smarter re-routing, bounded context, full autonomy by default, and a test agent for code review.
 
+**Key accomplishments:**
+1. System prompt fixes for agents and orchestrator
+2. Bounded handoff windowing with pinned first plan
+3. File writer module with targeted re-route prompts
+4. Dynamic schema from registry, routing validation, test agent
+5. Autonomous-by-default with confidence-based gating
+
+---
+
+## v2.4 Template System Overhaul (In Progress)
+
+**Phases:** 5 (26-30) | **Plans:** TBD | **Timeline:** Started 2026-03-14
+
+**Goal:** Transform templates from static file scaffolding into live environments that automatically load agents, skills, and plugins -- and enable AI-powered template creation.
+
 **Phase overview:**
-1. Phase 22: Bug Fixes & Foundation -- System prompt fixes, bounded handoff windowing
-2. Phase 23: Core Output -- File writer module, targeted re-routes, section filtering
-3. Phase 24: Pipeline Extension -- Dynamic schema, routing validation, test agent
-4. Phase 25: Autonomy Refinement -- Confidence gating, autonomous-by-default
+1. Phase 26: Agent Loader Foundation -- Discover agents from `.claude/agents/`, parse frontmatter, per-project registry
+2. Phase 27: Commands & Settings Loaders -- Discover commands, apply project settings, context injection
+3. Phase 28: Orchestrator Dynamic Registry -- Per-task schema building, registry injection, project agent routing
+4. Phase 29: AI Template Generation -- Natural language to template via Claude CLI, validation, separate semaphore
+5. Phase 30: Template Editor UI -- File tree preview, inline editing, preview-before-save flow
 
 ---
