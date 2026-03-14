@@ -68,6 +68,8 @@
         projects: [],
         templates: [],
         tasks: [],
+        projectTasks: [],
+        selectedTemplate: null,
         phaseSuggestion: null,
         contextData: null,
         activeTaskId: null,
@@ -117,8 +119,38 @@
           this.selectedProject = project;
           this.phaseSuggestion = null;
           this.contextData = null;
-          this.view = 'prompt';
+          this.projectTasks = [];
+          this.view = 'dashboard';
+          this.loadProjectTasks();
           this.loadSuggestion();
+        },
+
+        async loadProjectTasks() {
+          if (!this.selectedProject) return;
+          try {
+            var resp = await fetch('/tasks', { credentials: 'same-origin' });
+            if (resp.ok) {
+              var data = await resp.json();
+              var all = data.tasks || data;
+              var pid = this.selectedProject.id;
+              this.projectTasks = all.filter(function(t) { return t.project_id === pid; });
+            }
+          } catch (e) { /* silent */ }
+        },
+
+        get projectKPI() {
+          var tasks = this.projectTasks;
+          return {
+            total: tasks.length,
+            running: tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; }).length,
+            completed: tasks.filter(function(t) { return t.status === 'completed'; }).length,
+            failed: tasks.filter(function(t) { return t.status === 'failed'; }).length
+          };
+        },
+
+        viewTemplateDetail(tmpl) {
+          this.selectedTemplate = tmpl;
+          this.view = 'template-detail';
         },
 
         /* --- Project Creation --- */
@@ -299,7 +331,8 @@
           this.approvalPending = false;
           this.approvalData = null;
           if (this.selectedProject) {
-            this.view = 'prompt';
+            this.view = 'dashboard';
+            this.loadProjectTasks();
           } else {
             this.view = 'select';
             this.loadProjects();
@@ -419,7 +452,7 @@
         <!-- Breadcrumb for project sub-views -->
         <span x-show="$store.app.selectedProject && $store.app.page === 'projects'"
               class="text-sm text-surface-400 ml-3 hidden sm:inline">
-          &middot; <span x-text="$store.app.view === 'prompt' ? 'New Task' : ($store.app.view === 'running' ? 'Running' : '')"></span>
+          &middot; <span x-text="$store.app.view === 'dashboard' ? 'Dashboard' : ($store.app.view === 'prompt' ? 'New Task' : ($store.app.view === 'running' ? 'Running' : ''))"></span>
         </span>
       </header>
 
@@ -544,6 +577,100 @@
           </div>
 
           <!-- ============================================================ -->
+          <!-- PAGE: Projects > Dashboard                                   -->
+          <!-- ============================================================ -->
+          <div x-show="$store.app.page === 'projects' && $store.app.view === 'dashboard'"
+               x-transition:enter="transition ease-out duration-200"
+               x-transition:enter-start="opacity-0 translate-y-1"
+               x-transition:enter-end="opacity-100 translate-y-0"
+               class="space-y-6">
+
+            <!-- Header with back + new task -->
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <a href="#" @click.prevent="$store.app.selectedProject = null; $store.app.view = 'select'" class="text-sm text-primary-600 hover:text-primary-700 min-h-[44px] inline-flex items-center">&larr; All Projects</a>
+              <button @click="$store.app.view = 'prompt'"
+                      class="inline-flex items-center px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px]">
+                + New Task
+              </button>
+            </div>
+
+            <!-- Project description -->
+            <p x-show="$store.app.selectedProject?.description"
+               x-text="$store.app.selectedProject?.description"
+               class="text-sm text-surface-500"></p>
+
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="bg-white border border-surface-200 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-surface-900" x-text="$store.app.projectKPI.total"></p>
+                <p class="text-xs text-surface-500 mt-1">Total Tasks</p>
+              </div>
+              <div class="bg-white border border-sky-200 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-sky-600" x-text="$store.app.projectKPI.running"></p>
+                <p class="text-xs text-surface-500 mt-1">Running</p>
+              </div>
+              <div class="bg-white border border-emerald-200 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-emerald-600" x-text="$store.app.projectKPI.completed"></p>
+                <p class="text-xs text-surface-500 mt-1">Completed</p>
+              </div>
+              <div class="bg-white border border-red-200 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-red-600" x-text="$store.app.projectKPI.failed"></p>
+                <p class="text-xs text-surface-500 mt-1">Failed</p>
+              </div>
+            </div>
+
+            <!-- Phase suggestion (if available) -->
+            <div x-show="$store.app.phaseSuggestion?.suggestion" class="bg-white border border-surface-200 rounded-lg p-4">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 class="text-sm font-semibold text-surface-700">Suggested Phase</h3>
+                  <p class="text-sm text-surface-900 mt-0.5" x-text="$store.app.phaseSuggestion?.suggestion?.phase_name"></p>
+                </div>
+                <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full"
+                      :class="statusClass($store.app.phaseSuggestion?.suggestion?.status)"
+                      x-text="$store.app.phaseSuggestion?.suggestion?.status"></span>
+              </div>
+              <p class="text-xs text-surface-500 mt-1" x-show="$store.app.phaseSuggestion?.suggestion?.reason" x-text="$store.app.phaseSuggestion?.suggestion?.reason"></p>
+            </div>
+
+            <!-- Task History -->
+            <div>
+              <h3 class="text-sm font-semibold text-surface-700 mb-3">Task History</h3>
+
+              <div x-show="$store.app.projectTasks.length === 0" class="text-center py-8 text-surface-400 bg-white border border-surface-200 rounded-lg">
+                <p class="text-sm">No tasks yet for this project</p>
+                <p class="text-xs mt-1">Click "+ New Task" to get started</p>
+              </div>
+
+              <div class="space-y-2">
+                <template x-for="task in $store.app.projectTasks" :key="task.id">
+                  <div x-data="{ expanded: false }" class="bg-white border border-surface-200 rounded-lg overflow-hidden">
+                    <button @click="expanded = !expanded" class="w-full px-4 py-3 flex items-center justify-between text-left min-h-[44px]">
+                      <div class="flex-1 min-w-0 mr-3">
+                        <p class="text-sm font-medium text-surface-900 truncate" x-text="task.prompt"></p>
+                        <div class="flex items-center gap-3 mt-0.5">
+                          <span class="text-xs text-surface-400" x-text="timeAgo(task.created_at)"></span>
+                          <span x-show="task.duration_seconds" class="text-xs text-surface-400" x-text="task.duration_seconds ? Math.round(task.duration_seconds) + 's' : ''"></span>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full"
+                              :class="statusClass(task.status)"
+                              x-text="task.status"></span>
+                        <svg class="w-4 h-4 text-surface-400 transition-transform duration-200" :class="{ 'rotate-180': expanded }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                      </div>
+                    </button>
+                    <div x-show="expanded" x-transition class="px-4 pb-3 border-t border-surface-100">
+                      <pre class="bg-surface-900 rounded-lg p-3 text-xs text-emerald-400 font-mono max-h-64 overflow-y-auto mt-3" x-show="task.output"><code x-text="task.output"></code></pre>
+                      <p x-show="!task.output" class="text-sm text-surface-400 mt-3">No output available</p>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============================================================ -->
           <!-- PAGE: Projects > Prompt                                      -->
           <!-- ============================================================ -->
           <div x-show="$store.app.page === 'projects' && $store.app.view === 'prompt'"
@@ -553,7 +680,7 @@
                class="space-y-6">
 
             <div>
-              <a href="#" @click.prevent="$store.app.selectedProject = null; $store.app.view = 'select'" class="text-sm text-primary-600 hover:text-primary-700 min-h-[44px] inline-flex items-center">&larr; Back to projects</a>
+              <a href="#" @click.prevent="$store.app.view = 'dashboard'" class="text-sm text-primary-600 hover:text-primary-700 min-h-[44px] inline-flex items-center">&larr; Back to dashboard</a>
             </div>
 
             <!-- Phase suggestion -->
@@ -704,9 +831,10 @@
             </div>
 
             <!-- Template cards -->
-            <div x-show="!$store.app.loading && $store.app.templates.length > 0" class="grid gap-4 sm:grid-cols-2">
+            <div x-show="!$store.app.loading && $store.app.view !== 'template-detail' && $store.app.templates.length > 0" class="grid gap-4 sm:grid-cols-2">
               <template x-for="tmpl in $store.app.templates" :key="tmpl.id">
-                <div class="bg-white border border-surface-200 rounded-lg p-5 hover:shadow-md transition-all">
+                <div @click="$store.app.viewTemplateDetail(tmpl)"
+                     class="bg-white border border-surface-200 rounded-lg p-5 hover:border-primary-400 hover:shadow-md transition-all cursor-pointer">
                   <div class="flex items-start justify-between mb-2">
                     <span class="font-semibold text-surface-900" x-text="tmpl.name"></span>
                     <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full"
@@ -723,8 +851,34 @@
               </template>
             </div>
 
+            <!-- Template Detail -->
+            <div x-show="$store.app.view === 'template-detail' && $store.app.selectedTemplate"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 translate-y-1"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 class="space-y-4">
+              <a href="#" @click.prevent="$store.app.selectedTemplate = null; $store.app.view = 'templates'" class="text-sm text-primary-600 hover:text-primary-700 min-h-[44px] inline-flex items-center">&larr; All Templates</a>
+              <div class="bg-white border border-surface-200 rounded-lg p-6">
+                <div class="flex items-start justify-between mb-3">
+                  <h2 class="text-xl font-bold text-surface-900" x-text="$store.app.selectedTemplate?.name"></h2>
+                  <span class="inline-block px-2 py-0.5 text-xs font-medium rounded-full"
+                        :class="$store.app.selectedTemplate?.builtin ? 'bg-surface-100 text-surface-500' : 'bg-primary-50 text-primary-700'"
+                        x-text="$store.app.selectedTemplate?.builtin ? 'builtin' : 'custom'"></span>
+                </div>
+                <p x-show="$store.app.selectedTemplate?.description" x-text="$store.app.selectedTemplate?.description" class="text-sm text-surface-500 mb-4"></p>
+                <div x-show="$store.app.selectedTemplate?.files" class="mt-4">
+                  <h3 class="text-sm font-semibold text-surface-700 mb-2">Files</h3>
+                  <div class="bg-surface-50 rounded-lg p-3 space-y-1">
+                    <template x-for="file in ($store.app.selectedTemplate?.files || [])" :key="file">
+                      <div class="text-xs text-surface-600 font-mono py-1 px-2 hover:bg-surface-100 rounded" x-text="file.path || file"></div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Empty state -->
-            <div x-show="!$store.app.loading && $store.app.templates.length === 0" class="text-center py-12 text-surface-400">
+            <div x-show="!$store.app.loading && $store.app.view !== 'template-detail' && $store.app.templates.length === 0" class="text-center py-12 text-surface-400">
               <p class="text-lg">No templates found</p>
             </div>
           </div>
