@@ -19,6 +19,10 @@ class AgentConfig:
     output_sections: list[str] = field(default_factory=list)
     next_agent: str | None = None
     allowed_transitions: tuple[str, ...] = ()
+    # v2.4: Extended fields for project-defined agents
+    system_prompt_inline: str | None = None
+    source: str = "default"
+    file_path: str | None = None
 
 
 AGENT_REGISTRY: dict[str, AgentConfig] = {

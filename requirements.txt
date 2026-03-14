@@ -11,6 +11,9 @@ pydantic-settings>=2.0
 httpx>=0.28
 jinja2>=3.1
 
+# v2.4 Template System
+python-frontmatter==1.1.0
+
 # Dev/Test
 pytest>=8.0
 pytest-asyncio>=0.24
