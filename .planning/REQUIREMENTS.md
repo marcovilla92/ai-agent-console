@@ -79,12 +79,12 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ### Frontend SPA
 
-- [ ] **SPA-01**: Single index.html replaces all Jinja2 server-rendered pages
-- [ ] **SPA-02**: Project selection view with list, stack badges, and "New Project" button
-- [ ] **SPA-03**: Project creation view with name, description, and template picker
-- [ ] **SPA-04**: Prompt view with phase suggestion, context preview, and prompt textarea
-- [ ] **SPA-05**: Running view with WebSocket streaming output (reuses existing WS logic)
-- [ ] **SPA-06**: Alpine.store for cross-view state, x-show for view switching (preserves WebSocket)
+- [x] **SPA-01**: Single index.html replaces all Jinja2 server-rendered pages
+- [x] **SPA-02**: Project selection view with list, stack badges, and "New Project" button
+- [x] **SPA-03**: Project creation view with name, description, and template picker
+- [x] **SPA-04**: Prompt view with phase suggestion, context preview, and prompt textarea
+- [x] **SPA-05**: Running view with WebSocket streaming output (reuses existing WS logic)
+- [x] **SPA-06**: Alpine.store for cross-view state, x-show for view switching (preserves WebSocket)
 
 ## v2.2 Requirements
 
@@ -161,12 +161,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TASK-11 | Phase 16 | Complete |
 | TASK-12 | Phase 16 | Complete |
 | TASK-13 | Phase 16 | Complete |
-| SPA-01 | Phase 17 | Pending |
-| SPA-02 | Phase 17 | Pending |
-| SPA-03 | Phase 17 | Pending |
-| SPA-04 | Phase 17 | Pending |
-| SPA-05 | Phase 17 | Pending |
-| SPA-06 | Phase 17 | Pending |
+| SPA-01 | Phase 17 | Complete |
+| SPA-02 | Phase 17 | Complete |
+| SPA-03 | Phase 17 | Complete |
+| SPA-04 | Phase 17 | Complete |
+| SPA-05 | Phase 17 | Complete |
+| SPA-06 | Phase 17 | Complete |
 
 **Coverage:**
 - v2.1 requirements: 30 total
