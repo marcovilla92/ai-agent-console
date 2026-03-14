@@ -153,5 +153,5 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 13. Template System | 2/2 | Complete    | 2026-03-13 | - |
 | 14. Context Assembly | 2/2 | Complete    | 2026-03-13 | - |
 | 15. Project Service and API | 2/2 | Complete    | 2026-03-14 | - |
-| 16. Task-Project Integration | 1/1 | Complete   | 2026-03-14 | - |
+| 16. Task-Project Integration | 1/1 | Complete    | 2026-03-14 | - |
 | 17. SPA Frontend | v2.1 | 0/1 | Not started | - |
