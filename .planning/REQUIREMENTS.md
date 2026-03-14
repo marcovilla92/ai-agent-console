@@ -144,8 +144,8 @@ Requirements for Orchestration Improvements milestone. Each maps to roadmap phas
 
 ### Bug Fixes
 
-- [ ] **FIX-01**: All agents (plan, execute, review) receive their system prompt files during web execution via `stream_output()`
-- [ ] **FIX-02**: Orchestrator decision calls receive `orchestrator_system.txt` via `--system-prompt-file` flag
+- [x] **FIX-01**: All agents (plan, execute, review) receive their system prompt files during web execution via `stream_output()`
+- [x] **FIX-02**: Orchestrator decision calls receive `orchestrator_system.txt` via `--system-prompt-file` flag
 
 ### File Writing
 
@@ -310,8 +310,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FIX-01 | Phase 22 | Pending |
-| FIX-02 | Phase 22 | Pending |
+| FIX-01 | Phase 22 | Complete |
+| FIX-02 | Phase 22 | Complete |
 | CTX-05 | Phase 22 | Pending |
 | CTX-06 | Phase 22 | Pending |
 | FWRT-01 | Phase 23 | Pending |

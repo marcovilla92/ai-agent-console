@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Orchestration Improvements
-status: active
-stopped_at: null
-last_updated: "2026-03-14T18:00:00.000Z"
+status: planning
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-03-14T14:39:42.461Z"
 last_activity: 2026-03-14 -- Roadmap created for v2.3
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -51,6 +51,8 @@ Progress: [░░░░░░░░░░] 0%
 - [v2.3]: Supervised mode remains as opt-in option
 - [v2.3]: Bug fixes before features -- all structured output parsing depends on system prompts being loaded
 - [v2.3]: Pin first plan handoff (exempt from windowing) to preserve original context on re-routes
+- [Phase 22]: System prompt lookup lives inside WebTaskContext.stream_output, not in the TaskContext Protocol
+- [Phase 22]: Unknown agent names log warning and fall back to None rather than crashing
 
 ### Pending Todos
 
@@ -64,6 +66,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14
-Stopped at: Roadmap created for v2.3, ready to plan Phase 22
+Last session: 2026-03-14T14:39:42.458Z
+Stopped at: Completed 22-01-PLAN.md
 Resume file: None
