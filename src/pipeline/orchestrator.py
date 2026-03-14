@@ -91,6 +91,7 @@ ORCHESTRATOR_PROMPT_FILE = str(
 
 MAX_HANDOFF_ENTRIES = 3  # One complete cycle: plan + execute + review
 MAX_HANDOFF_CHARS = 8000  # Cap on windowed portion (excludes pinned plan)
+CONFIDENCE_THRESHOLD = 0.5  # Below this, decisions get extra scrutiny
 
 
 # --- Handoff windowing ---
@@ -348,6 +349,39 @@ async def orchestrate_pipeline(
             step=decision.reasoning,
             next_action=f"-> {decision.next_agent.upper()}",
         )
+
+        # 6b. Confidence-based gating
+        if decision.confidence < CONFIDENCE_THRESHOLD:
+            if ctx.mode == "supervised":
+                log.warning(
+                    "orchestrate_pipeline: low confidence %.2f in supervised mode, requesting confirmation",
+                    decision.confidence,
+                )
+                await ctx.update_status(
+                    agent="orchestrator",
+                    state="low_confidence",
+                    step=f"Low confidence ({decision.confidence:.0%}): {decision.reasoning}",
+                    next_action=f"Awaiting confirmation -> {decision.next_agent.upper()}",
+                )
+                confirmed = await ctx.confirm_reroute(
+                    decision.next_agent,
+                    f"Low confidence ({decision.confidence:.0%}): {decision.reasoning}",
+                )
+                if not confirmed:
+                    log.info("orchestrate_pipeline: low confidence decision rejected, halting")
+                    state.halted = True
+                    break
+            else:
+                log.warning(
+                    "orchestrate_pipeline: low confidence %.2f in autonomous mode, proceeding anyway",
+                    decision.confidence,
+                )
+                await ctx.update_status(
+                    agent="orchestrator",
+                    state="low_confidence_warning",
+                    step=f"Warning: low confidence ({decision.confidence:.0%}): {decision.reasoning}",
+                    next_action=f"Proceeding -> {decision.next_agent.upper()}",
+                )
 
         # 7. Log decision to DB (skip if no pool)
         if pool is not None and session_id is not None:

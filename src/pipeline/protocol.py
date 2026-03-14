@@ -17,6 +17,11 @@ class TaskContext(Protocol):
         """Path to the project being worked on."""
         ...
 
+    @property
+    def mode(self) -> str:
+        """Execution mode: 'autonomous' or 'supervised'."""
+        ...
+
     async def update_status(
         self, agent: str, state: str, step: str, next_action: str
     ) -> None:

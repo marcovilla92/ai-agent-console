@@ -58,6 +58,10 @@ class WebTaskContext:
     def project_path(self) -> str:
         return self._project_path
 
+    @property
+    def mode(self) -> str:
+        return self._mode
+
     async def update_status(
         self, agent: str, state: str, step: str, next_action: str
     ) -> None:
