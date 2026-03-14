@@ -431,14 +431,29 @@ async def generate_template(req: GenerateTemplateRequest):
                 detail="Template generation timed out",
             )
 
-        # Parse response (same pattern as orchestrator.py)
+        # Parse response — Claude CLI returns various formats
         try:
+            log.info("AI generation raw response length: %d, preview: %.500s", len(raw), raw[:500])
             response = json.loads(raw)
-            data = response.get("structured_output") or response.get("result")
-            if isinstance(data, str):
-                data = json.loads(data)
+            # Try multiple extraction paths
+            if isinstance(response, dict):
+                data = response.get("structured_output") or response.get("result") or response
+                if isinstance(data, str):
+                    data = json.loads(data)
+            elif isinstance(response, list):
+                # Sometimes returns array of messages — find the structured output
+                for item in response:
+                    if isinstance(item, dict) and item.get("type") == "result":
+                        data = item.get("result") or item.get("structured_output")
+                        if isinstance(data, str):
+                            data = json.loads(data)
+                        break
+                else:
+                    data = response
+            else:
+                data = response
             if not isinstance(data, dict):
-                raise ValueError("Expected dict from structured output")
+                raise ValueError(f"Expected dict, got {type(data).__name__}: {str(data)[:200]}")
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
             log.error("AI generation produced invalid response: %s", exc)
             raise HTTPException(
