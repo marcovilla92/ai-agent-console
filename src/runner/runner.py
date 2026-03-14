@@ -35,6 +35,7 @@ def _resolve_claude() -> str:
 async def stream_claude(
     prompt: str,
     *,
+    system_prompt: str | None = None,
     system_prompt_file: str | None = None,
     extra_args: list[str] | None = None,
     on_process: callable = None,
@@ -53,7 +54,9 @@ async def stream_claude(
         "--output-format", "stream-json",
         "--dangerously-skip-permissions",
     ]
-    if system_prompt_file:
+    if system_prompt:
+        cmd += ["--system-prompt", system_prompt]
+    elif system_prompt_file:
         cmd += ["--system-prompt-file", system_prompt_file]
     if extra_args:
         cmd += extra_args
@@ -149,7 +152,7 @@ async def stream_claude(
         )
 
 
-async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file: str | None = None) -> str:
+async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file: str | None = None, system_prompt: str | None = None) -> str:
     """
     Call Claude CLI with --output-format json --json-schema for structured output.
 
@@ -163,7 +166,9 @@ async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file:
         "--json-schema", schema,
         "--dangerously-skip-permissions",
     ]
-    if system_prompt_file:
+    if system_prompt:
+        cmd += ["--system-prompt", system_prompt]
+    elif system_prompt_file:
         cmd += ["--system-prompt-file", system_prompt_file]
     cmd.append(prompt)
 
