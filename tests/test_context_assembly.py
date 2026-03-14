@@ -149,7 +149,7 @@ class TestGetRecentTasks:
 
 class TestAssembleFullContext:
     @pytest.mark.asyncio
-    async def test_returns_dict_with_five_keys(self, tmp_path):
+    async def test_returns_dict_with_expected_keys(self, tmp_path):
         mock_pool = AsyncMock()
         mock_pool.fetch.return_value = []
 
@@ -162,7 +162,10 @@ class TestAssembleFullContext:
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await assemble_full_context(str(tmp_path), mock_pool)
 
-        assert set(result.keys()) == {"workspace", "claude_md", "planning_docs", "git_log", "recent_tasks"}
+        assert set(result.keys()) == {
+            "workspace", "claude_md", "planning_docs", "git_log", "recent_tasks",
+            "available_commands", "project_settings",
+        }
 
     @pytest.mark.asyncio
     async def test_reads_claude_md_with_limit(self, tmp_path):
