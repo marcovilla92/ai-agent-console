@@ -1,6 +1,6 @@
 # Requirements: AI Agent Workflow Console
 
-**Defined:** 2026-03-13
+**Defined:** 2026-03-14
 **Core Value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
 
 ## v2.0 Requirements (Complete)
@@ -31,9 +31,9 @@ All v2.0 requirements shipped and verified.
 - [x] **INFR-02**: All endpoints require HTTP Basic Auth
 - [x] **INFR-03**: Application deploys as Docker container on Coolify
 
-## v2.1 Requirements
+## v2.1 Requirements (Complete)
 
-Requirements for Project Router milestone. Each maps to roadmap phases.
+All v2.1 requirements shipped and verified.
 
 ### Database & Infrastructure
 
@@ -88,7 +88,59 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ## v2.2 Requirements
 
-Deferred to future release. Tracked but not in current roadmap.
+Requirements for UI Redesign milestone.
+
+### Design System
+
+- [ ] **DS-01**: Tailwind CSS replaces Pico CSS as the design framework (CDN, no build step)
+- [ ] **DS-02**: Clean light theme with consistent color palette, typography, and spacing
+- [ ] **DS-03**: Reusable component styles (buttons, cards, badges, inputs, modals) via Tailwind utility classes
+- [ ] **DS-04**: Loading spinners and skeleton states for all async operations
+- [ ] **DS-05**: Smooth transitions between views (fade/slide)
+
+### Layout & Navigation
+
+- [ ] **NAV-01**: Fixed sidebar on the left with navigation links: Projects, Templates, Tasks
+- [ ] **NAV-02**: Sidebar shows app logo/name at top and collapses to icon-only on tablet
+- [ ] **NAV-03**: Sidebar collapses to hamburger menu on mobile (phone)
+- [ ] **NAV-04**: Active page highlighted in sidebar
+- [ ] **NAV-05**: Main content area fills remaining viewport width
+
+### Responsive Design
+
+- [ ] **RES-01**: Desktop layout: fixed sidebar + full content area (>1024px)
+- [ ] **RES-02**: Tablet layout: collapsed icon sidebar + full content area (768-1024px)
+- [ ] **RES-03**: Mobile layout: hidden sidebar with hamburger toggle, full-width content (<768px)
+- [ ] **RES-04**: KPI cards stack vertically on mobile, grid on desktop/tablet
+- [ ] **RES-05**: Task list and forms are touch-friendly on mobile (min 44px tap targets)
+
+### Project Dashboard
+
+- [ ] **PROJ-10**: Project list page shows all projects as cards in a responsive grid
+- [ ] **PROJ-11**: Each project card shows name, description, stack badges, last activity time
+- [ ] **PROJ-12**: Clicking a project opens its dashboard with KPI cards and task list
+- [ ] **PROJ-13**: KPI cards show: total tasks, running, completed, failed counts
+- [ ] **PROJ-14**: Task list is expandable — clicking a task row reveals full agent output
+- [ ] **PROJ-15**: Task rows show status badge, prompt preview, timestamp, duration
+- [ ] **PROJ-16**: "New Task" button prominent in project dashboard header
+
+### Template Management
+
+- [ ] **TMPL-10**: Template page shows templates as cards in a grid layout
+- [ ] **TMPL-11**: Each template card shows name, description, stack info, builtin/custom badge
+- [ ] **TMPL-12**: Template detail view shows file list and metadata
+
+### Task Flow
+
+- [ ] **TASK-20**: Task creation form: project selector, prompt textarea, mode toggle, submit
+- [ ] **TASK-21**: Running task view: status indicator, live streaming output, cancel button
+- [ ] **TASK-22**: Approval gate UI: clear action card with approve/reject/continue buttons
+- [ ] **TASK-23**: Completed task view: final status, full output, "back" and "new task" actions
+- [ ] **TASK-24**: Global tasks page showing all tasks across projects with filtering by status
+
+## v2.3+ Requirements
+
+Deferred to future release.
 
 ### Webhooks
 
@@ -106,11 +158,11 @@ Deferred to future release. Tracked but not in current roadmap.
 |---------|--------|
 | Multi-user / team features | Single-user with basic auth by design |
 | Multi-model support (OpenAI, Gemini) | Claude CLI only |
-| Auto-detect project from prompt | Manual selection is explicit and predictable |
-| Template sharing/export | Single-user, no need for distribution |
-| Real-time filesystem watching | Scan-on-demand is sufficient for single user |
-| n8n webhook HTTP implementation | Only hook points in v2.1, full impl in v2.2 |
-| Mobile-responsive polish | Desktop-first, functional on mobile but not optimized |
+| React/Vue/Svelte | Alpine.js + Tailwind CSS sufficient for single-user |
+| Dark theme toggle | Light theme only for v2.2, dark can be added later |
+| Drag-and-drop reordering | Not needed for task/project lists |
+| Notification system | Single-user, visible on screen |
+| Charts/graphs for metrics | KPI cards with numbers sufficient |
 
 ## Traceability
 
@@ -133,7 +185,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFR-02 | Phase 7 | Complete |
 | INFR-03 | Phase 11 | Complete |
 
-### v2.1 (Active)
+### v2.1 (Complete)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
@@ -168,11 +220,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SPA-05 | Phase 17 | Complete |
 | SPA-06 | Phase 17 | Complete |
 
+### v2.2 (Active)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DS-01 | Phase 18 | Pending |
+| DS-02 | Phase 18 | Pending |
+| DS-03 | Phase 18 | Pending |
+| DS-04 | Phase 18 | Pending |
+| DS-05 | Phase 18 | Pending |
+| NAV-01 | Phase 19 | Pending |
+| NAV-02 | Phase 19 | Pending |
+| NAV-03 | Phase 19 | Pending |
+| NAV-04 | Phase 19 | Pending |
+| NAV-05 | Phase 19 | Pending |
+| RES-01 | Phase 19 | Pending |
+| RES-02 | Phase 19 | Pending |
+| RES-03 | Phase 19 | Pending |
+| RES-04 | Phase 19 | Pending |
+| RES-05 | Phase 19 | Pending |
+| PROJ-10 | Phase 20 | Pending |
+| PROJ-11 | Phase 20 | Pending |
+| PROJ-12 | Phase 20 | Pending |
+| PROJ-13 | Phase 20 | Pending |
+| PROJ-14 | Phase 20 | Pending |
+| PROJ-15 | Phase 20 | Pending |
+| PROJ-16 | Phase 20 | Pending |
+| TMPL-10 | Phase 20 | Pending |
+| TMPL-11 | Phase 20 | Pending |
+| TMPL-12 | Phase 20 | Pending |
+| TASK-20 | Phase 21 | Pending |
+| TASK-21 | Phase 21 | Pending |
+| TASK-22 | Phase 21 | Pending |
+| TASK-23 | Phase 21 | Pending |
+| TASK-24 | Phase 21 | Pending |
+
 **Coverage:**
-- v2.1 requirements: 30 total
+- v2.2 requirements: 30 total
 - Mapped to phases: 30/30
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-03-13*
-*Last updated: 2026-03-13 after roadmap creation*
+*Requirements defined: 2026-03-14*
+*Last updated: 2026-03-14 after initial definition*
