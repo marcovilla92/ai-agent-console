@@ -61,6 +61,74 @@
   </style>
 
   <script>
+    /* File viewer component */
+    function fileViewer() {
+      return {
+        fv: {
+          wordWrap: false,
+          showSearch: false,
+          searchQuery: '',
+          matchCount: 0,
+          currentMatch: -1,
+          copied: false,
+          highlightCode: function(refs, store) {
+            var el = refs.codeEl;
+            if (!el || !store.fileContent) return;
+            el.removeAttribute('data-highlighted');
+            el.textContent = store.fileContent;
+            el.className = store.fileLanguage ? ('language-' + store.fileLanguage) : '';
+            hljs.highlightElement(el);
+          },
+          copyToClipboard: function(store) {
+            var self = this;
+            navigator.clipboard.writeText(store.fileContent || '').then(function() {
+              self.copied = true;
+              setTimeout(function() { self.copied = false; }, 2000);
+            });
+          },
+          doSearch: function(refs, store) {
+            this.highlightCode(refs, store);
+            var el = refs.codeEl;
+            if (!el || !this.searchQuery) { this.matchCount = 0; this.currentMatch = -1; return; }
+            var q = this.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            var re = new RegExp('(' + q + ')', 'gi');
+            var count = 0;
+            el.innerHTML = el.innerHTML.replace(re, function(m) {
+              return '<mark class="file-search-match" data-match="' + (count++) + '">' + m + '</mark>';
+            });
+            this.matchCount = count;
+            this.currentMatch = count > 0 ? 0 : -1;
+            if (count > 0) this.scrollToMatch(refs, 0);
+          },
+          scrollToMatch: function(refs, idx) {
+            var marks = refs.codeEl.querySelectorAll('mark.file-search-match');
+            marks.forEach(function(m) { m.classList.remove('file-search-match-active'); });
+            if (marks[idx]) {
+              marks[idx].classList.add('file-search-match-active');
+              marks[idx].scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+          },
+          nextMatch: function(refs) {
+            if (this.matchCount === 0) return;
+            this.currentMatch = (this.currentMatch + 1) % this.matchCount;
+            this.scrollToMatch(refs, this.currentMatch);
+          },
+          prevMatch: function(refs) {
+            if (this.matchCount === 0) return;
+            this.currentMatch = (this.currentMatch - 1 + this.matchCount) % this.matchCount;
+            this.scrollToMatch(refs, this.currentMatch);
+          },
+          closeSearch: function(refs, store) {
+            this.showSearch = false;
+            this.searchQuery = '';
+            this.matchCount = 0;
+            this.currentMatch = -1;
+            this.highlightCode(refs, store);
+          }
+        }
+      };
+    }
+
     /* Helper functions */
     function timeAgo(dateStr) {
       if (!dateStr) return 'never';
@@ -223,6 +291,11 @@
         fileLoading: false,
         fileExpandedDirs: {},
 
+        /* Template file viewer */
+        templateFiles: {},
+        templateSelectedFile: null,
+        templateExpandedDirs: {},
+
         /* --- Navigation --- */
         navigate(page) {
           this.page = page;
@@ -307,6 +380,97 @@
         viewTemplateDetail(tmpl) {
           this.selectedTemplate = tmpl;
           this.view = 'template-detail';
+          this.loadTemplateFiles(tmpl.id);
+        },
+
+        async loadTemplateFiles(templateId) {
+          this.templateFiles = {};
+          this.templateSelectedFile = null;
+          this.templateExpandedDirs = {};
+          try {
+            var resp = await apiFetch('/templates/' + templateId + '/files');
+            if (resp.ok) {
+              var data = await resp.json();
+              this.templateFiles = data.files || {};
+            }
+          } catch(e) { /* silent */ }
+        },
+
+        getTemplateFileTree() {
+          var paths = Object.keys(this.templateFiles || {});
+          var root = [];
+          var dirMap = {};
+          var self = this;
+
+          paths.forEach(function(p) {
+            var parts = p.split('/');
+            var current = root;
+            var accumulated = '';
+            for (var i = 0; i < parts.length; i++) {
+              accumulated = accumulated ? (accumulated + '/' + parts[i]) : parts[i];
+              if (i === parts.length - 1) {
+                current.push({ name: parts[i], path: p, is_dir: false, children: [], depth: i });
+              } else {
+                if (!dirMap[accumulated]) {
+                  var dirNode = { name: parts[i], path: accumulated, is_dir: true, children: [], depth: i };
+                  dirMap[accumulated] = dirNode;
+                  current.push(dirNode);
+                }
+                current = dirMap[accumulated].children;
+              }
+            }
+          });
+
+          function sortNodes(nodes) {
+            nodes.sort(function(a, b) {
+              if (a.is_dir && !b.is_dir) return -1;
+              if (!a.is_dir && b.is_dir) return 1;
+              return a.name.localeCompare(b.name);
+            });
+            nodes.forEach(function(n) { if (n.is_dir) sortNodes(n.children); });
+            return nodes;
+          }
+
+          return sortNodes(root);
+        },
+
+        flattenTemplateTree(nodes) {
+          var result = [];
+          var self = this;
+          nodes.forEach(function(node) {
+            result.push(node);
+            if (node.is_dir && self.templateExpandedDirs[node.path]) {
+              var children = self.flattenTemplateTree(node.children);
+              children.forEach(function(c) { result.push(c); });
+            }
+          });
+          return result;
+        },
+
+        toggleTemplateDir(path) {
+          if (this.templateExpandedDirs[path]) {
+            delete this.templateExpandedDirs[path];
+          } else {
+            this.templateExpandedDirs[path] = true;
+          }
+          /* Force reactivity */
+          this.templateExpandedDirs = Object.assign({}, this.templateExpandedDirs);
+        },
+
+        selectTemplateFile(path) {
+          this.templateSelectedFile = path;
+          var self = this;
+          this.$nextTick(function() {
+            var el = document.getElementById('tmpl-file-code');
+            if (el) {
+              el.removeAttribute('data-highlighted');
+              el.textContent = self.templateFiles[path] || '';
+              var ext = path.split('.').pop();
+              var langMap = { py: 'python', js: 'javascript', ts: 'typescript', yml: 'yaml', yaml: 'yaml', md: 'markdown', sh: 'bash', json: 'json', html: 'html', css: 'css', j2: 'jinja2', toml: 'toml', sql: 'sql', rs: 'rust', go: 'go', rb: 'ruby', java: 'java', xml: 'xml', txt: '' };
+              el.className = langMap[ext] ? ('language-' + langMap[ext]) : '';
+              hljs.highlightElement(el);
+            }
+          });
         },
 
         /* --- Template CRUD --- */
@@ -1481,94 +1645,35 @@
 
               <!-- File content panel -->
               <div class="flex-1 bg-white border border-surface-200 rounded-lg overflow-hidden flex flex-col min-w-0 file-viewer"
-                   :class="{ 'file-viewer-wrap': fileViewerWrap }"
-                   x-data="{
-                     fileViewerWrap: false,
-                     showSearch: false,
-                     searchQuery: '',
-                     matchCount: 0,
-                     currentMatch: -1,
-                     copied: false,
-                     get lineCount() { return ($store.app.fileContent || '').split('\n').length; },
-                     highlightCode() {
-                       var el = this.$refs.codeEl;
-                       if (!el || !$store.app.fileContent) return;
-                       el.textContent = $store.app.fileContent;
-                       el.className = $store.app.fileLanguage ? ('language-' + $store.app.fileLanguage) : '';
-                       hljs.highlightElement(el);
-                     },
-                     copyToClipboard() {
-                       var self = this;
-                       navigator.clipboard.writeText($store.app.fileContent || '').then(function() {
-                         self.copied = true;
-                         setTimeout(function() { self.copied = false; }, 2000);
-                       });
-                     },
-                     doSearch() {
-                       this.highlightCode();
-                       var el = this.$refs.codeEl;
-                       if (!el || !this.searchQuery) { this.matchCount = 0; this.currentMatch = -1; return; }
-                       var q = this.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                       var re = new RegExp('(' + q + ')', 'gi');
-                       var count = 0;
-                       el.innerHTML = el.innerHTML.replace(re, function(m) { return '<mark class=\"file-search-match\" data-match=\"' + (count++) + '\">' + m + '</mark>'; });
-                       this.matchCount = count;
-                       this.currentMatch = count > 0 ? 0 : -1;
-                       if (count > 0) this.scrollToMatch(0);
-                     },
-                     scrollToMatch(idx) {
-                       var marks = this.$refs.codeEl.querySelectorAll('mark.file-search-match');
-                       marks.forEach(function(m) { m.classList.remove('file-search-match-active'); });
-                       if (marks[idx]) {
-                         marks[idx].classList.add('file-search-match-active');
-                         marks[idx].scrollIntoView({ block: 'center', behavior: 'smooth' });
-                       }
-                     },
-                     nextMatch() {
-                       if (this.matchCount === 0) return;
-                       this.currentMatch = (this.currentMatch + 1) % this.matchCount;
-                       this.scrollToMatch(this.currentMatch);
-                     },
-                     prevMatch() {
-                       if (this.matchCount === 0) return;
-                       this.currentMatch = (this.currentMatch - 1 + this.matchCount) % this.matchCount;
-                       this.scrollToMatch(this.currentMatch);
-                     },
-                     closeSearch() {
-                       this.showSearch = false;
-                       this.searchQuery = '';
-                       this.matchCount = 0;
-                       this.currentMatch = -1;
-                       this.highlightCode();
-                     }
-                   }"
-                   x-effect="if ($store.app.fileContent) { $nextTick(function() { highlightCode(); }); showSearch = false; searchQuery = ''; matchCount = 0; currentMatch = -1; }"
-                   @keydown.window="if ($event.ctrlKey && $event.key === 'f' && $store.app.view === 'files' && $store.app.filePath) { $event.preventDefault(); showSearch = true; $nextTick(function() { $refs.searchInput && $refs.searchInput.focus(); }); }">
+                   :class="{ 'file-viewer-wrap': fv.wordWrap }"
+                   x-data="fileViewer()"
+                   x-effect="if ($store.app.fileContent) { $nextTick(function() { fv.highlightCode($refs, $store.app); }); fv.showSearch = false; fv.searchQuery = ''; fv.matchCount = 0; fv.currentMatch = -1; }"
+                   @keydown.window="if ($event.ctrlKey && $event.key === 'f' && $store.app.view === 'files' && $store.app.filePath) { $event.preventDefault(); fv.showSearch = true; $nextTick(function() { $refs.searchInput && $refs.searchInput.focus(); }); }">
 
                 <!-- Toolbar -->
                 <div class="px-4 py-2.5 border-b border-surface-200 bg-surface-50 flex items-center justify-between gap-3">
                   <div class="flex items-center gap-2 min-w-0">
                     <h3 class="text-sm font-semibold text-surface-700 truncate" x-text="$store.app.filePath || 'Select a file'"></h3>
                     <span x-show="$store.app.fileLanguage" class="text-[10px] px-1.5 py-0.5 bg-primary-50 text-primary-600 rounded font-medium shrink-0" x-text="$store.app.fileLanguage"></span>
-                    <span x-show="$store.app.filePath" class="text-[10px] text-surface-400 shrink-0" x-text="lineCount + ' lines'"></span>
+                    <span x-show="$store.app.filePath" class="text-[10px] text-surface-400 shrink-0" x-text="($store.app.fileContent || '').split('\n').length + ' lines'"></span>
                   </div>
                   <div class="flex items-center gap-1.5 shrink-0">
                     <!-- Search toggle -->
-                    <button x-show="$store.app.filePath" @click="showSearch = !showSearch; if (showSearch) $nextTick(function() { $refs.searchInput && $refs.searchInput.focus(); }); else closeSearch();"
+                    <button x-show="$store.app.filePath" @click="fv.showSearch = !fv.showSearch; if (fv.showSearch) $nextTick(function() { $refs.searchInput && $refs.searchInput.focus(); }); else fv.closeSearch($refs, $store.app);"
                             class="p-1.5 rounded hover:bg-surface-200 text-surface-500 hover:text-surface-700 transition-colors" title="Search (Ctrl+F)">
                       <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
                     </button>
                     <!-- Word wrap toggle -->
-                    <button x-show="$store.app.filePath" @click="fileViewerWrap = !fileViewerWrap"
+                    <button x-show="$store.app.filePath" @click="fv.wordWrap = !fv.wordWrap"
                             class="p-1.5 rounded hover:bg-surface-200 transition-colors"
-                            :class="fileViewerWrap ? 'text-primary-600 bg-primary-50' : 'text-surface-500 hover:text-surface-700'" title="Word wrap">
+                            :class="fv.wordWrap ? 'text-primary-600 bg-primary-50' : 'text-surface-500 hover:text-surface-700'" title="Word wrap">
                       <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a4 4 0 0 1 0 8H9m4 0-3 3m3-3-3-3M3 6h18M3 14h4"/></svg>
                     </button>
                     <!-- Copy button -->
-                    <button x-show="$store.app.filePath" @click="copyToClipboard()"
+                    <button x-show="$store.app.filePath" @click="fv.copyToClipboard($store.app)"
                             class="p-1.5 rounded hover:bg-surface-200 text-surface-500 hover:text-surface-700 transition-colors" title="Copy file content">
-                      <svg x-show="!copied" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
-                      <svg x-show="copied" class="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                      <svg x-show="!fv.copied" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg>
+                      <svg x-show="fv.copied" class="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
                     </button>
                     <!-- Loading spinner -->
                     <span x-show="$store.app.fileLoading" class="w-4 h-4 border-2 border-primary-300 border-t-primary-600 rounded-full spinner shrink-0"></span>
@@ -1576,19 +1681,19 @@
                 </div>
 
                 <!-- Search bar -->
-                <div x-show="showSearch" x-transition class="px-4 py-2 border-b border-surface-200 bg-surface-50 flex items-center gap-2">
+                <div x-show="fv.showSearch" x-transition class="px-4 py-2 border-b border-surface-200 bg-surface-50 flex items-center gap-2">
                   <div class="flex-1 relative">
-                    <input x-ref="searchInput" type="text" x-model="searchQuery" @input.debounce.200ms="doSearch()" @keydown.enter.prevent="nextMatch()" @keydown.escape.prevent="closeSearch()"
+                    <input x-ref="searchInput" type="text" x-model="fv.searchQuery" @input.debounce.200ms="fv.doSearch($refs, $store.app)" @keydown.enter.prevent="fv.nextMatch($refs)" @keydown.escape.prevent="fv.closeSearch($refs, $store.app)"
                            placeholder="Search in file..." class="w-full pl-3 pr-16 py-1.5 text-xs border border-surface-300 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500">
-                    <span x-show="searchQuery" class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-surface-400" x-text="matchCount > 0 ? ((currentMatch + 1) + '/' + matchCount) : 'No results'"></span>
+                    <span x-show="fv.searchQuery" class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-surface-400" x-text="fv.matchCount > 0 ? ((fv.currentMatch + 1) + '/' + fv.matchCount) : 'No results'"></span>
                   </div>
-                  <button @click="prevMatch()" :disabled="matchCount === 0" class="p-1 rounded hover:bg-surface-200 text-surface-500 disabled:opacity-30" title="Previous">
+                  <button @click="fv.prevMatch($refs)" :disabled="fv.matchCount === 0" class="p-1 rounded hover:bg-surface-200 text-surface-500 disabled:opacity-30" title="Previous">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5"/></svg>
                   </button>
-                  <button @click="nextMatch()" :disabled="matchCount === 0" class="p-1 rounded hover:bg-surface-200 text-surface-500 disabled:opacity-30" title="Next">
+                  <button @click="fv.nextMatch($refs)" :disabled="fv.matchCount === 0" class="p-1 rounded hover:bg-surface-200 text-surface-500 disabled:opacity-30" title="Next">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
                   </button>
-                  <button @click="closeSearch()" class="p-1 rounded hover:bg-surface-200 text-surface-500" title="Close">
+                  <button @click="fv.closeSearch($refs, $store.app)" class="p-1 rounded hover:bg-surface-200 text-surface-500" title="Close">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
                   </button>
                 </div>
@@ -1606,7 +1711,7 @@
                   </div>
                   <!-- Highlighted code with line numbers -->
                   <div x-show="$store.app.filePath" class="flex bg-surface-900 h-full">
-                    <div class="file-viewer-gutter py-4 pl-3 pr-2 border-r border-surface-700/50 shrink-0 bg-surface-900/50" x-html="'<span></span>'.repeat(lineCount)"></div>
+                    <div class="file-viewer-gutter py-4 pl-3 pr-2 border-r border-surface-700/50 shrink-0 bg-surface-900/50" x-html="'<span></span>'.repeat(($store.app.fileContent || '').split('\n').length)"></div>
                     <pre class="flex-1 p-4 overflow-x-auto"><code x-ref="codeEl" class="!bg-transparent"></code></pre>
                   </div>
                 </div>
@@ -2073,7 +2178,55 @@
                   </div>
                 </div>
                 <p x-show="$store.app.selectedTemplate?.description" x-text="$store.app.selectedTemplate?.description" class="text-sm text-surface-500 mb-4"></p>
-                <div x-show="$store.app.selectedTemplate?.files" class="mt-4">
+                <!-- Template File Tree + Content Viewer -->
+                <div x-show="Object.keys($store.app.templateFiles).length > 0" class="mt-4">
+                  <h3 class="text-sm font-semibold text-surface-700 mb-2">Files</h3>
+                  <div class="flex flex-col lg:flex-row gap-4 border border-surface-200 rounded-lg overflow-hidden" style="min-height: 400px;">
+                    <!-- Left: File Tree -->
+                    <div class="lg:w-2/5 w-full border-b lg:border-b-0 lg:border-r border-surface-200 overflow-y-auto bg-surface-50 p-2" style="max-height: 600px;">
+                      <template x-for="node in $store.app.flattenTemplateTree($store.app.getTemplateFileTree())" :key="node.path">
+                        <div class="flex items-center text-sm font-mono cursor-pointer rounded px-2 py-1 transition-colors"
+                             :class="!node.is_dir && $store.app.templateSelectedFile === node.path ? 'bg-primary-50 text-primary-700' : 'hover:bg-surface-100 text-surface-600'"
+                             :style="'padding-left: ' + (node.depth * 16 + 8) + 'px'"
+                             @click="node.is_dir ? $store.app.toggleTemplateDir(node.path) : $store.app.selectTemplateFile(node.path)">
+                          <!-- Directory icon + chevron -->
+                          <template x-if="node.is_dir">
+                            <span class="flex items-center gap-1.5">
+                              <svg class="w-3.5 h-3.5 text-surface-400 transition-transform" :class="$store.app.templateExpandedDirs[node.path] ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                              <svg class="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 0 1 2-2h5l2 2h5a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z"/></svg>
+                              <span x-text="node.name" class="truncate"></span>
+                            </span>
+                          </template>
+                          <!-- File icon -->
+                          <template x-if="!node.is_dir">
+                            <span class="flex items-center gap-1.5">
+                              <svg class="w-3.5 h-3.5 opacity-0" fill="none" viewBox="0 0 24 24"></svg>
+                              <svg class="w-4 h-4 text-surface-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+                              <span x-text="node.name" class="truncate"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                    <!-- Right: File Content -->
+                    <div class="lg:w-3/5 w-full overflow-auto" style="max-height: 600px;">
+                      <div x-show="!$store.app.templateSelectedFile" class="flex items-center justify-center h-full text-surface-400 text-sm p-8">
+                        Select a file to view its contents
+                      </div>
+                      <div x-show="$store.app.templateSelectedFile" class="h-full flex flex-col">
+                        <div class="flex items-center gap-2 px-4 py-2 bg-surface-100 border-b border-surface-200">
+                          <svg class="w-4 h-4 text-surface-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+                          <span class="text-xs font-mono text-surface-600 truncate" x-text="$store.app.templateSelectedFile"></span>
+                        </div>
+                        <div class="flex-1 overflow-auto bg-surface-50 p-4">
+                          <pre class="text-xs leading-relaxed"><code id="tmpl-file-code" class="hljs"></code></pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Fallback: show flat file list if API hasn't loaded yet -->
+                <div x-show="Object.keys($store.app.templateFiles).length === 0 && $store.app.selectedTemplate?.files" class="mt-4">
                   <h3 class="text-sm font-semibold text-surface-700 mb-2">Files</h3>
                   <div class="bg-surface-50 rounded-lg p-3 space-y-1">
                     <template x-for="file in ($store.app.selectedTemplate?.files || [])" :key="file">
