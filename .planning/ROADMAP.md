@@ -71,7 +71,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 ### v2.4 Template System Overhaul
 
 - [x] **Phase 26: Agent Loader Foundation** - Discover agents from project `.claude/agents/`, parse frontmatter, build per-project registry with core agent protection (completed 2026-03-14)
-- [ ] **Phase 27: Commands & Settings Loaders** - Discover commands from `.claude/commands/` and apply project settings from `.claude/settings.local.json`
+- [x] **Phase 27: Commands & Settings Loaders** - Discover commands from `.claude/commands/` and apply project settings from `.claude/settings.local.json` (completed 2026-03-14)
 - [ ] **Phase 28: Orchestrator Dynamic Registry** - Build orchestrator schema per-task from injected registry, enable routing to project-specific agents and commands
 - [ ] **Phase 29: AI Template Generation** - Generate complete templates from natural language descriptions via Claude CLI with validation
 - [ ] **Phase 30: Template Editor UI** - Preview file tree, edit file contents inline, save with preview-before-save flow
@@ -101,7 +101,7 @@ Plans:
   2. Agents in the pipeline can see the list of available commands and their descriptions in their context -- commands are not invisible
   3. When a project has `.claude/settings.local.json`, its values are read and merged with global settings (project overrides where specified)
   4. Security-sensitive global settings (system-level flags) cannot be overridden by project settings -- the merge is whitelisted
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 27-01-PLAN.md — Command loader + settings loader modules with tests
 - [ ] 27-02-PLAN.md — Context assembly integration (commands + settings injection)
@@ -180,7 +180,7 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 | 24. Pipeline Extension | v2.3 | 1/1 | Complete | 2026-03-14 |
 | 25. Autonomy Refinement | v2.3 | 1/1 | Complete | 2026-03-14 |
 | 26. Agent Loader Foundation | 2/2 | Complete    | 2026-03-14 | - |
-| 27. Commands & Settings Loaders | v2.4 | 1/2 | In progress | - |
+| 27. Commands & Settings Loaders | 2/2 | Complete   | 2026-03-14 | - |
 | 28. Orchestrator Dynamic Registry | v2.4 | 0/0 | Not started | - |
 | 29. AI Template Generation | v2.4 | 0/0 | Not started | - |
 | 30. Template Editor UI | v2.4 | 0/0 | Not started | - |

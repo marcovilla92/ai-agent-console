@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Template System Overhaul
-status: in_progress
-stopped_at: Completed 27-01-PLAN.md
-last_updated: "2026-03-14T17:42:02Z"
-last_activity: 2026-03-14 -- Completed 27-01 Commands & Settings Loaders
+status: completed
+stopped_at: Completed 27-02-PLAN.md
+last_updated: "2026-03-14T17:47:36.079Z"
+last_activity: 2026-03-14 -- Completed 27-02 Context Assembly Integration
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 75
+  completed_plans: 4
+  percent: 90
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 ## Current Position
 
 Phase: 27 of 30 (Commands & Settings Loaders)
-Plan: 1 of 2 in current phase (27-01 COMPLETE)
-Status: In progress
-Last activity: 2026-03-14 -- Completed 27-01 Commands & Settings Loaders
+Plan: 2 of 2 in current phase (27-02 COMPLETE)
+Status: Phase 27 complete
+Last activity: 2026-03-14 -- Completed 27-02 Context Assembly Integration
 
-Progress: [███████░░░] 75%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [███████░░░] 75%
 - [Phase 26]: PROTECTED_AGENTS as frozenset for immutability
 - [Phase 27]: SETTINGS_WHITELIST limits project overrides to "permissions" key only
 - [Phase 27]: Command descriptions truncated to 200 chars for display
+- [Phase 27]: Command descriptions truncated to 100 chars in context assembly for prompt budget
 
 ### Pending Todos
 
@@ -68,6 +69,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T17:39:02Z
-Stopped at: Completed 27-01-PLAN.md
+Last session: 2026-03-14T17:47:36.073Z
+Stopped at: Completed 27-02-PLAN.md
 Resume file: None

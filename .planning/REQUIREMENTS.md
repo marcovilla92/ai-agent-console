@@ -192,7 +192,7 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 ### Command Loading
 
 - [x] **CMLD-01**: Il sistema scopre automaticamente tutti i file `.claude/commands/*.md` nella directory del progetto
-- [ ] **CMLD-02**: I comandi scoperti vengono iniettati nel contesto degli agenti del pipeline
+- [x] **CMLD-02**: I comandi scoperti vengono iniettati nel contesto degli agenti del pipeline
 - [ ] **CMLD-03**: I comandi possono essere eseguiti come target di routing dall'orchestrator
 
 ### Settings
@@ -398,7 +398,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGLD-03 | Phase 26 | Complete |
 | AGLD-04 | Phase 26 | Complete |
 | CMLD-01 | Phase 27 | Complete |
-| CMLD-02 | Phase 27 | Pending |
+| CMLD-02 | Phase 27 | Complete |
 | CMLD-03 | Phase 28 | Pending |
 | SETG-01 | Phase 27 | Complete |
 | SETG-02 | Phase 27 | Complete |
