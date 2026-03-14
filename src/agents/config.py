@@ -49,6 +49,15 @@ AGENT_REGISTRY: dict[str, AgentConfig] = {
 }
 
 
+# Sections the orchestrator should consider when making routing decisions
+# after each agent type. Unlisted sections are excluded from the routing prompt.
+ROUTING_SECTIONS: dict[str, list[str]] = {
+    "plan": ["GOAL", "ASSUMPTIONS", "CONSTRAINTS", "TASKS", "HANDOFF"],
+    "execute": ["TARGET", "SETUP NOTES", "HANDOFF"],
+    "review": ["SUMMARY", "ISSUES", "IMPROVEMENTS", "DECISION"],
+}
+
+
 def get_agent_config(name: str) -> AgentConfig:
     """Get agent config by name. Raises KeyError if not found."""
     if name not in AGENT_REGISTRY:

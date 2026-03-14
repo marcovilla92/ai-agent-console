@@ -31,13 +31,14 @@ async def test_auto_commit_success(tmp_path):
     async def fake_exec(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count == 1:
-            # git add -A
+        # Calls: git add src/, git add tests/, git add -u, git diff --cached --quiet, git commit
+        if call_count <= 3:
+            # git add src/ + git add tests/ + git add -u
             return _FakeProc(returncode=0)
-        elif call_count == 2:
+        elif call_count == 4:
             # git diff --cached --quiet -> exit 1 means there ARE staged changes
             return _FakeProc(returncode=1)
-        elif call_count == 3:
+        elif call_count == 5:
             # git commit
             return _FakeProc(returncode=0)
         return _FakeProc(returncode=0)
@@ -46,7 +47,7 @@ async def test_auto_commit_success(tmp_path):
         result = await auto_commit(str(tmp_path), "test-session")
 
     assert result is True
-    assert call_count == 3
+    assert call_count == 5
 
 
 @pytest.mark.asyncio
@@ -66,10 +67,11 @@ async def test_auto_commit_nothing_staged(tmp_path):
     async def fake_exec(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count == 1:
-            # git add -A
+        # Calls: git add src/, git add tests/, git add -u, git diff --cached --quiet
+        if call_count <= 3:
+            # git add src/ + git add tests/ + git add -u
             return _FakeProc(returncode=0)
-        elif call_count == 2:
+        elif call_count == 4:
             # git diff --cached --quiet -> exit 0 means nothing staged
             return _FakeProc(returncode=0)
         return _FakeProc(returncode=0)
@@ -78,4 +80,4 @@ async def test_auto_commit_nothing_staged(tmp_path):
         result = await auto_commit(str(tmp_path), "test-session")
 
     assert result is False
-    assert call_count == 2  # Should stop after diff check
+    assert call_count == 4  # Should stop after diff check

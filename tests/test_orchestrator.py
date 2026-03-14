@@ -80,8 +80,9 @@ class TestBuildOrchestratorPrompt:
 
     def test_truncates_long_sections(self):
         state = OrchestratorState(session_id=1, original_prompt="test")
+        state.current_agent = "review"  # review allows SUMMARY section
         long_content = "x" * 1000
-        prompt = build_orchestrator_prompt(state, {"BIG": long_content})
+        prompt = build_orchestrator_prompt(state, {"SUMMARY": long_content})
         # Should be truncated to 500 chars + "..."
         assert "x" * 500 in prompt
         assert "..." in prompt

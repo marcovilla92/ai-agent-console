@@ -19,7 +19,9 @@ import asyncpg
 
 from src.db.pg_repository import OrchestratorDecisionRepository, TaskRepository
 from src.db.pg_schema import OrchestratorDecisionRecord
-from src.pipeline.handoff import build_handoff
+from src.agents.config import ROUTING_SECTIONS
+from src.pipeline.file_writer import process_execute_output
+from src.pipeline.handoff import build_handoff, build_reroute_prompt
 from src.pipeline.protocol import TaskContext
 from src.runner.runner import call_orchestrator_claude
 
@@ -51,6 +53,7 @@ class OrchestratorState:
     history: list[dict] = field(default_factory=list)
     decisions: list[OrchestratorDecision] = field(default_factory=list)
     accumulated_handoffs: list[str] = field(default_factory=list)
+    written_files: list[str] = field(default_factory=list)
     halted: bool = False
     approved: bool = False
 
@@ -139,7 +142,10 @@ def build_orchestrator_prompt(
     lines.append("")
     lines.append("Latest agent output sections:")
 
+    allowed = ROUTING_SECTIONS.get(state.current_agent)
     for section_name, content in latest_sections.items():
+        if allowed and section_name not in allowed:
+            continue
         truncated = content[:500] + "..." if len(content) > 500 else content
         lines.append(f"--- {section_name} ---")
         lines.append(truncated)
@@ -283,6 +289,12 @@ async def orchestrate_pipeline(
         )
         log.info("orchestrate_pipeline: agent=%s completed sections=%s", state.current_agent, list(sections.keys()))
 
+        # 2b. If execute just completed, write files to disk
+        if state.current_agent == "execute":
+            newly_written = process_execute_output(ctx.project_path, sections)
+            state.written_files.extend(newly_written)
+            log.info("orchestrate_pipeline: file_writer wrote %d files", len(newly_written))
+
         # 3. Record in history and build handoff for next agent
         state.history.append({
             "agent": state.current_agent,
@@ -344,6 +356,12 @@ async def orchestrate_pipeline(
                 else:  # stop
                     state.halted = True
                     break
+
+            # Build targeted re-route prompt from review feedback
+            reroute_context = build_reroute_prompt(sections, state.original_prompt)
+            pinned = state.accumulated_handoffs[0] if state.accumulated_handoffs else ""
+            state.accumulated_handoffs = [pinned, reroute_context] if pinned else [reroute_context]
+            log.info("orchestrate_pipeline: replaced handoffs with targeted re-route prompt")
 
             # User confirmation for re-routing
             confirmed = await ctx.confirm_reroute(
