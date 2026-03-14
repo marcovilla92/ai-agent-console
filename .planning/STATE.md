@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Project Router
 status: executing
-stopped_at: Completed 17-01-PLAN.md -- Alpine.js SPA with 4-view wizard
+stopped_at: Completed 17-02-PLAN.md -- SPA server wiring, Jinja2 removed
 last_updated: "2026-03-14T03:10:48.343Z"
-last_activity: 2026-03-14 -- Completed 17-01 SPA frontend
+last_activity: 2026-03-14 -- Completed 17-02 server wiring
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 10
-  completed_plans: 9
-  percent: 95
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 17 in progress - SPA Frontend (v2.1 Project Router)
+**Current focus:** Phase 17 complete - SPA Frontend (v2.1 Project Router)
 
 ## Current Position
 
 Phase: 17 of 17 (SPA Frontend)
-Plan: 01 of 02 (complete)
-Status: Phase 17 in progress
-Last activity: 2026-03-14 -- Completed 17-01 SPA frontend
+Plan: 02 of 02 (complete)
+Status: Phase 17 complete -- all plans done
+Last activity: 2026-03-14 -- Completed 17-02 server wiring
 
-Progress: [█████████░] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -40,7 +40,7 @@ Progress: [█████████░] 95%
 - Total execution time: ~1.8 hours
 
 **Recent Trend:**
-- Last 5 plans: 5min, 4min, 4min, 4min, 4min
+- Last 5 plans: 4min, 4min, 4min, 4min, 3min
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -81,6 +81,8 @@ Progress: [█████████░] 95%
 - [Phase 17-01]: x-show for all 4 views preserves DOM and WebSocket connections
 - [Phase 17-01]: Alpine.store('app') manages all cross-view state in single store
 - [Phase 17-01]: Context loaded lazily on first toggle to avoid unnecessary API calls
+- [Phase 17-02]: Root route on app directly (not router) to avoid prefix conflicts
+- [Phase 17-02]: Outputs tests moved to test_task_endpoints.py (endpoint lives on task_router)
 
 ### Pending Todos
 
@@ -97,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T03:10:48.340Z
-Stopped at: Completed 17-01-PLAN.md -- Alpine.js SPA with 4-view wizard
+Last session: 2026-03-14T03:21:26Z
+Stopped at: Completed 17-02-PLAN.md -- SPA server wiring, Jinja2 removed
 Resume file: None
