@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from src.context.assembler import assemble_full_context, suggest_next_phase
 from src.db.pg_repository import ProjectRepository
 from src.pipeline.project_service import ProjectService
+from src.server.config import get_settings
 from src.server.dependencies import get_pool, verify_credentials
 
 
@@ -98,7 +99,8 @@ project_router = APIRouter(
 @project_router.get("", response_model=ProjectListResponse)
 async def list_projects(pool: asyncpg.Pool = Depends(get_pool)):
     """Return all projects with stack detection and auto-registration."""
-    svc = ProjectService(pool)
+    settings = get_settings()
+    svc = ProjectService(pool, workspace_root=Path(settings.project_path) if settings.project_path else None)
     projects = await svc.list_projects()
     return ProjectListResponse(projects=projects, count=len(projects))
 
@@ -109,7 +111,8 @@ async def create_project(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     """Create a new project from a template with folder scaffolding and git init."""
-    svc = ProjectService(pool)
+    settings = get_settings()
+    svc = ProjectService(pool, workspace_root=Path(settings.project_path) if settings.project_path else None)
     try:
         project = await svc.create_project(req.name, req.description, req.template)
     except FileExistsError:
@@ -159,7 +162,8 @@ async def delete_project(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     """Delete a project record from the database (filesystem untouched)."""
-    svc = ProjectService(pool)
+    settings = get_settings()
+    svc = ProjectService(pool, workspace_root=Path(settings.project_path) if settings.project_path else None)
     try:
         await svc.delete_project(project_id)
     except ValueError:
@@ -306,6 +310,27 @@ def _guess_language(filename: str) -> str:
     return ext_map.get(ext, "text")
 
 
+def _resolve_project_dir(project_path: str) -> Path:
+    """Resolve a project's DB path to its actual disk location.
+
+    When running inside a container the DB path may be stale (e.g.
+    /home/appuser/projects/foo) while the real mount is /workspace/foo.
+    Fall back to settings.project_path + slug when the stored path doesn't
+    exist on disk.
+    """
+    p = Path(project_path)
+    if p.is_dir():
+        return p
+    # Try workspace_root / slug
+    settings = get_settings()
+    if settings.project_path:
+        slug = p.name  # last component = project slug
+        alt = Path(settings.project_path) / slug
+        if alt.is_dir():
+            return alt
+    return p  # return original (will fail is_dir check in caller)
+
+
 @project_router.get("/{project_id}/files", response_model=FileTreeResponse)
 async def get_file_tree(
     project_id: int,
@@ -316,11 +341,11 @@ async def get_file_tree(
     project = await repo.get(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
-    project_path = Path(project.path)
+    project_path = _resolve_project_dir(project.path)
     if not project_path.is_dir():
-        raise HTTPException(status_code=404, detail="Project directory not found on disk")
+        raise HTTPException(status_code=404, detail=f"Project directory not found on disk: {project.path}")
     tree = _build_tree(project_path, project_path)
-    return FileTreeResponse(tree=tree, project_path=project.path)
+    return FileTreeResponse(tree=tree, project_path=str(project_path))
 
 
 @project_router.get("/{project_id}/files/content", response_model=FileContentResponse)
@@ -334,7 +359,7 @@ async def get_file_content(
     project = await repo.get(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
-    project_root = Path(project.path).resolve()
+    project_root = _resolve_project_dir(project.path).resolve()
     file_path = (project_root / path).resolve()
     # Security: ensure the file is within the project directory
     if not str(file_path).startswith(str(project_root)):

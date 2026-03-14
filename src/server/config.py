@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     port: int = 8000
     auth_username: str = "admin"
     auth_password: str = "changeme"
-    project_path: str = "."
+    project_path: str = ""
 
     model_config = {"env_prefix": "APP_"}
 
