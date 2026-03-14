@@ -356,3 +356,24 @@ async def test_approve_invalid_decision(mock_pipeline, app_with_pool):
             headers=AUTH_HEADERS,
         )
     assert resp.status_code == 422
+
+
+# --- Task outputs endpoint tests (moved from test_views.py) ---
+
+
+async def test_get_task_outputs_empty(client):
+    """GET /tasks/999/outputs with auth returns 200 with empty outputs list."""
+    async with client:
+        resp = await client.get("/tasks/999/outputs", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["outputs"] == []
+    assert data["count"] == 0
+
+
+async def test_get_task_outputs_requires_auth(app_with_pool):
+    """GET /tasks/1/outputs without auth returns 401."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/tasks/1/outputs")
+    assert resp.status_code == 401

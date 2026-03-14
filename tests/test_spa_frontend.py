@@ -1,14 +1,30 @@
 """Tests for the Alpine.js SPA (static/index.html).
 
-These tests validate the SPA HTML file directly by reading from disk.
-No server requests are made -- server integration tests are in plan 02.
+File-content tests validate the SPA HTML directly from disk.
+Server integration tests verify routing through FastAPI.
 """
 
+import base64
+import os
 import pathlib
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+
+from src.server.app import create_app
 
 SPA_PATH = pathlib.Path(__file__).resolve().parent.parent / "static" / "index.html"
+
+pytestmark = pytest.mark.asyncio
+
+TEST_DSN = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql://n8n:Amc2017!m@10.0.1.7:5432/agent_console_test",
+)
+
+AUTH_HEADERS = {
+    "Authorization": "Basic " + base64.b64encode(b"admin:changeme").decode()
+}
 
 
 @pytest.fixture
@@ -72,3 +88,51 @@ def test_html_has_all_api_endpoints(spa_html):
     assert "fetch('/tasks'" in spa_html or 'fetch("/tasks"' in spa_html or "fetch(`/tasks`" in spa_html
     # All fetches must use credentials
     assert "credentials: 'same-origin'" in spa_html
+
+
+# --- Server integration tests ---
+
+
+@pytest.fixture
+async def app_with_pool():
+    """Create a FastAPI app and manually run its lifespan for testing."""
+    os.environ["APP_DATABASE_URL"] = TEST_DSN
+    os.environ["APP_POOL_MIN_SIZE"] = "1"
+    os.environ["APP_POOL_MAX_SIZE"] = "2"
+    from src.server.config import get_settings
+    get_settings.cache_clear()
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        yield app
+
+
+@pytest.fixture
+def client(app_with_pool):
+    """Return an HTTPX async client bound to the test app."""
+    transport = ASGITransport(app=app_with_pool)
+    return AsyncClient(transport=transport, base_url="http://test")
+
+
+async def test_root_returns_spa_html(client):
+    """GET / with auth returns 200, text/html, body contains Alpine.store."""
+    async with client:
+        resp = await client.get("/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Alpine.store" in resp.text
+
+
+async def test_old_view_routes_removed(client):
+    """GET /tasks/1/view with auth returns 404 (old Jinja2 routes gone)."""
+    async with client:
+        resp = await client.get("/tasks/1/view", headers=AUTH_HEADERS)
+    assert resp.status_code == 404
+
+
+async def test_root_requires_auth(app_with_pool):
+    """GET / without auth returns 401."""
+    transport = ASGITransport(app=app_with_pool)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/")
+    assert resp.status_code == 401

@@ -7,19 +7,23 @@ Usage:
 """
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import asyncpg
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.responses import FileResponse
 
 from src.db.migrations import apply_schema
 from src.engine.manager import TaskManager
 from src.server.config import get_settings
 from src.server.connection_manager import ConnectionManager
+from src.server.dependencies import verify_credentials
 from src.server.routers.tasks import task_router
 from src.server.routers.projects import project_router
 from src.server.routers.templates import template_router
-from src.server.routers.views import view_router
 from src.server.routers.ws import ws_router
+
+STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 
 log = logging.getLogger(__name__)
 
@@ -66,10 +70,15 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="AI Agent Console", lifespan=lifespan)
+
+    @app.get("/")
+    async def root(_=Depends(verify_credentials)):
+        """Serve the Alpine.js SPA."""
+        return FileResponse(STATIC_DIR / "index.html")
+
     app.include_router(health_router)
     app.include_router(task_router)
     app.include_router(ws_router)
-    app.include_router(view_router)
     app.include_router(template_router)
     app.include_router(project_router)
     return app

@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application code
 COPY pyproject.toml .
 COPY src/ ./src/
-COPY templates/ ./templates/
+COPY static/ ./static/
 
 # Non-root user (required: Claude CLI refuses --dangerously-skip-permissions as root)
 RUN useradd -m -s /bin/bash appuser && \
