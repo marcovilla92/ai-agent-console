@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Template System Overhaul
-status: completed
-stopped_at: Completed 27-02-PLAN.md
-last_updated: "2026-03-14T17:50:29.738Z"
-last_activity: 2026-03-14 -- Completed 27-02 Context Assembly Integration
+status: executing
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-03-14T18:06:41.912Z"
+last_activity: 2026-03-14 -- Completed 28-01 Dynamic Registry Foundation
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 90
+  total_plans: 6
+  completed_plans: 5
+  percent: 87
 ---
 
 # Project State
@@ -21,21 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 27 - Commands & Settings Loaders
+**Current focus:** Phase 28 - Orchestrator Dynamic Registry
 
 ## Current Position
 
-Phase: 27 of 30 (Commands & Settings Loaders)
-Plan: 2 of 2 in current phase (27-02 COMPLETE)
-Status: Phase 27 complete
-Last activity: 2026-03-14 -- Completed 27-02 Context Assembly Integration
+Phase: 28 of 30 (Orchestrator Dynamic Registry)
+Plan: 1 of 2 in current phase (28-01 COMPLETE)
+Status: In progress
+Last activity: 2026-03-14 -- Completed 28-01 Dynamic Registry Foundation
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 40 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 3)
+- Total plans completed: 41 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 4)
 - Average duration: 5min
 - Total execution time: ~3 hours
 
@@ -58,6 +58,8 @@ Progress: [█████████░] 90%
 - [Phase 27]: SETTINGS_WHITELIST limits project overrides to "permissions" key only
 - [Phase 27]: Command descriptions truncated to 200 chars for display
 - [Phase 27]: Command descriptions truncated to 100 chars in context assembly for prompt budget
+- [Phase 28]: Inline system_prompt takes priority over system_prompt_file when both provided
+- [Phase 28]: inject_commands_as_agents reads command file content into system_prompt_inline
 
 ### Pending Todos
 
@@ -69,6 +71,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T17:47:36.073Z
-Stopped at: Completed 27-02-PLAN.md
+Last session: 2026-03-14T18:06:41.908Z
+Stopped at: Completed 28-01-PLAN.md
 Resume file: None

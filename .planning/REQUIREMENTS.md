@@ -193,7 +193,7 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 
 - [x] **CMLD-01**: Il sistema scopre automaticamente tutti i file `.claude/commands/*.md` nella directory del progetto
 - [x] **CMLD-02**: I comandi scoperti vengono iniettati nel contesto degli agenti del pipeline
-- [ ] **CMLD-03**: I comandi possono essere eseguiti come target di routing dall'orchestrator
+- [x] **CMLD-03**: I comandi possono essere eseguiti come target di routing dall'orchestrator
 
 ### Settings
 
@@ -202,7 +202,7 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 
 ### Orchestrator Integration
 
-- [ ] **ORCH-01**: Lo schema dell'orchestrator viene costruito dinamicamente per ogni task (`build_orchestrator_schema(registry)`)
+- [x] **ORCH-01**: Lo schema dell'orchestrator viene costruito dinamicamente per ogni task (`build_orchestrator_schema(registry)`)
 - [ ] **ORCH-02**: Il pipeline accetta un registry come parametro iniettato (non modulo-level constant)
 - [ ] **ORCH-03**: L'orchestrator può routare verso agenti specifici del progetto
 
@@ -399,10 +399,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGLD-04 | Phase 26 | Complete |
 | CMLD-01 | Phase 27 | Complete |
 | CMLD-02 | Phase 27 | Complete |
-| CMLD-03 | Phase 28 | Pending |
+| CMLD-03 | Phase 28 | Complete |
 | SETG-01 | Phase 27 | Complete |
 | SETG-02 | Phase 27 | Complete |
-| ORCH-01 | Phase 28 | Pending |
+| ORCH-01 | Phase 28 | Complete |
 | ORCH-02 | Phase 28 | Pending |
 | ORCH-03 | Phase 28 | Pending |
 | AIGEN-01 | Phase 29 | Pending |
