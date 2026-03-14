@@ -65,7 +65,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. Buttons, cards, badges, inputs, and modals follow reusable Tailwind utility patterns that look visually cohesive
   4. Every async operation (API calls, page loads) shows a loading spinner or skeleton placeholder instead of blank space
   5. View transitions use fade or slide animations -- switching between views feels smooth, not jarring
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 18-01-PLAN.md -- Replace Pico with Tailwind, design system, loading states, transitions
 
 ### Phase 19: Sidebar Layout & Responsive Shell
 **Goal**: Users navigate the application through a persistent sidebar that adapts gracefully across desktop, tablet, and mobile screen sizes
@@ -127,7 +129,7 @@ Phases execute in numeric order: 18 -> 19 -> 20 -> 21
 | 15. Project Service and API | v2.1 | 2/2 | Complete | 2026-03-14 |
 | 16. Task-Project Integration | v2.1 | 1/1 | Complete | 2026-03-14 |
 | 17. SPA Frontend | v2.1 | 2/2 | Complete | 2026-03-14 |
-| 18. Design System Foundation | v2.2 | 0/TBD | Not started | - |
+| 18. Design System Foundation | v2.2 | 0/1 | Not started | - |
 | 19. Sidebar Layout & Responsive Shell | v2.2 | 0/TBD | Not started | - |
 | 20. Project & Template Views | v2.2 | 0/TBD | Not started | - |
 | 21. Task Flow & Polish | v2.2 | 0/TBD | Not started | - |
