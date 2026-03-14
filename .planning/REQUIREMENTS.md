@@ -149,34 +149,34 @@ Requirements for Orchestration Improvements milestone. Each maps to roadmap phas
 
 ### File Writing
 
-- [ ] **FWRT-01**: EXECUTE agent output CODE section is parsed to extract code blocks with file paths
-- [ ] **FWRT-02**: Extracted files are written to disk under the project's workspace path
-- [ ] **FWRT-03**: Directory structure is created automatically when writing files
-- [ ] **FWRT-04**: File writer reports the list of written files (used by auto-commit)
-- [ ] **FWRT-05**: Zero-file extraction from non-empty CODE section triggers a warning, not silent success
-- [ ] **FWRT-06**: Execute system prompt enforces strict code block format with file path annotations
+- [x] **FWRT-01**: EXECUTE agent output CODE section is parsed to extract code blocks with file paths
+- [x] **FWRT-02**: Extracted files are written to disk under the project's workspace path
+- [x] **FWRT-03**: Directory structure is created automatically when writing files
+- [x] **FWRT-04**: File writer reports the list of written files (used by auto-commit)
+- [x] **FWRT-05**: Zero-file extraction from non-empty CODE section triggers a warning, not silent success
+- [x] **FWRT-06**: Execute system prompt enforces strict code block format with file path annotations
 
 ### Context Management
 
 - [x] **CTX-05**: Handoffs are bounded to the last complete cycle (plan+execute+review) with 8000-char cap
 - [x] **CTX-06**: First plan handoff is pinned (exempt from windowing) to preserve original context on re-routes
-- [ ] **CTX-07**: On re-route from review, execute receives a targeted prompt with extracted ISSUES/IMPROVEMENTS instead of full handoff dump
-- [ ] **CTX-08**: Orchestrator routing prompt includes only sections relevant to the last agent (ROUTING_SECTIONS map)
+- [x] **CTX-07**: On re-route from review, execute receives a targeted prompt with extracted ISSUES/IMPROVEMENTS instead of full handoff dump
+- [x] **CTX-08**: Orchestrator routing prompt includes only sections relevant to the last agent (ROUTING_SECTIONS map)
 
 ### Pipeline Extension
 
-- [ ] **PIPE-01**: Orchestrator JSON schema enum is generated dynamically from AGENT_REGISTRY
-- [ ] **PIPE-02**: Orchestrator system prompt agent list is generated dynamically from registry
-- [ ] **PIPE-03**: Allowed routing transitions are validated per agent (invalid transitions fall back to `next_agent`)
-- [ ] **PIPE-04**: Test agent exists in registry with static code review system prompt (no subprocess execution)
-- [ ] **PIPE-05**: Pipeline flow is plan → execute → [file_write] → test → review
+- [x] **PIPE-01**: Orchestrator JSON schema enum is generated dynamically from AGENT_REGISTRY
+- [x] **PIPE-02**: Orchestrator system prompt agent list is generated dynamically from registry
+- [x] **PIPE-03**: Allowed routing transitions are validated per agent (invalid transitions fall back to `next_agent`)
+- [x] **PIPE-04**: Test agent exists in registry with static code review system prompt (no subprocess execution)
+- [x] **PIPE-05**: Pipeline flow is plan → execute → [file_write] → test → review
 
 ### Autonomy
 
-- [ ] **AUTO-01**: Default execution mode is autonomous (no user confirmations)
-- [ ] **AUTO-02**: In autonomous mode, low confidence (< 0.5) logs a warning but never blocks
-- [ ] **AUTO-03**: In supervised mode, low confidence (< 0.5) triggers user confirmation
-- [ ] **AUTO-04**: Supervised mode remains available as opt-in option
+- [x] **AUTO-01**: Default execution mode is autonomous (no user confirmations)
+- [x] **AUTO-02**: In autonomous mode, low confidence (< 0.5) logs a warning but never blocks
+- [x] **AUTO-03**: In supervised mode, low confidence (< 0.5) triggers user confirmation
+- [x] **AUTO-04**: Supervised mode remains available as opt-in option
 
 ## Future Requirements
 
@@ -306,7 +306,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TASK-23 | Phase 21 | Complete |
 | TASK-24 | Phase 21 | Complete |
 
-### v2.3 (Active)
+### v2.3 (Complete)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
@@ -314,29 +314,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIX-02 | Phase 22 | Complete |
 | CTX-05 | Phase 22 | Complete |
 | CTX-06 | Phase 22 | Complete |
-| FWRT-01 | Phase 23 | Pending |
-| FWRT-02 | Phase 23 | Pending |
-| FWRT-03 | Phase 23 | Pending |
-| FWRT-04 | Phase 23 | Pending |
-| FWRT-05 | Phase 23 | Pending |
-| FWRT-06 | Phase 23 | Pending |
-| CTX-07 | Phase 23 | Pending |
-| CTX-08 | Phase 23 | Pending |
-| PIPE-01 | Phase 24 | Pending |
-| PIPE-02 | Phase 24 | Pending |
-| PIPE-03 | Phase 24 | Pending |
-| PIPE-04 | Phase 24 | Pending |
-| PIPE-05 | Phase 24 | Pending |
-| AUTO-01 | Phase 25 | Pending |
-| AUTO-02 | Phase 25 | Pending |
-| AUTO-03 | Phase 25 | Pending |
-| AUTO-04 | Phase 25 | Pending |
+| FWRT-01 | Phase 23 | Complete |
+| FWRT-02 | Phase 23 | Complete |
+| FWRT-03 | Phase 23 | Complete |
+| FWRT-04 | Phase 23 | Complete |
+| FWRT-05 | Phase 23 | Complete |
+| FWRT-06 | Phase 23 | Complete |
+| CTX-07 | Phase 23 | Complete |
+| CTX-08 | Phase 23 | Complete |
+| PIPE-01 | Phase 24 | Complete |
+| PIPE-02 | Phase 24 | Complete |
+| PIPE-03 | Phase 24 | Complete |
+| PIPE-04 | Phase 24 | Complete |
+| PIPE-05 | Phase 24 | Complete |
+| AUTO-01 | Phase 25 | Complete |
+| AUTO-02 | Phase 25 | Complete |
+| AUTO-03 | Phase 25 | Complete |
+| AUTO-04 | Phase 25 | Complete |
 
 **Coverage:**
 - v2.3 requirements: 21 total
 - Mapped to phases: 21
+- Complete: 21 ✓
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-14*
-*Last updated: 2026-03-14 after v2.3 requirements definition*
+*Last updated: 2026-03-14 after v2.3 completion*

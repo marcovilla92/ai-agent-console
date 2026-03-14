@@ -60,9 +60,9 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 ### v2.3 Orchestration Improvements
 
 - [x] **Phase 22: Bug Fixes & Foundation** - Fix agent/orchestrator system prompts and implement bounded handoff windowing (completed 2026-03-14)
-- [ ] **Phase 23: Core Output** - File writer module, targeted re-route prompts, and smart section filtering
-- [ ] **Phase 24: Pipeline Extension** - Dynamic schema from registry, routing validation, and test agent
-- [ ] **Phase 25: Autonomy Refinement** - Confidence-based gating with autonomous-by-default mode
+- [x] **Phase 23: Core Output** - File writer module, targeted re-route prompts, and smart section filtering (completed 2026-03-14)
+- [x] **Phase 24: Pipeline Extension** - Dynamic schema from registry, routing validation, and test agent (completed 2026-03-14)
+- [x] **Phase 25: Autonomy Refinement** - Confidence-based gating with autonomous-by-default mode (completed 2026-03-14)
 
 ## Phase Details
 
@@ -148,7 +148,7 @@ Phases execute in numeric order: 22 -> 23 -> 24 -> 25
 | 19. Sidebar Layout & Responsive Shell | v2.2 | 1/1 | Complete | 2026-03-14 |
 | 20. Project & Template Views | v2.2 | 1/1 | Complete | 2026-03-14 |
 | 21. Task Flow & Polish | v2.2 | 1/1 | Complete | 2026-03-14 |
-| 22. Bug Fixes & Foundation | 2/2 | Complete    | 2026-03-14 | - |
-| 23. Core Output | v2.3 | 0/TBD | Not started | - |
-| 24. Pipeline Extension | v2.3 | 0/TBD | Not started | - |
-| 25. Autonomy Refinement | v2.3 | 0/TBD | Not started | - |
+| 22. Bug Fixes & Foundation | v2.3 | 2/2 | Complete | 2026-03-14 |
+| 23. Core Output | v2.3 | 2/2 | Complete | 2026-03-14 |
+| 24. Pipeline Extension | v2.3 | 1/1 | Complete | 2026-03-14 |
+| 25. Autonomy Refinement | v2.3 | 1/1 | Complete | 2026-03-14 |
