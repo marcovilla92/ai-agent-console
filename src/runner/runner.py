@@ -152,7 +152,7 @@ async def stream_claude(
         )
 
 
-async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file: str | None = None, system_prompt: str | None = None) -> str:
+async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file: str | None = None, system_prompt: str | None = None, extra_args: list[str] | None = None) -> str:
     """
     Call Claude CLI with --output-format json --json-schema for structured output.
 
@@ -170,6 +170,8 @@ async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file:
         cmd += ["--system-prompt", system_prompt]
     elif system_prompt_file:
         cmd += ["--system-prompt-file", system_prompt_file]
+    if extra_args:
+        cmd += extra_args
     cmd.append(prompt)
 
     log.info("call_orchestrator_claude: launching decision call, prompt_len=%d system_prompt_file=%s", len(prompt), system_prompt_file)
