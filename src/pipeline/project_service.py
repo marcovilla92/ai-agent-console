@@ -166,7 +166,7 @@ class ProjectService:
                     description="",
                     created_at=datetime.now(timezone.utc),
                 )
-                await self._repo.upsert_by_path(project)
+                await self._repo.upsert_by_path_safe(project)
 
         # 3. Fetch all from DB
         all_projects = await self._repo.list_all()

@@ -139,6 +139,39 @@ class ProjectRepository:
             project.description, project.created_at,
         )
 
+    async def upsert_by_path_safe(self, project: Project) -> Optional[int]:
+        """Insert a project if path doesn't exist, handling name conflicts.
+
+        If a name conflict occurs, appends a numeric suffix to make it unique.
+        Returns the new id if inserted, None if path already exists.
+        """
+        # First check if path already exists
+        existing = await self._pool.fetchval(
+            "SELECT id FROM projects WHERE path = $1", project.path
+        )
+        if existing is not None:
+            return None
+
+        # Try insert, handle name conflicts
+        base_name = project.name
+        base_slug = project.slug
+        for i in range(10):
+            name = base_name if i == 0 else f"{base_name}-{i}"
+            slug = base_slug if i == 0 else f"{base_slug}-{i}"
+            try:
+                return await self._pool.fetchval(
+                    "INSERT INTO projects (name, slug, path, description, created_at) "
+                    "VALUES ($1, $2, $3, $4, $5) "
+                    "ON CONFLICT (path) DO NOTHING RETURNING id",
+                    name, slug, project.path,
+                    project.description, project.created_at,
+                )
+            except Exception as e:
+                if "projects_name_key" in str(e) or "projects_slug_key" in str(e):
+                    continue
+                raise
+        return None
+
     async def delete(self, project_id: int) -> None:
         await self._pool.execute(
             "UPDATE tasks SET project_id = NULL WHERE project_id = $1", project_id
