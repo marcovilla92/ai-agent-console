@@ -1,325 +1,391 @@
 # Technology Stack
 
-**Project:** AI Agent Console v2.3 - Orchestration Improvements
+**Project:** AI Agent Console v2.4 — Template System Overhaul
 **Researched:** 2026-03-14
 **Confidence:** HIGH
 
 ---
 
-## Context: What Already Exists (Do Not Re-research)
+## Context: Existing Stack (Do Not Change)
 
-The v2.0-v2.2 stack is validated and deployed:
-- Python 3.12, FastAPI >= 0.115, asyncpg >= 0.30, uvicorn >= 0.34
-- Claude CLI via `asyncio.create_subprocess_exec` (stream-json and json output modes)
-- PostgreSQL 16 with asyncpg connection pool
-- Alpine.js 3.x + Tailwind CSS frontend (SPA)
-- Pydantic models, pytest, Docker on Coolify
+The v2.0-v2.3 stack is validated and deployed. These stay as-is:
 
-This document covers ONLY what v2.3 orchestration improvements need.
+| Technology | Installed Version | Purpose |
+|------------|------------------|---------|
+| Python | 3.12.3 | Runtime |
+| FastAPI | 0.135.1 | HTTP + WebSocket server |
+| asyncpg | 0.30+ | PostgreSQL driver |
+| Pydantic | 2.12.5 | Data validation, API models |
+| Jinja2 | 3.1.2 | Template file rendering (.j2) |
+| PyYAML | 6.0.1 | registry.yaml parsing |
+| Alpine.js | 3.x (CDN) | Frontend reactivity |
+| Tailwind CSS | 3.x (CDN) | Styling |
+
+This document covers ONLY what the v2.4 features need beyond the existing stack.
 
 ---
 
-## Key Finding: Zero New Dependencies
+## Key Finding: One New Dependency
 
-All eight v2.3 features are **internal architecture refactors** using Python stdlib and existing libraries. This is not an accident -- the improvements target orchestration logic (prompt construction, context windowing, registry patterns), not new integrations.
+All five v2.4 features (dynamic agent loading, command discovery, project settings, AI template generation, template editor) require **one** new pip dependency. Everything else uses existing libraries or Python stdlib.
 
-**Net new pip dependencies: 0**
+**Net new pip dependency: `python-frontmatter==1.1.0`**
 **Net new frontend dependencies: 0**
+
+---
+
+## New Dependency
+
+### python-frontmatter 1.1.0 — Agent/Command Markdown Parsing
+
+| | |
+|---|---|
+| **Package** | `python-frontmatter` |
+| **Version** | 1.1.0 (latest stable, released 2024) |
+| **Purpose** | Parse YAML frontmatter + markdown body from `.claude/agents/*.md` and `.claude/commands/*.md` files |
+| **Confidence** | HIGH — verified on PyPI via `pip index versions`, 1.1.0 is latest |
+
+**Why this library:**
+
+The agent markdown files in existing templates (e.g., `templates/fastapi-pg/.claude/agents/db-migrator.md`) currently contain only a plain-text system prompt. For v2.4, these files need structured metadata (name, description, allowed_transitions, output_sections) alongside the free-text prompt body. YAML frontmatter is the standard format for this: metadata between `---` delimiters, content after.
+
+`python-frontmatter` does exactly one thing: `post = frontmatter.load(path)` returns `post.metadata` (dict from YAML) and `post.content` (str of markdown body). Zero configuration. The only transitive dependency is PyYAML, which is already installed (6.0.1).
+
+**Why not roll our own:**
+
+Splitting on `---` looks trivial but has edge cases: YAML documents can contain `---`, the delimiter must be at column 0, encoding detection, BOM handling. python-frontmatter handles all of these. The alternative is 30+ lines of fragile regex that will break on the first template with a YAML multiline string.
+
+**Proposed agent markdown format:**
+
+```markdown
+---
+name: db-migrator
+description: Database migration specialist for PostgreSQL with asyncpg
+allowed_transitions:
+  - execute
+  - review
+output_sections:
+  - MIGRATION_PLAN
+  - SQL
+  - ROLLBACK
+  - HANDOFF
+---
+
+You are a database migration specialist for PostgreSQL with asyncpg.
+
+Create idempotent SQL migrations using CREATE TABLE IF NOT EXISTS...
+```
+
+This maps directly to `AgentConfig` fields:
+- `post.metadata["name"]` -> `AgentConfig.name`
+- `post.metadata["description"]` -> `AgentConfig.description`
+- `post.metadata["allowed_transitions"]` -> `AgentConfig.allowed_transitions`
+- `post.metadata["output_sections"]` -> `AgentConfig.output_sections`
+- `post.content` -> written to a temp file, path used as `system_prompt_file`
+
+**Backward compatibility:** Existing agent `.md` files without frontmatter will be loaded as body-only (frontmatter defaults to empty dict). The loader will generate a name from the filename and use sensible defaults for transitions. No migration needed for existing templates.
 
 ---
 
 ## Feature-by-Feature Stack Analysis
 
-### 1. File Writer -- `pathlib` + `re` (stdlib)
+### R1: Dynamic Agent Loading — `python-frontmatter` + `pathlib` + `dataclasses`
 
-**Needs:** Parse markdown code fences from EXECUTE agent output, write files to disk.
+**What it needs:**
+1. Scan `.claude/agents/*.md` in project directory
+2. Parse each file for metadata + system prompt
+3. Convert to `AgentConfig` compatible with `AGENT_REGISTRY`
+4. Merge with default agents (plan/execute/test/review)
 
-**Why no library:** The output format is controlled by system prompts (``` ```language # path/to/file ```). A purpose-built regex is more reliable than a generic markdown parser because we define the format. This is ~80 LOC.
+**Stack usage:**
+- `pathlib.Path.glob("*.md")` — file discovery (stdlib)
+- `python-frontmatter.load()` — metadata + content parsing (new dep)
+- `dataclasses.AgentConfig` — existing config dataclass, no changes needed
+- `tempfile` or direct write — system prompt content needs to be a file path for `--system-prompt-file` CLI flag
 
-**Pattern:**
+**Integration with existing code:**
+
+The key change is in `src/agents/config.py`. Currently `AGENT_REGISTRY` is a module-level dict. It stays as the **default** registry. A new function `build_project_registry(project_path: str) -> dict[str, AgentConfig]` merges defaults with project agents. The orchestrator receives the merged registry as a parameter instead of importing the global.
+
 ```python
-import re
-from dataclasses import dataclass
+# src/agents/loader.py (NEW)
+import frontmatter
 from pathlib import Path
+from src.agents.config import AgentConfig
 
-@dataclass
-class FileBlock:
-    path: str
-    content: str
-    language: str
-
-# Match: ```python # src/main.py  or  ```typescript // src/app.ts
-FILE_BLOCK_RE = re.compile(
-    r'```(\w+)\s*[#/]+\s*(\S+)\s*\n(.*?)```',
-    re.DOTALL,
-)
-
-def extract_file_blocks(raw_output: str) -> list[FileBlock]:
-    return [
-        FileBlock(path=m.group(2), content=m.group(3).strip(), language=m.group(1))
-        for m in FILE_BLOCK_RE.finditer(raw_output)
-    ]
-
-async def write_files(blocks: list[FileBlock], project_path: str) -> list[str]:
-    written = []
-    for block in blocks:
-        target = Path(project_path) / block.path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(block.content)
-        written.append(str(target))
-    return written
+def load_project_agents(project_path: str) -> dict[str, AgentConfig]:
+    agents_dir = Path(project_path) / ".claude" / "agents"
+    if not agents_dir.is_dir():
+        return {}
+    result = {}
+    for md_file in sorted(agents_dir.glob("*.md")):
+        post = frontmatter.load(str(md_file))
+        name = post.metadata.get("name", md_file.stem)
+        # Write system prompt content to a file the CLI can reference
+        prompt_file = agents_dir / f".{name}_prompt.txt"
+        prompt_file.write_text(post.content)
+        result[name] = AgentConfig(
+            name=name,
+            system_prompt_file=str(prompt_file),
+            description=post.metadata.get("description", ""),
+            output_sections=post.metadata.get("output_sections", []),
+            allowed_transitions=tuple(post.metadata.get("allowed_transitions", ())),
+        )
+    return result
 ```
 
-**Integration point:** Called from `orchestrate_pipeline()` after EXECUTE completes, before handoff to REVIEW. The file writer sits between step 2 (run agent) and step 3 (record history) in the orchestration loop.
-
-**What NOT to use:**
-| Avoid | Why |
-|-------|-----|
-| tree-sitter | Overkill for extracting markdown fenced code blocks from a format we control |
-| markdown-it / mistune | Generic markdown parsers don't understand our `# filepath` comment convention |
-| aiofiles | `Path.write_text()` is fine -- files are small (code output), and the IO is negligible compared to the Claude CLI call that precedes it |
+**No new libraries needed beyond python-frontmatter.**
 
 ---
 
-### 2. Targeted Re-route Prompts -- string ops (stdlib)
+### R2: Command/Skill Discovery — `python-frontmatter` + `pathlib`
 
-**Needs:** Extract ISSUES/IMPROVEMENTS from review sections dict, build focused prompt.
+**What it needs:**
+1. Scan `.claude/commands/*.md` in project directory
+2. Parse each file for command name, description, instructions
+3. Inject available commands into context assembly
 
-**Why no library:** The sections are already parsed by `extract_sections()` into `dict[str, str]`. Building a targeted prompt is string concatenation.
+**Stack usage:**
+- Same `python-frontmatter` for parsing (reuses R1 dependency)
+- Same `pathlib.Path.glob("*.md")` for discovery
 
-**Pattern:** New function in `src/pipeline/handoff.py`:
-```python
-def build_reroute_prompt(review_sections: dict[str, str], target_agent: str) -> str:
-    issues = review_sections.get("ISSUES", "")
-    improvements = review_sections.get("IMPROVEMENTS", "")
-    return f"Fix these specific issues found during review:\n\n{issues}\n\n{improvements}\n\nOnly modify files that need changes."
+**Command markdown format:**
+
+```markdown
+---
+name: migrate
+description: Run database migration
+---
+
+Analyze the current database schema, generate a new idempotent migration file...
 ```
 
-**No library needed.** Pure string manipulation on existing data structures.
+**Integration:** Commands are injected into the system prompt context via `assemble_full_context()` in `src/context/assembler.py`. The existing function returns a dict with workspace, claude_md, planning_docs, git_log, recent_tasks. Add a sixth key: `commands` (list of dicts with name, description, instructions).
+
+**No new libraries needed.**
 
 ---
 
-### 3. Bounded Handoffs -- list slicing + `len()` (stdlib)
+### R3: Project Settings Application — `json` (stdlib)
 
-**Needs:** Window accumulated handoffs to last cycle, cap at 8000 chars.
+**What it needs:**
+1. Read `.claude/settings.local.json` from project directory
+2. Parse JSON for permissions and configuration
+3. Apply to execution context
 
-**Why no library:** The handoffs are `list[str]` on `OrchestratorState`. Windowing is list slicing. Size capping is string truncation.
+**Stack usage:**
+- `json.loads()` — stdlib, already used everywhere
+- `Pydantic BaseModel` — validate settings schema (already installed 2.12.5)
 
-**Pattern:** Replace unbounded join in `orchestrate_pipeline()`:
-```python
-# Current (unbounded):
-handoff_context = "\n\n".join(state.accumulated_handoffs)
+**Integration:** Settings are read once on project open/task start and passed to the context. The existing settings format is simple: `{"permissions": {"allow": ["Bash", "WebSearch"]}}`. This gets injected into Claude CLI flags or context assembly.
 
-# New (windowed):
-HANDOFF_WINDOW = 3  # last cycle = plan + execute + review
-HANDOFF_MAX_CHARS = 8000
-
-recent = state.accumulated_handoffs[-HANDOFF_WINDOW:]
-handoff_context = "\n\n".join(recent)
-if len(handoff_context) > HANDOFF_MAX_CHARS:
-    handoff_context = handoff_context[-HANDOFF_MAX_CHARS:]
-```
-
-**What NOT to use:**
-| Avoid | Why |
-|-------|-----|
-| tiktoken | Character counting is a good-enough proxy for the 8000-char heuristic. Token counting adds a dependency for marginal accuracy on a threshold that is itself a heuristic. |
-| Redis / memcached | Context windowing is in-process list manipulation. No inter-process state needed. |
+**No new libraries needed.**
 
 ---
 
-### 4. Orchestrator System Prompt Fix -- one-line change
+### R4: AI Template Generation — Claude CLI subprocess (existing)
 
-**Needs:** Pass `--system-prompt-file` to `call_orchestrator_claude()`.
+**What it needs:**
+1. Accept natural language description via API endpoint
+2. Call Claude CLI to generate template structure
+3. Return structured JSON (file tree + contents)
+4. Frontend renders preview
 
-**Pattern:** In `src/runner/runner.py`:
+**Stack usage:**
+- Existing `src/runner/runner.py` subprocess pattern — Claude CLI with `--json-schema` for structured output
+- Existing `FastAPI` route pattern — new `POST /templates/generate` endpoint
+- `json` (stdlib) — parse structured output
+
+**This is the most important "no new library" decision.** The system already calls Claude CLI via subprocess with JSON schema enforcement for the orchestrator. Template generation is the same pattern with a different schema:
+
 ```python
-async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file: str | None = None) -> str:
-    cmd = [claude, "-p", "--output-format", "json", "--json-schema", schema, "--dangerously-skip-permissions"]
-    if system_prompt_file:
-        cmd += ["--system-prompt-file", system_prompt_file]
-    cmd.append(prompt)
-```
-
-**No library needed.** Literally adding two list elements to an existing subprocess command.
-
----
-
-### 5. Smart Section Filtering -- dict comprehension (stdlib)
-
-**Needs:** Config mapping agent name to relevant routing sections.
-
-**Pattern:** Add to `src/agents/config.py`:
-```python
-ROUTING_SECTIONS: dict[str, list[str]] = {
-    "plan": ["HANDOFF", "GOAL"],
-    "execute": ["HANDOFF", "TARGET"],
-    "review": ["DECISION", "ISSUES", "SUMMARY"],
-    "test": ["TEST RESULTS", "FAILURES", "HANDOFF"],
-}
-```
-
-Use in `build_orchestrator_prompt()`:
-```python
-allowed = ROUTING_SECTIONS.get(state.current_agent, list(latest_sections.keys()))
-filtered = {k: v for k, v in latest_sections.items() if k in allowed}
-```
-
-**No library needed.** Dict filtering with a static config.
-
----
-
-### 6. Test Agent -- new prompt file + registry entry
-
-**Needs:** System prompt file, registry config entry, schema enum update.
-
-**Why no library:** The test agent is another Claude CLI call with a different system prompt. It follows the exact same execution pattern as plan/execute/review. The spec explicitly says "static code review, no subprocess" -- so no pytest runner, no test framework integration.
-
-**Pattern:** Add to `AGENT_REGISTRY`:
-```python
-"test": AgentConfig(
-    name="test",
-    system_prompt_file=str(PROMPTS_DIR / "test_system.txt"),
-    output_sections=["TEST RESULTS", "COVERAGE", "FAILURES", "HANDOFF"],
-    next_agent="review",
-),
-```
-Update execute's `next_agent` from `"review"` to `"test"`.
-
-**No library needed.** Config-driven agent registration using existing `AgentConfig` dataclass.
-
----
-
-### 7. Confidence-Based Autonomy -- float comparison (stdlib)
-
-**Needs:** Threshold checks on existing `decision.confidence` field (already a float 0.0-1.0).
-
-**Pattern:** In `orchestrate_pipeline()`, decision handling:
-```python
-# Low confidence: force confirmation even in autonomous mode
-if decision.confidence < 0.5:
-    confirmed = await ctx.confirm_reroute(decision.next_agent, decision.reasoning)
-    if not confirmed:
-        state.halted = True
-        break
-# Medium confidence: log warning, proceed
-elif decision.confidence < 0.7:
-    log.warning("Medium confidence (%.2f) on routing to %s", decision.confidence, decision.next_agent)
-# High confidence: proceed silently
-```
-
-**No library needed.** Float comparison on an existing field.
-
----
-
-### 8. Dynamic Schema/Prompt from Registry -- `json` module (stdlib)
-
-**Needs:** Generate orchestrator JSON schema enum from `AGENT_REGISTRY` keys.
-
-**Pattern:** Replace hardcoded `ORCHESTRATOR_SCHEMA`:
-```python
-def build_orchestrator_schema() -> str:
-    agent_names = list(AGENT_REGISTRY.keys()) + ["approved"]
-    return json.dumps({
-        "type": "object",
-        "properties": {
-            "next_agent": {
-                "type": "string",
-                "enum": agent_names,
-            },
-            "reasoning": {
-                "type": "string",
-                "description": "One-line explanation of the routing decision",
-            },
-            "confidence": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
+TEMPLATE_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
             },
         },
-        "required": ["next_agent", "reasoning", "confidence"],
-    })
+    },
+    "required": ["files"],
+})
 ```
 
-For the system prompt template, use f-strings (not Jinja2 -- system prompts are plain text files with at most one dynamic substitution):
-```python
-def build_orchestrator_system_prompt() -> str:
-    agent_descriptions = "\n".join(
-        f"- {name}: {', '.join(cfg.output_sections)}"
-        for name, cfg in AGENT_REGISTRY.items()
-    )
-    template = Path(PROMPTS_DIR / "orchestrator_system.txt").read_text()
-    return template.replace("{{AGENTS}}", agent_descriptions)
-```
+The Claude CLI call uses the same `call_orchestrator_claude()` function (renamed or generalized to `call_claude_structured()`) with a template-generation system prompt.
 
-**No library needed.** `json.dumps()` and string replacement.
+**No new libraries needed.**
 
 ---
 
-## What NOT to Add
+### R5: Template Editor UI — Alpine.js + textarea (existing)
 
-| Library | Why People Suggest It | Why Wrong Here |
+**What it needs:**
+1. File tree display with nested structure
+2. Inline file editing (click file, edit content)
+3. Preview before saving
+
+**Stack usage:**
+- Alpine.js `x-for` with nested data — existing pattern used in project list and task list
+- `<textarea>` with `x-model` — two-way binding for editing
+- Tailwind CSS for layout — existing
+
+**No frontend build system needed.** The template editor is a JSON file tree rendered as Alpine.js components. Each file node has `path`, `content`, and `language`. Clicking a file opens its content in a textarea. The user edits, clicks save, and `POST /templates` sends the modified structure to the backend.
+
+**No new libraries needed.**
+
+---
+
+## What NOT to Add (and Why)
+
+| Library | Why It Seems Relevant | Why Wrong Here |
 |---------|----------------------|----------------|
-| LangChain / LangGraph | "Agent orchestration framework" | We use Claude CLI via subprocess, not API calls. LangChain's abstractions don't map to subprocess-based execution. We already have a working orchestrator. Adding LangChain would require rewriting the entire execution model. |
-| CrewAI / AutoGen | "Multi-agent frameworks" | Same mismatch -- designed for API-based agents. Our agents are Claude CLI processes with system prompt files and structured JSON output. |
-| tree-sitter | "Parse code from output" | Overkill. A 10-line regex handles our controlled markdown fenced code block format. |
-| Jinja2 (for system prompts) | "Template dynamic prompts" | System prompts have at most one dynamic section (agent list). `str.replace()` is clearer and has zero import overhead. Jinja2 is already in deps but for a different purpose. |
-| Redis | "Bounded context store" | Context windowing is a Python list slice. Single-user, single-process. No inter-process state needed. |
-| tiktoken | "Token counting for context bounds" | Char counting is adequate for a heuristic threshold. Adding a C-extension dependency for marginal precision on a tunable constant is not justified. |
-| Pydantic (for FileBlock) | "Validate file blocks" | A stdlib `@dataclass` with 3 string fields is sufficient. No validation logic needed -- the regex already constrains the shape. |
-| aiofiles | "Async file writes" | File writes are tiny (code output files). `Path.write_text()` completes in microseconds. The preceding Claude CLI call takes 10-60 seconds. Async file I/O adds complexity for zero measurable benefit. |
-| GitPython | "Git operations" | `asyncio.create_subprocess_exec` already handles git in `autocommit.py`. GitPython is 30MB+ for wrapping the same `git` binary. |
+| **watchfiles / watchdog** | "Watch for agent file changes" | Agent loading triggers on project open/task start, not on file change. `Path.glob()` at load time is sufficient. No long-running watcher needed. |
+| **pluggy / stevedore / yapsy** | "Plugin framework for agent loading" | The "plugin" is reading markdown files from a directory and building dataclasses. This is 50 lines of Python, not a plugin framework problem. |
+| **LangChain / LiteLLM** | "LLM abstraction for template generation" | The system uses Claude CLI via subprocess. LangChain's API-based abstractions do not map to subprocess execution. Adding it would require rewriting the entire runner. |
+| **jsonschema** | "Validate generated template structure" | Pydantic 2.12.5 already handles validation. Define a `TemplateOutput` model and validate with `model_validate()`. |
+| **markdown / mistune** | "Render markdown in editor" | Agent prompts are injected as raw text into Claude CLI. Template editor shows file content in textareas. No HTML rendering needed. |
+| **CodeMirror / Monaco Editor** | "Rich code editing in browser" | Adds 500KB+ JS and build complexity. A `<textarea>` with monospace font and basic Tailwind styling is sufficient for a single-user tool. Can revisit if users request syntax highlighting later. |
+| **Redis / caching** | "Cache loaded agent configs" | Agent registry is per-project, loaded once on project open. The data source is a handful of small markdown files on local disk. Caching adds complexity for zero benefit. |
+| **GitPython** | "Git operations for template repos" | `asyncio.create_subprocess_exec("git", ...)` already handles git throughout the codebase. GitPython is 30MB+ for wrapping the same binary. |
+| **Celery / task queue** | "Queue template generation" | Template generation is a single Claude CLI call. The existing asyncio semaphore (max 2 processes) is sufficient. No queue needed. |
 
 ---
 
-## Changes to Existing Dependencies
-
-**None.** All current dependencies stay at their current versions. No version bumps needed.
+## Changes to requirements.txt
 
 ```txt
-# requirements.txt -- NO CHANGES
+# Add one line:
+python-frontmatter>=1.1
+```
+
+Full requirements.txt after change:
+```txt
+# Core dependencies
 aiosqlite>=0.20
 tenacity>=8.0
 textual>=0.50
+
+# v2.0 Web Platform
 asyncpg>=0.30
 fastapi>=0.115
 uvicorn[standard]>=0.34
 pydantic-settings>=2.0
 httpx>=0.28
 jinja2>=3.1
+
+# v2.4 Template System
+python-frontmatter>=1.1
+
+# Dev/Test
 pytest>=8.0
 pytest-asyncio>=0.24
 ```
 
+Installation:
+```bash
+pip install python-frontmatter==1.1.0
+```
+
 ---
 
-## New Files (no new packages)
+## Architecture Impact
 
-| File | Purpose | Estimated Size |
+### New Files (Stack-Related)
+
+| File | Purpose | Key Dependency |
 |------|---------|---------------|
-| `src/pipeline/file_writer.py` | Extract code blocks from EXECUTE output, write to disk | ~80 LOC |
-| `src/agents/prompts/test_system.txt` | Test agent system prompt (static code review) | ~30 lines |
+| `src/agents/loader.py` | Discover + parse `.claude/agents/*.md` | python-frontmatter |
+| `src/commands/loader.py` | Discover + parse `.claude/commands/*.md` | python-frontmatter |
+| `src/settings/loader.py` | Read + validate `.claude/settings.local.json` | json (stdlib) + Pydantic |
 
-## Modified Files
+### Modified Files
 
-| File | Change | Scope |
-|------|--------|-------|
-| `src/pipeline/orchestrator.py` | Bounded handoffs, section filtering, dynamic schema, confidence gating, targeted re-route, file writer call | Major refactor (~100 lines changed) |
-| `src/pipeline/handoff.py` | Add `build_reroute_prompt()` | Small addition (~15 LOC) |
-| `src/agents/config.py` | Add test agent entry, add `ROUTING_SECTIONS` dict | Small addition (~15 LOC) |
-| `src/runner/runner.py` | Add `system_prompt_file` param to `call_orchestrator_claude()` | One-line fix |
-| `src/engine/context.py` | Call file writer after execute, handle low-confidence confirmation in autonomous mode | Moderate (~30 LOC) |
-| `src/agents/prompts/orchestrator_system.txt` | Add `{{AGENTS}}` placeholder, test agent rules | Rewrite |
+| File | Change | Stack Impact |
+|------|--------|-------------|
+| `src/agents/config.py` | `AGENT_REGISTRY` stays as default; add `build_project_registry()` that merges defaults with project agents | None — pure refactor |
+| `src/context/assembler.py` | Extend `assemble_full_context()` with agents, commands, settings keys | None — existing patterns |
+| `src/pipeline/orchestrator.py` | Accept registry as parameter instead of importing global | None — dependency injection refactor |
+| `src/server/routers/templates.py` | Add `POST /templates/generate` endpoint | None — existing FastAPI pattern |
+| `src/server/routers/projects.py` | Trigger agent/command/settings loading on project open | None — adds loader calls |
+| `static/index.html` | Template editor UI, generation form | None — Alpine.js patterns |
+
+### Key Refactoring: Registry Injection
+
+The orchestrator currently does this (line 22 of orchestrator.py):
+```python
+from src.agents.config import ROUTING_SECTIONS, build_agent_descriptions, build_agent_enum, validate_transition
+```
+
+These functions read from the module-level `AGENT_REGISTRY`. With dynamic loading, the orchestrator needs to work with a project-specific registry. Two approaches:
+
+**Option A: Parameter injection (recommended)**
+```python
+async def orchestrate_pipeline(ctx, prompt, pool, session_id, registry=None):
+    if registry is None:
+        registry = AGENT_REGISTRY
+    # Use registry throughout instead of global AGENT_REGISTRY
+```
+
+**Option B: Context-scoped registry**
+```python
+# Set project-specific registry on TaskContext
+ctx.agent_registry = build_project_registry(project_path)
+```
+
+**Recommendation: Option A.** Parameter injection is explicit, testable, and does not expand the TaskContext Protocol. The registry is built once when a task starts and passed down. No global mutation, no thread-safety concerns.
+
+---
+
+## Backward Compatibility
+
+### Existing templates without frontmatter
+
+The current agent `.md` files (e.g., `templates/fastapi-pg/.claude/agents/db-migrator.md`) contain only a plain text system prompt with no frontmatter. The loader must handle this gracefully:
+
+```python
+post = frontmatter.load(str(md_file))
+if not post.metadata:
+    # No frontmatter — legacy format
+    # Name from filename, body is the entire prompt
+    name = md_file.stem
+    config = AgentConfig(
+        name=name,
+        system_prompt_file=...,
+        description=f"Project agent: {name}",
+        output_sections=[],
+        allowed_transitions=(),
+    )
+```
+
+`python-frontmatter` handles files without frontmatter correctly: `post.metadata` returns an empty dict and `post.content` returns the full file content. No special handling needed in the parser itself.
+
+### Existing registry.yaml
+
+The `templates/registry.yaml` currently lists template id, name, description, builtin flag. For v2.4, it could gain agent/command metadata, but this is optional: the system discovers agents/commands from the filesystem at load time. The registry.yaml remains a lightweight index for the template list endpoint.
 
 ---
 
 ## Sources
 
-- **Codebase inspection** (HIGH confidence): `src/pipeline/orchestrator.py`, `src/agents/config.py`, `src/pipeline/handoff.py`, `src/engine/context.py`, `src/runner/runner.py`, `src/parser/extractor.py`, `src/agents/base.py`, `src/git/autocommit.py`
-- **Feature spec** (HIGH confidence): `docs/orchestration-improvements.md` -- all 8 improvements analyzed with affected files
-- **Project context** (HIGH confidence): `.planning/PROJECT.md` -- constraints, key decisions, out-of-scope items
-- **Python stdlib docs** (HIGH confidence): `pathlib`, `re`, `json`, `asyncio.subprocess` -- all stdlib, no version concerns on Python 3.12
+- **python-frontmatter PyPI:** Verified version 1.1.0 via `pip index versions python-frontmatter`. Latest stable release. HIGH confidence.
+- **Existing codebase inspection (HIGH confidence):**
+  - `src/agents/config.py` — AgentConfig dataclass, AGENT_REGISTRY dict, build_agent_enum/descriptions
+  - `src/pipeline/orchestrator.py` — Global registry imports on line 22, schema generation, routing
+  - `src/context/assembler.py` — assemble_full_context() returns 5-key dict, extend to 8 keys
+  - `src/pipeline/project_service.py` — scaffold_from_template() copies files, git_init_project()
+  - `src/runner/runner.py` — call_orchestrator_claude() subprocess pattern reusable for template gen
+  - `templates/fastapi-pg/.claude/agents/db-migrator.md` — current agent file format (no frontmatter)
+  - `templates/fastapi-pg/.claude/settings.local.json` — current settings format
+- **Installed versions verified via `pip show`:** FastAPI 0.135.1, Pydantic 2.12.5, PyYAML 6.0.1, Jinja2 3.1.2
+- **Python 3.12.3 confirmed via `python3 --version`**
 
 ---
-*Stack research for: AI Agent Console v2.3 Orchestration Improvements*
+*Stack research for: AI Agent Console v2.4 Template System Overhaul*
 *Researched: 2026-03-14*

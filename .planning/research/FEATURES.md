@@ -1,196 +1,176 @@
-# Feature Landscape
+# Feature Landscape: Template System Overhaul (v2.4)
 
-**Domain:** Multi-agent AI pipeline orchestration improvements (v2.3)
+**Domain:** AI agent orchestration platform - template/plugin/dynamic loading subsystem
 **Researched:** 2026-03-14
-**Confidence:** HIGH (existing codebase inspected; orchestration-improvements.md provides detailed spec; industry patterns verified via multiple sources)
+**Confidence:** HIGH (codebase analyzed, Claude Code conventions verified, scaffolding patterns researched)
 
 ## Context
 
-This research covers ONLY the 8 new features for v2.3 Orchestration Improvements. The existing pipeline (3-agent Plan/Execute/Review, AI-driven orchestrator with JSON schema decisions, iterative review cycles with 3-iteration limit, structured handoffs, WebSocket streaming, supervised/autonomous modes, git auto-commit) is already shipped and validated.
+This research covers v2.4 Template System Overhaul features. The current state: templates create files on disk (Jinja2 scaffolding with `.claude/agents/*.md`, `.claude/commands/*.md`, `.claude/settings.local.json`) but these files are never loaded, parsed, or activated at runtime. The 4 builtin templates (blank, fastapi-pg, telegram-bot, cli-tool) ship agent and command definitions that are completely ignored by the pipeline.
 
 Key integration points in existing code:
-- `src/pipeline/orchestrator.py` -- main orchestration loop, `OrchestratorState` with `accumulated_handoffs` list, `build_orchestrator_prompt()` with 500-char truncation, hardcoded `ORCHESTRATOR_SCHEMA` enum
-- `src/pipeline/handoff.py` -- `build_handoff()` concatenates all sections from `AgentResult`
-- `src/agents/config.py` -- `AGENT_REGISTRY` dict with `AgentConfig` dataclass, `resolve_pipeline_order()`
-- `src/runner/runner.py` -- `call_orchestrator_claude()` missing `--system-prompt-file` flag
-- `src/engine/context.py` -- `WebTaskContext` with `stream_output()`, `confirm_reroute()`, approval gates
-- `src/agents/prompts/` -- system prompt text files per agent + `orchestrator_system.txt` (exists but unused)
-- `src/git/autocommit.py` -- `auto_commit()` assumes files already exist on disk
+- `src/agents/config.py` -- `AGENT_REGISTRY` is a module-level hardcoded dict with 4 agents (plan, execute, test, review). `AgentConfig` dataclass: name, system_prompt_file, description, output_sections, next_agent, allowed_transitions.
+- `src/pipeline/orchestrator.py` -- uses `build_agent_enum()` and `build_agent_descriptions()` from config.py. `ORCHESTRATOR_SCHEMA` built once at module load with hardcoded enum.
+- `src/context/assembler.py` -- assembles workspace context (files, stack detection, CLAUDE.md, planning docs, git log, recent tasks) but has zero awareness of `.claude/agents/` or `.claude/commands/`.
+- `templates/registry.yaml` -- lists 4 templates with id/name/description/builtin flag. No metadata about agents or commands.
+- Template `.claude/agents/*.md` files -- plain text system prompts (no YAML frontmatter). Example: `db-migrator.md` is 3 lines of instructions.
+- Template `.claude/commands/*.md` files -- plain text command instructions. Example: `migrate.md` is 1 line.
+- Template `.claude/settings.local.json` -- JSON with permissions. Example: `{"permissions": {"allow": ["Bash", "WebSearch"]}}`.
 
 ---
 
 ## Table Stakes
 
-Features the pipeline needs to produce real, usable output. Without these, the system generates text but does not actually build anything.
+Features users expect. Missing = the template system remains "broken" (files exist but do nothing).
 
-| Feature | Why Expected | Complexity | Dependencies on Existing | Notes |
-|---------|--------------|------------|--------------------------|-------|
-| File writer module | The EXECUTE agent generates full code in its CODE section but nothing writes it to disk. Without this, the pipeline is a text generator, not a code builder. The `auto_commit` already assumes files exist. This is the single most critical gap. | MEDIUM | Extends `orchestrator.py` (call writer after execute completes). Uses `AgentResult.sections["CODE"]` from `stream_output()`. Needs project path from `ctx.project_path`. | Parse markdown code blocks with file path annotations (`\`\`\`python # src/main.py`). Create directories with `os.makedirs(exist_ok=True)`. Write files. First iteration: write all files. Re-route iterations: write only files mentioned in ISSUES (patch mode). New file: `src/pipeline/file_writer.py`. |
-| Orchestrator system prompt fix | `call_orchestrator_claude()` in `runner.py` does not pass `--system-prompt-file`. The file `orchestrator_system.txt` exists but is never used. The orchestrator makes routing decisions without its role definition, meaning it operates on raw inference without instructions about what "approved" means or when to re-route. | LOW | Modifies `src/runner/runner.py` (add `--system-prompt-file` flag). Modifies `orchestrator.py` (pass prompt file path to the call). | This is a bug fix, not a feature. One-line change in the subprocess command construction. Should be done first because it immediately improves all subsequent orchestrator decisions. |
-| Bounded handoff windowing | `orchestrator.py:224-226` concatenates ALL handoffs from every agent across every iteration into `accumulated_handoffs`. After 3 cycles (9 agent runs), the prompt can exceed Claude's effective context or degrade response quality. Industry consensus: structured context objects with 200-500 tokens beat full forwarding at 5,000-20,000 tokens. | LOW | Modifies `orchestrator.py` only (handoff windowing logic in the main loop where `agent_prompt` is built). | Keep only the last complete cycle (plan+execute+review handoffs). Cap total handoff text at 8000 chars. Older handoffs discarded, not summarized (summarization adds an LLM call which costs time and a CLI process slot on a 2-concurrent-max VPS). Simple sliding window is the right approach here. |
-| Targeted re-route prompts | When review says "BACK TO EXECUTE", the execute agent receives the original prompt + all accumulated handoffs and must infer what went wrong. No focused message about what to fix. This causes the agent to re-read everything and often miss the specific issues. | LOW | Modifies `orchestrator.py` (build targeted prompt on re-route decision). Modifies `handoff.py` (add `build_reroute_prompt()` that extracts ISSUES and IMPROVEMENTS sections from review output). | Extract ISSUES and IMPROVEMENTS sections from the review agent's output. Build a focused prompt: "Fix these specific issues: 1. [issue] 2. [issue]. Only modify files that need changes." This replaces the full handoff dump on re-route paths only. |
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Agent discovery from `.claude/agents/*.md` | Templates already ship agent files (db-migrator, api-tester, handler-builder, command-builder). Users select "FastAPI + PostgreSQL" template and expect those agents to participate in their pipeline. Currently they are dead files. | Medium | Scan directory, parse MD content, extract name from filename, use file body as system prompt. Convert to `AgentConfig`. New module: `src/agents/loader.py`, ~100 LOC. |
+| Agent registration in orchestrator routing | Discovered agents must appear in the orchestrator's JSON schema enum and descriptions, or the AI cannot route to them. `build_agent_enum()` and `build_agent_descriptions()` currently read only the hardcoded `AGENT_REGISTRY`. | Medium | Must accept project-scoped registry. `ORCHESTRATOR_SCHEMA` is built once at module load -- needs to become dynamic per-project. ~50 LOC refactor. |
+| Per-project registry scoping | Two projects from different templates must not share agent registries. Project A's `db-migrator` must not bleed into Project B's CLI tool pipeline. The current module-level `AGENT_REGISTRY` is global. | Medium | `AGENT_REGISTRY` becomes a function `get_registry(project_path)` returning defaults + project agents. Orchestrator schema built per-task, not per-import. Touches config.py, orchestrator.py, assembler.py. |
+| Command/skill discovery from `.claude/commands/*.md` | Templates ship command files (migrate, seed, test-api, release, deploy-bot). Users expect these to be available as actions during tasks on that project. | Medium | Same pattern as agent discovery. Parse MD for name (from filename) + instructions (from body). Inject into context assembly so orchestrator knows they exist. New module: `src/commands/loader.py`, ~80 LOC. |
+| Command injection into context assembly | Discovered commands must be included in the orchestrator's context so it can reference or invoke them. Currently `assemble_full_context()` has no commands section. | Low | Add `commands` key to context dict. Format as list of name+description for system prompt injection. ~30 LOC in assembler.py. |
+| Project settings application from `.claude/settings.local.json` | Templates ship settings with permissions (e.g., `{"permissions": {"allow": ["Bash", "WebSearch"]}}`). Not applying them means the execution context ignores template-defined permissions. | Low | Read JSON file, merge with defaults (project overrides global). Simple dict merge. ~50 LOC. Settings affect what tools/permissions are communicated to Claude CLI. |
+| Automatic loading on project open / task start | Loading must be transparent. User opens project or starts task, agents/commands/settings load without manual steps. No "click to activate agents" button. | Low | Hook into task creation path (where `project_path` is already known). Call `load_project_agents()` and `discover_project_commands()`. ~20 LOC integration. |
+| Default agent preservation | The 4 core agents (plan, execute, test, review) must always be present regardless of template. Template agents supplement the core pipeline, never replace it. | Low | Merge strategy: start with defaults, add project agents. If name collision, project wins with warning log. Core pipeline ordering unchanged. |
 
 ---
 
 ## Differentiators
 
-Features that elevate the pipeline from "functional" to "smart". Not expected in a basic agent pipeline, but provide meaningful improvement to output quality and developer experience.
+Features that set this system apart from basic scaffolding tools (Cookiecutter, Copier, Yeoman). Not expected, but create significant value for an AI agent console.
 
-| Feature | Value Proposition | Complexity | Dependencies on Existing | Notes |
-|---------|-------------------|------------|--------------------------|-------|
-| Smart section filtering for orchestrator | The orchestrator currently receives all sections truncated to 500 chars. The CODE section (irrelevant for routing) wastes tokens while DECISION (critical, usually short) is always within limit. Per-agent filtering means the orchestrator sees only what matters for its routing decision: after REVIEW, only DECISION/ISSUES/SUMMARY; after EXECUTE, only HANDOFF/TARGET; after PLAN, only HANDOFF/GOAL. | LOW | Modifies `build_orchestrator_prompt()` in `orchestrator.py`. Uses `state.current_agent` to determine which sections to include. Section names come from `AgentConfig.output_sections` in `config.py`. | Define a `ROUTING_SECTIONS` dict mapping agent name to list of section names relevant for routing. Filter `latest_sections` before building the prompt. Remove the blanket 500-char truncation for included sections (they are already concise by design). |
-| Confidence-based decision gating | The `confidence` field (0.0-1.0) from the orchestrator's JSON response is logged to DB but never used for control flow. A fallback text parse (confidence=0.3) is treated identically to a structured response (confidence=0.95). Using confidence as a gate means: high confidence proceeds automatically, low confidence pauses for user review even in autonomous mode. | LOW | Modifies `orchestrator.py` (confidence branching after decision parsing). Modifies `ctx` calls for low-confidence confirmation in `engine/context.py`. | Thresholds: >= 0.7 proceed automatically; 0.5-0.7 log warning, proceed; < 0.5 request user confirmation even in autonomous mode. Default mode becomes autonomous (no confirmations unless low confidence). This inverts the current default (supervised) to match the project goal of "confidence-based autonomy." |
-| Test agent (static code review) | No quality gate exists between execute and review. The review agent does both code review AND pipeline routing decision, conflating two concerns. A dedicated test agent between execute and review focuses solely on code quality: syntax validation, import checking, type consistency, structure verification. No subprocess execution -- static analysis only (safe for VPS). | MEDIUM | New file: `src/agents/prompts/test_system.txt`. Modifies `config.py` (add "test" to AGENT_REGISTRY with `next_agent="review"`; update execute's `next_agent` to "test"). Modifies `orchestrator_system.txt` (add test agent routing rules). | Output sections: TEST RESULTS, COVERAGE GAPS, FAILURES, SUGGESTIONS, HANDOFF. The test agent reads the CODE section from execute's handoff and evaluates without running anything. This is an LLM-as-reviewer pattern, not a subprocess runner. Industry data: AI code review catches 42-48% more bugs than human review alone. The review agent then focuses on architectural decisions and approval, not syntax. |
-| Dynamic schema/prompt from agent registry | The JSON schema in `orchestrator.py:59-77` hardcodes `["plan", "execute", "review", "approved"]`. The orchestrator system prompt also hardcodes agent names. Adding a new agent (like "test") requires changes in 3 places. Dynamic generation from `AGENT_REGISTRY` means adding an agent to the registry automatically updates the schema enum and the orchestrator's knowledge of available agents. | LOW | Modifies `orchestrator.py` (generate `ORCHESTRATOR_SCHEMA` dynamically from `AGENT_REGISTRY.keys() + ["approved"]`). Modifies `orchestrator_system.txt` (template with `{agent_list}` placeholder rendered at startup). | Generate enum: `agent_names = list(AGENT_REGISTRY.keys()) + ["approved"]`. Generate prompt section describing each agent's role from registry metadata. This makes the test agent addition zero-config from the orchestrator's perspective. |
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| AI template generation from natural language | "Create a template for an e-commerce with Next.js and Stripe" produces complete template: directory tree, file contents, CLAUDE.md, specialized agents, commands, settings. No other self-hosted agent console generates full `.claude/` scaffolding from a description. This is the headline feature of v2.4. | High | Claude CLI call with structured output prompt. Must generate coherent file tree + agent definitions + command definitions + settings. Two-step flow: generate (returns JSON), then preview. Risk: output consistency varies per prompt. Mitigation: structured output schema + validation. ~300 backend LOC + endpoint. |
+| Template preview before save | User sees the full file tree with contents in an interactive view, can inspect every generated file before committing the template. Critical for AI-generated templates where the output quality needs human verification. | Medium | Frontend: tree view component (collapsible directory listing) + code display panel. Backend: hold generated template in memory, return as JSON. No persistence until user confirms. ~400 frontend LOC (Alpine.js). |
+| Template editor (inline file editing) | Modify any file in a template -- both AI-generated (before save) and existing (after save). Add/remove agents, commands, files. Full CRUD on template contents. | Medium | Extends preview component with edit capability. Textarea/code editor per file. API endpoints for update/create/delete template files. Reuses preview tree view. ~200 additional frontend LOC + ~100 backend LOC. |
+| Agent metadata via YAML frontmatter | Parse YAML frontmatter in agent `.md` files to extract structured metadata: description, allowed_transitions, output_sections. Aligns with Claude Code's own agent format (which uses frontmatter for name, model, tools, color). Makes template agents first-class citizens with full routing configuration. | Medium | Current template agents are plain text (no frontmatter). Adding frontmatter parsing with `PyYAML` (already a dependency via other tools) allows richer agent definition. Fallback: if no frontmatter, use filename as name and full body as system prompt (backward compatible). |
+| Context-aware agent injection into orchestrator prompt | Injected project agents appear in the orchestrator's system prompt with descriptions so the AI can intelligently decide when to route to them. The orchestrator learns "db-migrator: creates idempotent SQL migrations for PostgreSQL" and can decide to invoke it during database tasks. | Low | Already have `build_agent_descriptions()`. Extend to include project agents with descriptions extracted from MD content (first paragraph or frontmatter description). ~20 LOC. |
+| Command execution via orchestrator routing | Template commands (migrate, seed, test-api) become actual routing targets. The orchestrator can decide "run the migrate command" as a pipeline step. Commands execute their instructions via Claude CLI within project context. | High | Requires new execution path: command becomes a pseudo-agent. Orchestrator routes to it, system feeds command instructions as prompt to Claude CLI in project directory. Needs new transition type in schema. Deferred: high complexity, pipeline architecture change. |
+| Template export/import as ZIP | Export a complete template (directory tree + `.claude/` config) as downloadable ZIP. Import a ZIP to register a new template. Portable templates without git. | Low | Standard `zipfile` module. Export endpoint returns ZIP stream. Import endpoint accepts multipart upload, extracts to templates directory. ~100 LOC total. |
 
 ---
 
 ## Anti-Features
 
-Features that seem like natural extensions but should be explicitly excluded from v2.3 scope.
+Features to explicitly NOT build. These were considered and rejected for specific reasons.
 
-| Anti-Feature | Why Tempting | Why Avoid | What to Do Instead |
-|--------------|-------------|-----------|-------------------|
-| LLM-based handoff summarization | "Summarize old handoffs instead of discarding them" | Adds an extra Claude CLI call per iteration. On a VPS with max 2 concurrent CLI processes (asyncio.Semaphore), this blocks the pipeline. The cost (time + process slot) exceeds the value of preserving old context. Google ADK uses this but assumes API access, not CLI subprocess constraints. | Simple sliding window: keep last cycle, discard older. 8000-char cap. The most recent cycle contains the most relevant context. |
-| Subprocess test execution (pytest, npm test) | "The test agent should actually run the tests" | Security risk: executing arbitrary generated code on the VPS. Resource risk: test suites can hang, consume RAM, or write to filesystem unexpectedly. The VPS runs production services (n8n, Evolution API). Subprocess execution is a fundamentally different trust model. | Static code review only. The test agent reads code and identifies issues through LLM analysis. No `subprocess.run()`. No `pytest`. If real test execution is needed, it belongs in a sandboxed Docker container in a future milestone. |
-| Diff-based file patching (search/replace blocks) | "On re-routes, apply diffs instead of full file rewrites" | Diff application is fragile. Aider's experience shows LLMs operate on potentially outdated views of files, making search blocks fail when files have been modified or contain similar sections. Full file rewrites are simpler and git provides the recovery mechanism. | Full file overwrite on every write. Git auto-commit after each approved cycle provides rollback. The file writer writes complete files, not patches. `git diff` shows what changed. |
-| Multi-file transaction (atomic writes) | "Either all files write successfully or none do" | Over-engineering for a single-user VPS tool. Partial writes are recoverable via git. Atomic multi-file writes require temp directories, rename operations, and rollback logic that adds complexity without matching a real failure mode (disk full is the only realistic scenario, and atomic writes don't help there). | Write files sequentially. If a write fails mid-way, the files already written are still valid. Git status shows what was written. The user can re-run the task. |
-| Agent priority/weight system | "Some agents should be preferred over others in routing" | The orchestrator already uses confidence scores and structured reasoning. Adding agent weights creates a second routing signal that conflicts with or overrides the AI's judgment. The whole point of AI-driven orchestration is that the LLM decides, not a weight table. | Use the confidence threshold system. If the orchestrator consistently makes bad routing decisions, fix the system prompt (improvement #4), not the routing mechanism. |
-| Review agent memory across tasks | "The review agent should remember issues from previous tasks on the same project" | Cross-task memory requires a vector store or summary DB, retrieval logic, and relevance filtering. The complexity is high and the value is low: each task is a discrete unit of work. Project-level patterns belong in CLAUDE.md, not in agent memory. | Project context assembly (already built in v2.1) provides project-level knowledge via CLAUDE.md and planning docs. Per-task context is sufficient. |
-| Configurable iteration limits per agent | "Let users set max iterations to 5 or 10 instead of 3" | More iterations without quality improvements just burns tokens. The 3-iteration limit is a safety valve, not a tuning knob. If 3 iterations don't converge, the prompt or the approach is wrong. | Keep the hardcoded 3-iteration limit. The confidence gating and targeted re-routes will improve convergence rate within 3 iterations, making higher limits unnecessary. |
+| Anti-Feature | Why Avoid | What to Do Instead |
+|--------------|-----------|-------------------|
+| Template marketplace / sharing | Single-user system on a personal VPS. Zero other users to share with. Building sharing infrastructure (accounts, permissions, search, ratings) is massive scope creep. Explicitly out of scope in PROJECT.md. | Templates live on disk in the templates/ directory. User can manually copy directories between installations. |
+| Template versioning / history | Over-engineering for a system with 4 builtin + occasional custom templates. The templates/ directory is already in a git repo. | `git log templates/my-template/` provides full history. No custom versioning layer needed. |
+| Template composition / chaining | "FastAPI + PostgreSQL + Docker + Auth" as composable layers sounds appealing but creates combinatorial conflict resolution: which CLAUDE.md wins? Which agents? Which settings merge how? The complexity grows exponentially. | Each template is self-contained. Use AI generation to describe a combined stack and get a unified template. One template = one coherent configuration. |
+| Hot-reloading of agents mid-task | Changing the agent registry while a pipeline is running creates race conditions. The orchestrator schema was built with agent X, but agent X disappears mid-loop. Inconsistent state leads to routing failures. | Agents load at task start and are immutable for the task's lifetime. New agents take effect on next task. Clear lifecycle boundary. |
+| Agent dependency graph resolution | Declaring that `db-migrator` requires `api-tester` adds directed graph complexity (topological sort, cycle detection, dependency satisfaction) for minimal benefit in a system with 2-5 custom agents. | Document recommended agent combinations in template CLAUDE.md. Human-readable guidance, zero runtime complexity. |
+| Visual drag-and-drop pipeline builder | A graphical agent flow editor is a large frontend project (node graph, connections, validation) that duplicates what the AI orchestrator already does: dynamically decide routing based on output quality. | The AI orchestrator handles routing. `allowed_transitions` in AgentConfig provides guardrails. Users configure via `.claude/agents/*.md` files, not UI drag-and-drop. |
+| Import from external git repositories | Cloning GitHub repos as templates requires git credentials management, network access handling, branch selection, conflict resolution. Significant scope creep for a single-user system. | User clones manually to local disk, then registers the directory as a template. Or uses AI generation to describe what they want. |
+| Multi-model AI generation | Using OpenAI/Gemini/local models for template generation fragments the codebase and adds credential management. PROJECT.md explicitly scopes to Claude CLI only. | Claude CLI subprocess for all AI generation. Single code path, single auth model (Pro Max subscription via CLI). |
+| Real-time template collaboration | Multi-cursor editing, conflict resolution, OT/CRDT. Single-user system. | Single-user Alpine.js editor. No collaboration needed. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[System prompt fix (#4)]
-    |-- no dependencies, standalone bug fix
-    |-- improves ALL subsequent orchestrator decisions
-    |-- MUST be done first
+Settings application (R3) ---- standalone, no dependencies
+    |
+    v
+Agent discovery (R1) ---- benefits from settings being applied first
+    |
+    v
+Per-project registry scoping ---- architectural requirement for R1
+    |
+    v
+Agent registration in orchestrator ---- requires discovery + scoping
+    |
+    v
+Context-aware agent injection ---- requires registration (extends build_agent_descriptions)
+    |
+Command discovery (R2) ---- independent of agent discovery, same pattern
+    |
+    v
+Command injection in context assembly ---- requires command discovery
 
-[Bounded handoffs (#3)]
-    |-- no dependencies, modifies orchestrator.py only
-    |-- can be done in parallel with #4
+Template preview UI ---- no backend dependencies, frontend work
+    |
+    v
+AI template generation (R4) ---- requires preview UI to display results
+    |
+    v
+Template editor (R5) ---- extends preview UI with edit + save
+    |
+    v
+Template export/import ---- requires template persistence (extends editor)
 
-[Targeted re-route prompts (#2)]
-    |-- requires: review agent output with ISSUES/IMPROVEMENTS sections (already exists)
-    |-- modifies: orchestrator.py (re-route path) + handoff.py (new function)
-    |-- benefits from: #4 (better orchestrator decisions on when to re-route)
-
-[Smart section filtering (#5)]
-    |-- requires: AGENT_REGISTRY with output_sections (already exists)
-    |-- modifies: build_orchestrator_prompt() in orchestrator.py
-    |-- benefits from: #4 (system prompt tells orchestrator what sections mean)
-
-[File writer (#1)]
-    |-- requires: stream_output() returning sections dict (already exists)
-    |-- requires: ctx.project_path (already exists)
-    |-- modifies: orchestrator.py (trigger write after execute completes)
-    |-- new file: src/pipeline/file_writer.py
-    |-- enables: auto_commit to actually commit real files
-
-[Confidence-based autonomy (#7)]
-    |-- requires: orchestrator decision with confidence field (already exists)
-    |-- modifies: orchestrator.py (decision handling block)
-    |-- modifies: engine/context.py (low-confidence confirmation flow)
-    |-- benefits from: #4 (better calibrated confidence with system prompt)
-
-[Dynamic schema/prompt (#8)]
-    |-- requires: AGENT_REGISTRY (already exists)
-    |-- modifies: orchestrator.py (schema generation)
-    |-- modifies: orchestrator_system.txt (template)
-    |-- MUST be done before or alongside #6 (test agent)
-
-[Test agent (#6)]
-    |-- requires: #8 (dynamic schema so test agent is auto-discovered)
-    |-- requires: #1 (file writer, so test agent reviews actual written files)
-    |-- new files: test_system.txt, config.py update
-    |-- modifies: execute config (next_agent: "test" instead of "review")
+Agent metadata frontmatter ---- enhances R1, not a dependency
+Command execution via orchestrator ---- requires R2 + pipeline changes (defer)
 ```
 
 ### Critical Path
 
 ```
-#4 (system prompt fix) ----+
-                            |
-#3 (bounded handoffs) -----+--> #2 (targeted re-routes) --> #1 (file writer)
-                            |                                      |
-#5 (section filtering) ----+                                      |
-                            |                                      v
-#7 (confidence gating) ----+            #8 (dynamic schema) --> #6 (test agent)
+Phase 1: R3 (settings) + R1 (agents) + R2 (commands) + scoping
+         [all independent, can parallelize]
+              |
+              v
+Phase 2: Preview UI --> R4 (AI generation) --> R5 (editor)
+         [sequential dependency chain]
 ```
-
-### Dependency Notes
-
-- **System prompt fix (#4) is zero-risk, high-impact.** The file already exists. The flag just needs to be added to the CLI command. This should ship first because every other improvement benefits from the orchestrator actually knowing its role.
-
-- **File writer (#1) and test agent (#6) are the two features with new files.** Everything else modifies existing code. The file writer is higher priority because without it, the pipeline doesn't produce filesystem output -- the test agent can review code from sections even without files on disk.
-
-- **Dynamic schema (#8) MUST precede test agent (#6).** Adding "test" to the hardcoded enum and then immediately replacing the enum with dynamic generation is wasted work. Build dynamic generation first, then adding the test agent is just a registry entry.
-
-- **Bounded handoffs (#3) and targeted re-routes (#2) are complementary.** Bounded handoffs reduce noise; targeted re-routes increase signal. Together they fix the context quality problem from both ends. However, they are independent changes and can be implemented separately.
-
-- **Confidence gating (#7) changes the default execution mode.** Currently supervised is the default. After #7, autonomous becomes the default with confidence-based fallback to user confirmation. This is a behavioral change that affects the user experience. The frontend already supports both modes -- this changes which one is active by default.
 
 ---
 
 ## MVP Recommendation
 
-### Phase 1: Foundation fixes (do first, lowest risk)
-1. **System prompt fix (#4)** -- bug fix, one-line change, immediate quality improvement
-2. **Bounded handoffs (#3)** -- prevents context blowup, simple sliding window
-3. **Targeted re-route prompts (#2)** -- focused feedback on re-routes
+### Phase 1: Dynamic Loading (makes templates "live")
+Priority: **Highest** -- this is why v2.4 exists.
 
-### Phase 2: Core output capability
-4. **File writer (#1)** -- the pipeline finally produces real files
-5. **Smart section filtering (#5)** -- cleaner orchestrator inputs
+1. **Agent discovery and loader** (`src/agents/loader.py`) -- scan `.claude/agents/*.md`, parse content, create AgentConfig entries
+2. **Per-project registry scoping** -- refactor `AGENT_REGISTRY` from module dict to `get_registry(project_path)` function
+3. **Command discovery and loader** (`src/commands/loader.py`) -- scan `.claude/commands/*.md`, parse name + instructions
+4. **Settings application** -- read `.claude/settings.local.json`, merge with defaults
+5. **Context assembly integration** -- inject agents, commands, settings into `assemble_full_context()` output
+6. **Orchestrator dynamic schema** -- build `ORCHESTRATOR_SCHEMA` per-task from actual registry, not hardcoded enum
 
-### Phase 3: Intelligence and extensibility
-6. **Confidence-based autonomy (#7)** -- default autonomous, smart fallback
-7. **Dynamic schema/prompt (#8)** -- extensible agent routing
-8. **Test agent (#6)** -- quality gate between execute and review
+### Phase 2: AI Generation and Editor (the differentiator)
+Priority: **High** -- headline user-facing feature.
 
-### Defer to v2.4+
-- Subprocess test execution (sandboxed Docker)
-- Cross-task review memory
-- LLM-based handoff summarization
-- Diff-based file patching
+7. **Template preview UI** -- Alpine.js tree view + file content display
+8. **AI template generation endpoint** -- `POST /templates/generate` with Claude CLI structured output
+9. **Template editor** -- extend preview with inline editing, add/remove files, save
+
+### Defer to v2.5+
+- Command execution via orchestrator routing (high complexity, pipeline architecture change)
+- Template export/import as ZIP (nice-to-have, low priority)
+- YAML frontmatter for agent metadata (enhancement, backward compatible, can add anytime)
 
 ---
 
-## Complexity Assessment
+## Complexity Budget
 
-| Feature | Complexity | Reason |
-|---------|------------|--------|
-| System prompt fix (#4) | LOW | Add one flag to subprocess command, pass file path. |
-| Bounded handoffs (#3) | LOW | Replace list concatenation with sliding window in orchestrator loop. ~15 lines changed. |
-| Targeted re-route (#2) | LOW | New function `build_reroute_prompt()` in handoff.py, called from orchestrator re-route path. ~30 lines new code. |
-| Section filtering (#5) | LOW | Dict lookup + filter in `build_orchestrator_prompt()`. ~20 lines changed. |
-| Confidence gating (#7) | LOW | Add threshold checks after decision parsing. ~20 lines changed. Behavioral change needs frontend awareness. |
-| Dynamic schema (#8) | LOW | Generate enum from registry keys. Template the system prompt. ~25 lines changed. |
-| File writer (#1) | MEDIUM | Regex parsing of markdown code blocks, directory creation, file I/O, error handling for malformed output. New module ~100-150 lines. |
-| Test agent (#6) | MEDIUM | New system prompt (content design is the hard part), registry entry, orchestrator prompt update. ~50 lines code + system prompt authoring. |
+| Feature Group | Estimated LOC | Risk Level | Notes |
+|---------------|---------------|------------|-------|
+| Discovery + loading (R1, R2, R3) | ~250 | Low | Well-understood pattern: scan dir, parse files, merge config. No external dependencies. |
+| Registry scoping refactor | ~150 | Medium | Touches config.py, orchestrator.py, assembler.py. Risk: module-level ORCHESTRATOR_SCHEMA must become dynamic. |
+| Context assembly integration | ~80 | Low | Add agents/commands/settings to existing dict output. |
+| AI template generation (R4) | ~300 backend | Medium | Claude CLI structured output. Main risk: prompt engineering for consistent output quality. |
+| Template preview + editor (R5) | ~600 frontend | Medium | Most complex Alpine.js component so far. Tree view + inline code editor. |
+| **Total estimated** | **~1380** | | Reasonable for 2 phases of 2-3 sub-phases each |
 
 ---
 
 ## Sources
 
-- `docs/orchestration-improvements.md` -- primary spec with 8 improvements, prioritized. HIGH confidence, authoritative.
-- `src/pipeline/orchestrator.py` -- existing orchestration loop, handoff accumulation, schema, prompt building. Inspected directly.
-- `src/pipeline/handoff.py` -- existing handoff builder, section concatenation. Inspected directly.
-- `src/agents/config.py` -- existing agent registry with AgentConfig dataclass. Inspected directly.
-- [JetBrains Research: Smarter Context Management for LLM-Powered Agents](https://blog.jetbrains.com/research/2025/12/efficient-context-management/) -- context compression approaches. MEDIUM confidence.
-- [How Agent Handoffs Work in Multi-Agent Systems](https://towardsdatascience.com/how-agent-handoffs-work-in-multi-agent-systems/) -- structured context objects (200-500 tokens) vs full forwarding (5,000-20,000 tokens). MEDIUM confidence.
-- [Google ADK Context Compaction](https://google.github.io/adk-docs/context/compaction/) -- sliding window summarization pattern. HIGH confidence (official docs).
-- [Ralph Orchestrator: Context Management](https://mikeyobrien.github.io/ralph-orchestrator/advanced/context-management/) -- fresh context per iteration pattern. MEDIUM confidence.
-- [Factory.ai: Evaluating Context Compression](https://factory.ai/news/evaluating-compression) -- anchored iterative summarization. MEDIUM confidence.
-- [Qodo Code Review Platform](https://devops.com/qodo-adds-multiple-ai-agent-to-code-review-platform/) -- 15+ automated agentic review workflows, specialized agents. MEDIUM confidence.
-- [llm-code-format (GitHub)](https://github.com/vizhub-core/llm-code-format) -- streaming markdown code block parser with file path extraction. MEDIUM confidence.
-- [parse-llm-code (PyPI)](https://pypi.org/project/parse-llm-code/) -- Python library for extracting code blocks from LLM output. MEDIUM confidence.
-- [Code Surgery: How AI Assistants Make Precise Edits](https://fabianhertwig.com/blog/coding-assistants-file-edits/) -- Aider's edit format patterns, search/replace fragility. MEDIUM confidence.
-- [AI Coding Agents 2026: Coherence Through Orchestration](https://mikemason.ca/writing/ai-coding-agents-jan-2026/) -- validation before commit pattern. MEDIUM confidence.
+- Codebase analysis: `src/agents/config.py` (AGENT_REGISTRY, AgentConfig dataclass), `src/pipeline/orchestrator.py` (schema building, routing), `src/context/assembler.py` (context assembly), `templates/registry.yaml`, template `.claude/` directories with agent/command/settings files
+- [Claude Code .claude folder structure](https://deepwiki.com/FlorianBruniaux/claude-code-ultimate-guide/4.4-the-.claude-folder-structure) -- YAML frontmatter in agent MDs, command format, settings hierarchy, skills directory. HIGH confidence.
+- [Claude Code settings documentation](https://code.claude.com/docs/en/settings) -- Official settings.json/settings.local.json schema, permission structure. HIGH confidence.
+- [Claude Code project templates guide](https://claudefa.st/blog/guide/development/project-templates) -- Template patterns, CLAUDE.md as convention document, clone-analyze-customize workflow. MEDIUM confidence.
+- [Cookiecutter vs Yeoman comparison](https://www.cookiecutter.io/article-post/compare-cookiecutter-to-yeoman) -- Scaffolding tool patterns: composable generators (Yeoman) vs template-only (Cookiecutter). MEDIUM confidence.
+- [Claude Agent Skills Framework](https://www.digitalapplied.com/blog/claude-agent-skills-framework-guide) -- Progressive disclosure pattern (metadata first, full instructions on demand), three scopes (personal/project/plugin). MEDIUM confidence.
+- [AI Agent Architecture Patterns 2025](https://nexaitech.com/multi-ai-agent-architecutre-patterns-for-scale/) -- Modular agent loading, composable skills as the dominant pattern. MEDIUM confidence.
+- [Dynamo MCP dynamic template registry](https://github.com/ruvnet/dynamo-mcp) -- Cookiecutter templates via MCP with discovery, registration, and management. MEDIUM confidence.
+- [DLCodeGen: Planning-guided code generation](https://arxiv.org/html/2504.15080v1) -- Structured solution plans as blueprints for LLM code generation, Template RAG approach. MEDIUM confidence.
 
 ---
-*Feature research for: AI Agent Workflow Console -- v2.3 Orchestration Improvements*
+*Feature research for: AI Agent Workflow Console -- v2.4 Template System Overhaul*
 *Researched: 2026-03-14*

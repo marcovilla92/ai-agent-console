@@ -1,577 +1,586 @@
 # Architecture Patterns
 
-**Domain:** Multi-agent pipeline orchestration improvements (v2.3)
+**Domain:** Dynamic agent loading and AI template generation for AI Agent Console v2.4
 **Researched:** 2026-03-14
-**Confidence:** HIGH (direct codebase analysis of all pipeline components)
+**Confidence:** HIGH (direct codebase analysis of all affected components)
 
----
-
-## Note on Scope
-
-This document covers **v2.3 orchestration improvements only** -- how file writing, bounded handoffs, targeted re-routing, test agent, dynamic schema, and confidence-based autonomy integrate with the existing pipeline architecture. The base architecture (orchestrator loop, agent registry, TaskContext Protocol, WebTaskContext, Claude CLI runner) is established and working.
-
----
-
-## Current Architecture
+## Current Architecture Snapshot
 
 ```
-User prompt
+HTTP Layer (FastAPI routers)
+  projects.py  -- CRUD + context/phase endpoints
+  templates.py -- template CRUD, registry.yaml management
     |
-    v
-orchestrate_pipeline() [orchestrator.py]
+Service Layer
+  ProjectService     -- create_project() scaffolds + git init
+  ContextAssembler   -- 5-source context for system prompts
     |
-    +---> ctx.stream_output(agent, prompt) [context.py -> runner.py]
-    |         |
-    |         +---> stream_claude() subprocess
-    |         +---> extract_sections() parse output
-    |         +---> persist to agent_outputs DB
-    |         +---> return sections dict
+Pipeline Layer
+  orchestrator.py    -- AI-driven routing loop (Claude CLI)
+  file_writer.py     -- writes code from execute agent output
+  handoff.py         -- builds inter-agent handoff context
     |
-    +---> build_handoff(AgentResult) -> accumulated_handoffs[]
+Agent Layer
+  config.py          -- AGENT_REGISTRY (hardcoded dict of 4 agents)
+  prompts/           -- .txt system prompts for plan/execute/test/review
+  base.py            -- AgentResult dataclass
     |
-    +---> get_orchestrator_decision(state, sections) [orchestrator.py]
-    |         |
-    |         +---> call_orchestrator_claude(prompt, schema) [runner.py]
-    |         +---> JSON parse -> OrchestratorDecision
-    |
-    +---> route: approved | forward | re-route (with user confirm)
-    |
-    +---> [loop back or exit]
-    |
-    v
-auto_commit() [autocommit.py] -- only if approved
+Runner Layer
+  runner.py          -- Claude CLI subprocess, streaming, JSON schema
 ```
 
-Key boundary: `TaskContext` Protocol decouples orchestrator from UI. `WebTaskContext` is the web implementation. All agent execution flows through `ctx.stream_output()`.
+### Critical Architectural Constraint
 
----
+The `AGENT_REGISTRY` is a **module-level constant**. The orchestrator imports `build_agent_enum()` and `build_agent_descriptions()` which read from this constant, and `ORCHESTRATOR_SCHEMA` is computed once at import time via `_build_orchestrator_schema()`. The entire routing schema is frozen at process startup. Dynamic agents require making this per-project and per-task.
 
-## New Components and Integration Points
+### Template File Structure (Existing)
 
-### Component 1: Orchestrator System Prompt Fix
+Templates already contain `.claude/` directories with agent files, command files, and settings. Example from `fastapi-pg`:
 
-**Files modified:** `src/runner/runner.py`, `src/pipeline/orchestrator.py`
-**Change type:** Bug fix (2 lines)
-
-**Problem:** `call_orchestrator_claude()` in runner.py (line 154) does not pass `--system-prompt-file`. The `orchestrator_system.txt` exists but is never used. The orchestrator makes routing decisions without its role definition or routing rules.
-
-**Integration:**
-
-```python
-# runner.py -- add parameter to call_orchestrator_claude()
-async def call_orchestrator_claude(
-    prompt: str, schema: str, system_prompt_file: str | None = None
-) -> str:
-    cmd = [claude, "-p", "--output-format", "json", "--json-schema", schema,
-           "--dangerously-skip-permissions"]
-    if system_prompt_file:
-        cmd += ["--system-prompt-file", system_prompt_file]
-    cmd.append(prompt)
+```
+templates/fastapi-pg/
+  .claude/
+    agents/
+      db-migrator.md      -- plain text system prompt (no metadata)
+      api-tester.md        -- plain text system prompt (no metadata)
+    commands/
+      migrate.md           -- instruction text
+      seed.md
+      test-api.md
+    settings.local.json    -- {"permissions": {"allow": ["Bash", "WebSearch"]}}
+  CLAUDE.md.j2
+  Dockerfile
+  src/
+    main.py
     ...
-
-# orchestrator.py -- pass the prompt file
-from pathlib import Path
-ORCHESTRATOR_PROMPT_FILE = str(
-    Path(__file__).parent.parent / "agents" / "prompts" / "orchestrator_system.txt"
-)
-# In get_orchestrator_decision():
-raw = await call_orchestrator_claude(prompt, ORCHESTRATOR_SCHEMA, ORCHESTRATOR_PROMPT_FILE)
 ```
 
-**Impact:** Immediate improvement to routing decision quality. Zero risk. Should be built first.
+These files are copied during scaffolding but **never read by the runtime**. This is the core problem v2.4 solves.
 
 ---
 
-### Component 2: Smart Section Filtering
+## Recommended Architecture
 
-**Files modified:** `src/pipeline/orchestrator.py`
-**Change type:** Optimization in `build_orchestrator_prompt()`
+### New and Modified Components
 
-**Problem:** Line 100 truncates ALL sections to 500 chars blindly. The CODE section (irrelevant for routing, often thousands of chars) wastes tokens, while DECISION (critical, usually short) is always within limit.
+| Component | Status | Responsibility | Communicates With |
+|-----------|--------|---------------|-------------------|
+| `src/agents/loader.py` | **NEW** | Discover + parse `.claude/agents/*.md` into AgentConfig | config.py, assembler.py |
+| `src/agents/config.py` | **MODIFY** | Provide `get_project_registry(project_path)`, add `system_prompt_inline` field | orchestrator.py, loader.py |
+| `src/commands/loader.py` | **NEW** | Discover + parse `.claude/commands/*.md` into CommandConfig | assembler.py |
+| `src/settings/loader.py` | **NEW** | Read + merge `.claude/settings.local.json` with defaults | assembler.py, runner.py |
+| `src/context/assembler.py` | **MODIFY** | Include agents/commands/settings in context output | loader modules, orchestrator |
+| `src/pipeline/orchestrator.py` | **MODIFY** | Accept dynamic registry per invocation, build schema per-run | config.py (dynamic) |
+| `src/runner/runner.py` | **MODIFY** | Support inline system prompts (not just file paths) | orchestrator.py |
+| `src/server/routers/templates.py` | **MODIFY** | Add `POST /templates/generate` endpoint | runner.py (Claude CLI) |
+| `src/pipeline/project_service.py` | **MODIFY** | Trigger capability discovery after scaffolding | loader modules |
+| `src/server/routers/projects.py` | **MODIFY** | Expose project capabilities in API responses | loader modules |
+| `static/index.html` | **MODIFY** | Template generator UI + preview/editor | templates API |
 
-**Integration:** Add a routing-relevant section map and filter before building the prompt:
+### Component Boundaries
 
-```python
-ROUTING_SECTIONS: dict[str, set[str]] = {
-    "plan": {"GOAL", "HANDOFF", "TASKS"},
-    "execute": {"TARGET", "HANDOFF", "FILES"},
-    "review": {"DECISION", "ISSUES", "SUMMARY"},
-    "test": {"TEST RESULTS", "FAILURES", "HANDOFF"},
-}
-
-def build_orchestrator_prompt(state, latest_sections):
-    relevant = ROUTING_SECTIONS.get(state.current_agent, set())
-    filtered = {k: v for k, v in latest_sections.items() if k in relevant}
-    if not filtered:
-        filtered = latest_sections  # fallback: pass everything if no match
-    # ... use filtered instead of latest_sections
 ```
-
-**Interaction:** When test agent is added later, its entry in `ROUTING_SECTIONS` is added in the same dict. No structural change needed.
+                    +-----------------+
+                    |  HTTP Routers   |
+                    |  (FastAPI)      |
+                    +--------+--------+
+                             |
+              +--------------+--------------+
+              |                             |
+    +---------v---------+        +----------v----------+
+    | ProjectService    |        | Template Router     |
+    | (create, list)    |        | (CRUD + /generate)  |
+    +---------+---------+        +----------+----------+
+              |                             |
+              |  +-- triggers --+           | uses Claude CLI
+              |  |              |           | for generation
+    +---------v--v----+   +-----v---------+ |
+    | AgentLoader     |   | CommandLoader | |
+    | (.claude/agents)|   | (.claude/cmds)| |
+    +--------+--------+   +------+--------+ |
+             |                   |          |
+    +--------v-------------------v----------v---+
+    |        ContextAssembler                    |
+    |  (workspace + claude.md + planning +       |
+    |   git log + tasks + agents + commands +    |
+    |   settings)                                |
+    +--------------------+-----------------------+
+                         |
+              +----------v----------+
+              |   Orchestrator      |
+              |   (per-run schema,  |
+              |    dynamic registry)|
+              +----------+----------+
+                         |
+              +----------v----------+
+              |   Runner            |
+              |   (Claude CLI,      |
+              |    inline prompts)  |
+              +---------------------+
+```
 
 ---
 
-### Component 3: Bounded Handoffs
+## Data Flow
 
-**Files modified:** `src/pipeline/orchestrator.py`
-**Change type:** Modification to handoff accumulation (lines 224-258)
+### Flow 1: Project Creation with Dynamic Capabilities
 
-**Problem:** `accumulated_handoffs` grows unbounded. After 3 cycles (9 agent runs), the prompt can exceed Claude's context window or degrade response quality.
-
-**Integration:** After building each handoff, apply windowing:
-
-```python
-MAX_HANDOFF_CHARS = 8000
-MAX_HANDOFFS = 3  # One complete cycle (plan + execute + review)
-
-# After line 257: state.accumulated_handoffs.append(build_handoff(agent_result))
-if len(state.accumulated_handoffs) > MAX_HANDOFFS:
-    state.accumulated_handoffs = state.accumulated_handoffs[-MAX_HANDOFFS:]
-
-# Cap total size by dropping oldest
-total = "\n\n".join(state.accumulated_handoffs)
-while len(total) > MAX_HANDOFF_CHARS and len(state.accumulated_handoffs) > 1:
-    state.accumulated_handoffs.pop(0)
-    total = "\n\n".join(state.accumulated_handoffs)
+```
+POST /projects { name, description, template: "fastapi-pg" }
+  |
+  v
+ProjectService.create_project()
+  |-- scaffold_from_template("fastapi-pg", target_dir, context)
+  |     Copies all files including .claude/agents/, .claude/commands/, .claude/settings.local.json
+  |
+  |-- git_init_project(project_dir)
+  |
+  |-- [NEW] discover_capabilities(project_dir)
+  |     |-- AgentLoader.discover(project_dir)
+  |     |     Reads .claude/agents/db-migrator.md, api-tester.md
+  |     |     Returns { "db-migrator": AgentConfig(...), "api-tester": AgentConfig(...) }
+  |     |
+  |     |-- CommandLoader.discover(project_dir)
+  |     |     Reads .claude/commands/migrate.md, seed.md, test-api.md
+  |     |     Returns [ CommandConfig(name="migrate", ...), ... ]
+  |     |
+  |     |-- SettingsLoader.load(project_dir)
+  |           Reads .claude/settings.local.json
+  |           Returns { "permissions": { "allow": ["Bash", "WebSearch"] } }
+  |
+  |-- Insert DB record
+  |-- Emit PROJECT_CREATED event with capabilities summary
+  |
+  v
+Response: { id, name, slug, path, capabilities: { agents: 2, commands: 3, settings: true } }
 ```
 
-**Interaction with targeted re-route (Component 5):** On re-route, `build_reroute_prompt()` replaces accumulated handoffs entirely. Bounded handoffs caps forward flow; targeted re-route replaces on feedback loops. They are complementary.
+### Flow 2: Task Execution with Dynamic Agents
+
+```
+POST /tasks { prompt, project_id, mode }
+  |
+  v
+TaskHandler.run_task()
+  |
+  |-- [MODIFIED] registry = get_project_registry(project_path)
+  |     |-- Start with DEFAULT_REGISTRY (plan, execute, test, review)
+  |     |-- AgentLoader.discover(project_path) -> project agents
+  |     |-- merge_registries(default, project) -> merged
+  |     |-- Returns: { plan, execute, test, review, db-migrator, api-tester }
+  |
+  |-- [MODIFIED] schema = build_orchestrator_schema(registry)
+  |     JSON schema enum: ["api-tester", "approved", "db-migrator", "execute", "plan", "review", "test"]
+  |
+  |-- [MODIFIED] context = assemble_full_context(project_path, pool)
+  |     Now includes:
+  |       available_agents: "- PLAN: Creates structured dev plan\n- DB-MIGRATOR: Database migration specialist..."
+  |       available_commands: "- /migrate: Analyze schema, generate migration...\n- /seed: ..."
+  |       project_settings: { permissions: { allow: ["Bash", "WebSearch"] } }
+  |
+  |-- orchestrate_pipeline(ctx, prompt, pool, session_id, registry=registry)
+  |     Orchestrator sees all agents in schema enum
+  |     System prompt includes project agent descriptions
+  |     Can route to db-migrator or api-tester when appropriate
+  |
+  |     When routing to project agent:
+  |       runner uses agent's system_prompt_inline (from .md file content)
+  |       instead of system_prompt_file (used by core agents)
+```
+
+### Flow 3: AI Template Generation
+
+```
+POST /templates/generate { description: "FastAPI app with Stripe payments and webhook handling" }
+  |
+  v
+TemplateGenerateEndpoint
+  |-- Build generation prompt:
+  |     - User description
+  |     - Reference structure from existing template (e.g., fastapi-pg file tree)
+  |     - Expected JSON output format
+  |     - Instructions for .claude/ convention
+  |
+  |-- stream_claude(prompt, system_prompt_file="prompts/template_gen_system.txt",
+  |                 extra_args=["--json-schema", TEMPLATE_GEN_SCHEMA])
+  |
+  |-- Parse response -> TemplatePreview
+  |     {
+  |       id: "fastapi-stripe",
+  |       name: "FastAPI + Stripe",
+  |       description: "REST API with Stripe payment integration",
+  |       files: {
+  |         "src/main.py": "from fastapi import FastAPI...",
+  |         "CLAUDE.md": "# FastAPI Stripe Project...",
+  |         ".claude/agents/payment-handler.md": "You are a payment integration specialist...",
+  |         ".claude/commands/test-webhooks.md": "Send test webhook events...",
+  |         ".claude/settings.local.json": "{\"permissions\":{\"allow\":[\"Bash\"]}}",
+  |         ...
+  |       }
+  |     }
+  |
+  v
+Response: TemplatePreview JSON (frontend renders tree + editor)
+  |
+  v
+User reviews, edits files in preview
+  |
+  v
+POST /templates { id, name, description, files }   <-- existing endpoint, no changes needed
+```
 
 ---
 
-### Component 4: File Writer
+## Key Architectural Decisions
 
-**Files added:** `src/pipeline/file_writer.py` (NEW)
-**Files modified:** `src/pipeline/orchestrator.py`
-**Change type:** New module + orchestrator integration
+### Decision 1: Per-Project Registry, Not Global Mutation
 
-**Responsibility:** Parse EXECUTE agent's CODE section, extract file paths and contents from markdown code blocks, write files to disk.
+**Do not** mutate the global `AGENT_REGISTRY` when a project loads. Build a scoped registry per task execution.
 
-**Integration point:** Called from `orchestrate_pipeline()` after EXECUTE agent completes (after `stream_output` returns sections, before orchestrator decision). NOT inside `WebTaskContext.stream_output()` -- that method is agent-agnostic and must stay that way.
+**Why:** Multiple tasks can run concurrently on different projects (max 2 via semaphore). A global mutable registry creates race conditions and agent leakage between projects.
 
 ```python
-# In orchestrate_pipeline(), after stream_output returns:
-sections = await ctx.stream_output(state.current_agent, agent_prompt, {})
+# src/agents/config.py
 
-if state.current_agent == "execute":
-    from src.pipeline.file_writer import write_files_from_sections
-    written = await write_files_from_sections(ctx.project_path, sections)
-    await ctx.update_status(
-        agent="file_writer", state="complete",
-        step=f"Wrote {len(written)} files", next_action="Continuing...",
-    )
+# Rename existing constant (alias for backward compat)
+DEFAULT_REGISTRY: dict[str, AgentConfig] = { ... }
+AGENT_REGISTRY = DEFAULT_REGISTRY  # backward compat
+
+def get_project_registry(project_path: str | None = None) -> dict[str, AgentConfig]:
+    """Build a scoped registry: defaults + project agents."""
+    registry = dict(DEFAULT_REGISTRY)  # shallow copy
+    if project_path:
+        from src.agents.loader import discover_project_agents
+        project_agents = discover_project_agents(project_path)
+        registry = merge_registries(registry, project_agents)
+    return registry
 ```
 
-**Parser design:** The EXECUTE agent outputs code blocks with file paths in the CODE section:
+### Decision 2: Agent Markdown Format with Optional YAML Front-Matter
 
-```
-CODE:
-```python # src/main.py
-import asyncio
-...
-```  (close)
-```
+Template agent `.md` files today are plain text (just a system prompt, no metadata). Define a lightweight front-matter convention:
 
-Extract using regex on code block openers: `` ^```\w*\s*#?\s*(.+\.[\w]+)$ `` to capture file path, content until closing triple-backtick.
-
-```python
-# src/pipeline/file_writer.py
-import os
-import re
-import logging
-from pathlib import Path
-
-log = logging.getLogger(__name__)
-
-CODE_BLOCK_RE = re.compile(
-    r'^```\w*\s*#?\s*(.+?)\s*$\n(.*?)^```\s*$',
-    re.MULTILINE | re.DOTALL,
-)
-
-async def write_files_from_sections(
-    project_path: str, sections: dict[str, str]
-) -> list[str]:
-    """Extract code blocks from CODE section and write to disk."""
-    code = sections.get("CODE", "")
-    if not code:
-        return []
-
-    written = []
-    for match in CODE_BLOCK_RE.finditer(code):
-        file_path = match.group(1).strip()
-        content = match.group(2)
-        full_path = Path(project_path) / file_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content)
-        written.append(file_path)
-        log.info("file_writer: wrote %s (%d chars)", file_path, len(content))
-
-    return written
-```
-
-**Key decisions:**
-- Overwrite always, git provides recovery (per PROJECT.md design intent)
-- Create directories with `mkdir(parents=True, exist_ok=True)`
-- Return list of written file paths for UI status updates
-- No patch mode -- on re-route iterations, the targeted prompt (Component 5) tells execute to only output changed files, so the writer gets only changed files
-- Async function but uses sync file I/O (file writes are fast, no need for `aiofiles`)
-
-**Interaction with auto_commit:** `auto_commit()` already stages files in `src/` and `tests/` plus tracked files. Written files will be picked up naturally. May need to expand staging patterns if files are written outside those directories.
-
+```markdown
+---
+name: db-migrator
+description: Database migration specialist for PostgreSQL
+allowed_transitions:
+  - execute
+  - review
 ---
 
-### Component 5: Targeted Re-route Prompts
-
-**Files modified:** `src/pipeline/handoff.py`, `src/pipeline/orchestrator.py`
-**Change type:** New function in handoff.py + orchestrator re-route branch modification
-
-**Integration:** New function `build_reroute_prompt()` in `handoff.py`:
-
-```python
-def build_reroute_prompt(
-    review_sections: dict[str, str],
-    target_agent: str,
-) -> str:
-    """Build focused re-route prompt from review feedback."""
-    lines = ["=== REVIEW FEEDBACK - FIX REQUIRED ===", ""]
-
-    if target_agent == "execute":
-        for key in ("ISSUES", "IMPROVEMENTS"):
-            if key in review_sections:
-                lines.append(f"{key}:")
-                lines.append(review_sections[key])
-                lines.append("")
-        lines.append("Fix ONLY the issues listed above. Do not rewrite working code.")
-        lines.append("Output only the files that need changes.")
-    elif target_agent == "plan":
-        for key in ("ISSUES", "RISKS", "DECISION"):
-            if key in review_sections:
-                lines.append(f"{key}:")
-                lines.append(review_sections[key])
-                lines.append("")
-        lines.append("Revise the plan to address these architectural issues.")
-
-    lines.append("=== END REVIEW FEEDBACK ===")
-    return "\n".join(lines)
+You are a database migration specialist for PostgreSQL with asyncpg...
 ```
 
-**Orchestrator change (line 288-309):** On re-route, replace accumulated handoffs with targeted prompt:
+**Fallback for files without front-matter** (backward compatible with existing templates):
+- `name`: derived from filename (`db-migrator.md` -> `db-migrator`)
+- `description`: `"Project agent: {name}"`
+- `allowed_transitions`: `("execute", "review")` as safe defaults
+- `system_prompt_inline`: entire file content
+
+**Why front-matter:** Lightest convention that avoids parsing natural language for structured data. YAML front-matter is standard in documentation tooling (Jekyll, Hugo, MDX). Existing template files work without modification.
+
+### Decision 3: Orchestrator Schema Built Per-Run
+
+The current `ORCHESTRATOR_SCHEMA` is a module-level constant computed once at import. Change to per-invocation:
 
 ```python
-if decision.next_agent in ("plan", "execute") and state.current_agent == "review":
-    # Build targeted prompt instead of carrying all handoffs
-    reroute_prompt = build_reroute_prompt(sections, decision.next_agent)
-    state.accumulated_handoffs = [reroute_prompt]  # Replace, don't append
-    # ... rest of re-route logic (iteration check, confirmation) unchanged
-```
+# BEFORE (frozen at import):
+ORCHESTRATOR_SCHEMA = _build_orchestrator_schema()
 
-**Why replace instead of append:** The targeted prompt contains everything the next agent needs to know. Old handoffs are noise at this point -- they describe previous iterations that led to the issues being fixed. The bounded handoff window (Component 3) is for forward flow; targeted re-route is for feedback loops.
-
----
-
-### Component 6: Dynamic Schema from Registry
-
-**Files modified:** `src/pipeline/orchestrator.py`
-**Change type:** Replace hardcoded schema constant with function
-
-**Problem:** `ORCHESTRATOR_SCHEMA` (line 59-77) hardcodes `["plan", "execute", "review", "approved"]`. Adding a new agent (test) requires manual schema update.
-
-**Integration:** Replace the constant with a builder function:
-
-```python
-from src.agents.config import AGENT_REGISTRY
-
-def build_orchestrator_schema() -> str:
-    """Generate JSON schema with agent enum from registry."""
-    agent_names = list(AGENT_REGISTRY.keys()) + ["approved"]
+# AFTER (built per task from dynamic registry):
+def build_orchestrator_schema(registry: dict[str, AgentConfig]) -> str:
+    enum_values = sorted(list(registry.keys()) + ["approved"])
     return json.dumps({
         "type": "object",
         "properties": {
-            "next_agent": {"type": "string", "enum": agent_names},
-            "reasoning": {"type": "string", "description": "One-line explanation"},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "next_agent": {"type": "string", "enum": enum_values},
+            ...
         },
-        "required": ["next_agent", "reasoning", "confidence"],
+        ...
     })
-
-# Usage: call build_orchestrator_schema() in get_orchestrator_decision()
-# Can cache at module level if AGENT_REGISTRY is static after import
-ORCHESTRATOR_SCHEMA = build_orchestrator_schema()
 ```
 
-**System prompt generation:** The `orchestrator_system.txt` should also reflect available agents. Two options:
+Pass registry into `orchestrate_pipeline()`. Schema computation is <1ms, no caching needed.
 
-1. Generate prompt text dynamically (requires changing `call_orchestrator_claude` to accept inline text instead of file path)
-2. Keep static file, update manually when adding agents
+### Decision 4: Template Generation via Claude CLI
 
-**Recommendation:** Option 2. The system prompt changes rarely (only when adding agents). The schema is the critical part -- it enforces valid JSON responses with correct enum values. Update `orchestrator_system.txt` when adding the test agent. The cognitive overhead of dynamic prompt generation is not worth the marginal maintenance savings.
+Use the existing `stream_claude()` with a generation-specific system prompt and JSON schema. This keeps the stack uniform (Claude CLI everywhere) and reuses the concurrency semaphore (max 2 processes).
+
+**Concurrency:** Template generation takes one Claude CLI slot. Acceptable since generation is infrequent and user-initiated. If a user generates a template while 2 tasks are running, the semaphore makes them wait. This is fine -- generation is not time-critical.
+
+### Decision 5: Commands as Context Injection, Not Execution
+
+Commands (`.claude/commands/*.md`) are injected into the orchestrator's system prompt as available instructions, not executed directly by the console. The Claude CLI agent references them when running.
+
+**Why:** Commands are instructions for Claude ("analyze schema, generate migration"), not for the console to execute. The console's job is to make Claude aware they exist. Avoids building a command execution engine.
+
+### Decision 6: Inline System Prompts for Project Agents
+
+Add `system_prompt_inline: str | None` to `AgentConfig`. The runner checks `system_prompt_inline` first, falls back to `system_prompt_file`. Core agents use file-based prompts (unchanged). Project agents use inline prompts (from `.md` file content).
+
+**Why not write project agent prompts to temp files?** Adds filesystem cleanup complexity. Inline is simpler -- the runner just passes the text differently to Claude CLI (`--system-prompt` flag instead of `--system-prompt-file`).
+
+### Decision 7: Core Agents are Protected from Override
+
+Project agents cannot override core agents (plan, execute, test, review). If a project template ships a `plan.md` in `.claude/agents/`, it is skipped with a warning log.
+
+**Why:** The pipeline depends on core agents having specific `output_sections` and `allowed_transitions`. Overriding them breaks routing logic. A project can add new specialized agents, but cannot modify the pipeline backbone.
 
 ---
 
-### Component 7: Test Agent
+## Patterns to Follow
 
-**Files added:** `src/agents/prompts/test_system.txt` (NEW)
-**Files modified:** `src/agents/config.py`, `src/pipeline/orchestrator.py` (section filter map), `src/agents/prompts/orchestrator_system.txt`
-**Change type:** New agent in registry + prompt file
+### Pattern 1: Discovery Module Structure
 
-**Design decision: Static code review, NOT subprocess execution.** Running `pytest` via subprocess adds complexity (venv management, dependency installation, path resolution, security sandboxing). Claude excels at static analysis -- missing error handling, type mismatches, import issues, logic errors.
-
-**Registry entry in config.py:**
+Each loader follows the same scan-parse-return pattern:
 
 ```python
-"test": AgentConfig(
-    name="test",
-    system_prompt_file=str(PROMPTS_DIR / "test_system.txt"),
-    output_sections=["TEST RESULTS", "FAILURES", "SUGGESTIONS", "HANDOFF"],
-    next_agent="review",
-),
-```
+# src/agents/loader.py
+from pathlib import Path
+from src.agents.config import AgentConfig
 
-**Pipeline flow change:** Update execute's `next_agent`:
+CLAUDE_AGENTS_DIR = ".claude/agents"
 
-```python
-"execute": AgentConfig(
-    name="execute",
-    system_prompt_file=str(PROMPTS_DIR / "execute_system.txt"),
-    output_sections=["TARGET", "PROJECT STRUCTURE", "FILES", "CODE",
-                     "COMMANDS", "SETUP NOTES", "HANDOFF"],
-    next_agent="test",  # Changed from "review"
-),
-```
+def discover_project_agents(project_path: str) -> dict[str, AgentConfig]:
+    """Scan .claude/agents/*.md and return dict of agent_name -> AgentConfig."""
+    agents_dir = Path(project_path) / CLAUDE_AGENTS_DIR
+    if not agents_dir.is_dir():
+        return {}
+    result = {}
+    for md_file in sorted(agents_dir.glob("*.md")):
+        config = _parse_agent_md(md_file)
+        if config:
+            result[config.name] = config
+    return result
 
-**Pipeline flow:** plan -> execute -> [file_write] -> test -> review
-
-**Orchestrator system prompt update:** Add TEST agent to routing rules:
-
-```
-The pipeline has four agents:
-- PLAN: Creates a structured development plan
-- EXECUTE: Implements the plan by writing code
-- TEST: Reviews code for bugs, errors, and quality issues (static analysis)
-- REVIEW: Final review of implementation quality
-
-Routing rules:
-...
-4. If TEST finds critical failures: route to "execute" for fixes
-5. If TEST passes: route to "review"
-```
-
-**Section filter map update (Component 2):**
-
-```python
-ROUTING_SECTIONS["test"] = {"TEST RESULTS", "FAILURES", "HANDOFF"}
-```
-
-**Interaction with dynamic schema (Component 6):** If dynamic schema is built first, adding "test" to `AGENT_REGISTRY` automatically includes it in the schema enum. If not, manual schema update is needed -- this is why Component 6 should precede Component 7.
-
----
-
-### Component 8: Confidence-Based Autonomy
-
-**Files modified:** `src/pipeline/orchestrator.py`, `src/pipeline/protocol.py`, `src/engine/context.py`
-**Change type:** Protocol extension + orchestrator logic change
-
-**Integration:** After `get_orchestrator_decision()` returns, check confidence before acting:
-
-```python
-# In orchestrate_pipeline(), after getting decision:
-decision = await get_orchestrator_decision(state, sections)
-
-# Low confidence gate -- force user confirmation even in autonomous mode
-if decision.confidence < 0.5:
-    confirmed = await ctx.confirm_reroute(
-        decision.next_agent,
-        f"LOW CONFIDENCE ({decision.confidence:.0%}): {decision.reasoning}",
-        force=True,  # bypass autonomous auto-approve
+def _parse_agent_md(md_path: Path) -> AgentConfig | None:
+    """Parse a .claude/agents/*.md file into an AgentConfig."""
+    content = md_path.read_text(encoding="utf-8", errors="replace")
+    name = md_path.stem
+    meta, body = _extract_front_matter(content)
+    return AgentConfig(
+        name=meta.get("name", name),
+        system_prompt_file="",
+        system_prompt_inline=body,  # NEW field
+        description=meta.get("description", f"Project agent: {name}"),
+        output_sections=meta.get("output_sections", []),
+        next_agent=meta.get("next_agent"),
+        allowed_transitions=tuple(meta.get("allowed_transitions", ("execute", "review"))),
     )
-    if not confirmed:
-        state.halted = True
-        break
+
+def _extract_front_matter(content: str) -> tuple[dict, str]:
+    """Extract YAML front-matter from markdown. Returns (metadata, body)."""
+    if not content.startswith("---"):
+        return {}, content
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}, content
+    import yaml
+    try:
+        meta = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        return {}, content
+    return meta, parts[2].strip()
 ```
 
-**Protocol change:** Add optional `force` parameter to `confirm_reroute`:
+### Pattern 2: Registry Merge with Protected Core
 
 ```python
-# protocol.py
-async def confirm_reroute(
-    self, next_agent: str, reasoning: str, force: bool = False
-) -> bool: ...
+PROTECTED_AGENTS = {"plan", "execute", "test", "review"}
 
-# context.py (WebTaskContext)
-async def confirm_reroute(
-    self, next_agent: str, reasoning: str, force: bool = False
-) -> bool:
-    if self._mode != "supervised" and not force:
-        return True  # auto-approve in autonomous mode
-    # Otherwise, wait for user approval
-    decision = await self._wait_for_approval(
-        "reroute", {"next_agent": next_agent, "reasoning": reasoning}
-    )
-    return decision == "approve"
+def merge_registries(
+    default: dict[str, AgentConfig],
+    project: dict[str, AgentConfig],
+) -> dict[str, AgentConfig]:
+    """Merge project agents into default registry. Core agents are protected."""
+    merged = dict(default)
+    for name, config in project.items():
+        if name in PROTECTED_AGENTS:
+            log.warning("Project agent '%s' conflicts with core agent, skipping", name)
+            continue
+        merged[name] = config
+    return merged
 ```
 
-**Why this goes last:** It touches the Protocol (a shared interface contract). All other features must be stable before adjusting how autonomy decisions flow. The improved decision quality from system prompt fix + section filtering makes confidence scores more meaningful.
+### Pattern 3: Capability Aggregate
 
----
+```python
+# src/context/assembler.py (addition)
+def discover_capabilities(project_path: str) -> dict:
+    """Discover all project capabilities from .claude/ directory."""
+    from src.agents.loader import discover_project_agents
+    from src.commands.loader import discover_project_commands
+    from src.settings.loader import load_project_settings
 
-## Data Flow: Before vs After
-
-### Before (current):
-
-```
-prompt + ALL accumulated_handoffs (unbounded)
-    -> agent (no system prompt on orchestrator)
-    -> ALL sections (truncated to 500 chars each)
-    -> orchestrator decision (no system prompt, confidence ignored)
-    -> no files written to disk
-```
-
-### After (target):
-
-```
-prompt + WINDOWED handoffs (last cycle, 8K cap)
-    -> agent
-    |
-    +-- if execute: sections -> file_writer -> disk
-    |
-    +-- FILTERED sections (routing-relevant only)
-    -> orchestrator decision (WITH system prompt, dynamic schema)
-    |
-    +-- if re-route: TARGETED prompt (ISSUES only) replaces handoffs
-    +-- if low confidence: force user confirmation
-    |
-    +-- if forward to test: test agent reviews before review agent
-```
-
----
-
-## Component Boundaries
-
-| Component | Responsibility | Communicates With |
-|-----------|---------------|-------------------|
-| `orchestrator.py` | Main loop, state machine, routing | All components below |
-| `file_writer.py` (NEW) | Parse CODE section, write to disk | Called by orchestrator after execute |
-| `handoff.py` | Build handoff context + re-route prompts | Called by orchestrator |
-| `runner.py` | Claude CLI subprocess execution | Called by orchestrator + context |
-| `context.py` | Stream output, approval gates | Called by orchestrator |
-| `config.py` | Agent registry (declarative) | Read by orchestrator, schema builder |
-| `agents/prompts/` | System prompts for each agent | Read by runner |
-
----
-
-## Recommended Build Order
-
-### Phase 1: Foundation fixes (no new features, immediate quality improvement)
-
-| Step | What | Files | Why This Position |
-|------|------|-------|-------------------|
-| 1 | System prompt fix | `runner.py`, `orchestrator.py` | Zero risk, 10-minute fix, immediately improves routing |
-| 2 | Section filtering | `orchestrator.py` | Reduces wasted tokens, pairs with prompt fix |
-| 3 | Bounded handoffs | `orchestrator.py` | Prevents context overflow, must land before file writer |
-
-Steps 1-3 are independent -- can be built in any order or parallelized. Group as one phase because they are all small orchestrator fixes.
-
-### Phase 2: Core output capability
-
-| Step | What | Files | Why This Position |
-|------|------|-------|-------------------|
-| 4 | File writer | NEW `file_writer.py`, `orchestrator.py` | Most impactful feature -- pipeline finally produces files |
-| 5 | Targeted re-route | `handoff.py`, `orchestrator.py` | Makes re-route cycles effective (focused instructions + file writes) |
-
-Step 4 depends on step 3 (bounded handoffs prevent bloat during write-rewrite cycles). Step 5 depends on step 4 (targeted re-routes are meaningful only when files get written).
-
-### Phase 3: Pipeline extension
-
-| Step | What | Files | Why This Position |
-|------|------|-------|-------------------|
-| 6 | Dynamic schema | `orchestrator.py` | Must land before test agent (avoids manual schema update) |
-| 7 | Test agent | NEW `test_system.txt`, `config.py`, `orchestrator_system.txt` | Depends on dynamic schema + file writer + section filtering |
-
-### Phase 4: Autonomy refinement
-
-| Step | What | Files | Why This Position |
-|------|------|-------|-------------------|
-| 8 | Confidence-based autonomy | `orchestrator.py`, `protocol.py`, `context.py` | Touches Protocol (breaking change); needs stable pipeline first |
-
-### Dependency Graph
-
-```
-[1] System prompt fix ----+
-[2] Section filtering ----+--> [4] File writer --> [5] Targeted re-route
-[3] Bounded handoffs -----+         |
-                                    v
-                          [6] Dynamic schema --> [7] Test agent
-                                                      |
-                                                      v
-                                              [8] Confidence autonomy
+    return {
+        "agents": discover_project_agents(project_path),
+        "commands": discover_project_commands(project_path),
+        "settings": load_project_settings(project_path),
+    }
 ```
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Putting file_writer inside WebTaskContext.stream_output()
+### Anti-Pattern 1: Global Mutable Registry
 
-**What:** Making `stream_output` aware of which agent is running and conditionally writing files.
-**Why bad:** Violates single responsibility. `stream_output` is agent-agnostic by design -- it streams Claude CLI output, parses sections, and persists to DB. Adding execute-specific logic couples it to agent knowledge and breaks the Protocol contract (other TaskContext implementations would need the same logic).
-**Instead:** Call `file_writer` from `orchestrate_pipeline()` after `stream_output` returns, conditioned on `state.current_agent == "execute"`.
+**What:** Modifying `AGENT_REGISTRY` in place when a project loads.
+**Why bad:** Race conditions with concurrent tasks on different projects. Agent contamination between projects.
+**Instead:** Build per-project registry as a new dict. Pass through call chain.
 
-### Anti-Pattern 2: Building re-route instructions in the orchestrator system prompt
+### Anti-Pattern 2: Storing Generated Templates in Database
 
-**What:** Telling the orchestrator Claude to generate targeted instructions for the next agent as part of its routing decision.
-**Why bad:** Doubles the orchestrator's job (routing + prompt engineering). The orchestrator should decide WHERE to route, not WHAT to tell the target agent. Also wastes an expensive Claude CLI call on prompt generation when Python can do it deterministically for free.
-**Instead:** Extract ISSUES/IMPROVEMENTS sections programmatically in `build_reroute_prompt()`. Deterministic, free, instant.
+**What:** Saving template file contents as JSON blobs in PostgreSQL.
+**Why bad:** Templates are file trees. The existing filesystem-based storage (in `templates/`) works. Adding a database layer duplicates storage and complicates template CRUD which already works.
+**Instead:** Keep templates on disk. The existing `POST /templates` endpoint already writes files and updates `registry.yaml`. AI generation produces the same `{files: {path: content}}` dict the create endpoint consumes.
 
-### Anti-Pattern 3: Running actual test suites in the test agent
+### Anti-Pattern 3: Complex Agent Capability Negotiation
 
-**What:** Having the test agent spawn `pytest`/`npm test` subprocesses.
-**Why bad:** Requires dependency installation, virtual environment management, security sandboxing. The execute agent already runs in a constrained subprocess. Adding another subprocess layer multiplies failure modes. The project under test may not even have a test framework set up yet.
-**Instead:** Static code review via Claude CLI. The test agent reads the code and checks for bugs, missing error handling, type mismatches, import issues. This is what Claude excels at without tooling.
+**What:** Building a protocol where agents declare capabilities, negotiate handoffs, or register/unregister during a task.
+**Why bad:** Over-engineering. The orchestrator already handles routing via Claude CLI judgment. Project agents just need to appear in the routing enum.
+**Instead:** Flat merge into registry. Orchestrator sees all agents equally and routes based on AI judgment.
 
-### Anti-Pattern 4: Modifying the Protocol for every new feature
+### Anti-Pattern 4: Separate Orchestration Flow for Project Agents
 
-**What:** Adding methods to `TaskContext` for file writing, testing, section filtering, etc.
-**Why bad:** Every Protocol change requires updating all implementations (`WebTaskContext`, any future adapters). The Protocol should stay minimal -- it defines UI contract, not pipeline logic.
-**Instead:** Only modify Protocol when the change is inherently about UI interaction. The confidence gate (forcing user confirmation) is the one justified case. File writing and testing are pipeline concerns handled in `orchestrate_pipeline()`.
+**What:** Building a different orchestration path for project-specific agents vs core agents.
+**Why bad:** Doubles orchestration logic. Creates confusion about which path a task takes.
+**Instead:** Single orchestrator, single merged registry. Project agents participate in the same pipeline. The orchestrator routes to them when it judges appropriate.
 
-### Anti-Pattern 5: Accumulating targeted re-route prompt alongside old handoffs
+### Anti-Pattern 5: Writing a Command Execution Engine
 
-**What:** Appending `build_reroute_prompt()` output to existing `accumulated_handoffs` instead of replacing it.
-**Why bad:** The agent receives old handoffs (describing the iteration that produced the issues) PLUS the targeted fix list. It must sort out which context is current. The old handoffs are noise -- they describe what was already tried and failed.
-**Instead:** `state.accumulated_handoffs = [reroute_prompt]` -- replace entirely. The targeted prompt contains everything needed.
+**What:** Building infrastructure to actually execute `.claude/commands/*.md` as runnable actions triggered from the UI.
+**Why bad:** Commands are Claude instructions, not shell scripts. The console should inform Claude about them, not try to run them itself. Building execution adds security concerns, error handling, and a whole new subsystem.
+**Instead:** Inject command descriptions into the orchestrator context. Claude reads them and follows the instructions when relevant.
+
+---
+
+## Suggested Build Order
+
+Dependencies dictate this sequence. Each phase builds on the previous.
+
+### Phase 1: Agent Loader Foundation
+
+```
+NEW:    src/agents/loader.py
+MODIFY: src/agents/config.py (add system_prompt_inline, get_project_registry, merge_registries)
+NEW:    tests/test_agent_loader.py
+
+WHY FIRST: Everything depends on the loader and dynamic registry pattern.
+DEPENDS ON: Nothing.
+RISK: Low -- new module, minimal changes to existing code.
+```
+
+### Phase 2: Commands + Settings Loaders
+
+```
+NEW:    src/commands/__init__.py
+NEW:    src/commands/loader.py
+NEW:    src/settings/__init__.py
+NEW:    src/settings/loader.py
+NEW:    tests/test_command_loader.py
+NEW:    tests/test_settings_loader.py
+
+WHY SECOND: Same pattern as agent loader, simpler scope.
+DEPENDS ON: Nothing (parallel with Phase 1 is possible but linear is safer).
+RISK: Low -- new modules only.
+```
+
+### Phase 3: Context Assembly Integration
+
+```
+MODIFY: src/context/assembler.py (add discover_capabilities, enrich assemble_full_context)
+MODIFY: tests/test_assembler.py
+
+DEPENDS ON: Phase 1 + 2 (needs all three loaders).
+RISK: Low -- additive changes to existing function return value.
+```
+
+### Phase 4: Orchestrator Dynamic Registry
+
+```
+MODIFY: src/pipeline/orchestrator.py (per-run schema, accept registry param)
+MODIFY: src/runner/runner.py (support --system-prompt for inline prompts)
+MODIFY: src/agents/config.py (build_agent_enum/descriptions accept registry)
+MODIFY: tests/test_orchestrator.py
+
+DEPENDS ON: Phase 1 + 3 (needs dynamic registry + enriched context).
+RISK: HIGH -- changes core pipeline behavior. Must test thoroughly.
+This is the riskiest phase. Extra test coverage needed.
+```
+
+### Phase 5: Project Service Integration
+
+```
+MODIFY: src/pipeline/project_service.py (trigger discovery after scaffolding)
+MODIFY: src/server/routers/projects.py (expose capabilities in responses)
+MODIFY: tests/test_project_service.py
+
+DEPENDS ON: Phase 1 + 2 (needs loaders).
+RISK: Medium -- modifies project creation flow.
+```
+
+### Phase 6: AI Template Generation
+
+```
+MODIFY: src/server/routers/templates.py (add POST /templates/generate)
+NEW:    src/agents/prompts/template_gen_system.txt
+NEW:    tests/test_template_generation.py
+
+DEPENDS ON: Phase 1 knowledge (to generate valid agent files).
+RISK: Medium -- new Claude CLI interaction pattern, but isolated endpoint.
+```
+
+### Phase 7: Template Editor UI
+
+```
+MODIFY: static/index.html (generator form, tree preview, file editor)
+
+DEPENDS ON: Phase 6 (needs /generate API).
+RISK: Low -- pure frontend, no backend changes.
+```
+
+### Critical Path
+
+```
+Phase 1 ──> Phase 3 ──> Phase 4    (pipeline works with dynamic agents)
+   |
+   +──> Phase 5                      (creation triggers loading)
+   |
+   +──> Phase 6 ──> Phase 7          (AI generation + editor UI)
+
+Phase 2 ──> Phase 3                  (commands/settings feed context)
+```
+
+Phase 4 (orchestrator changes) is the highest-risk, highest-value phase. It should be built carefully with extensive testing.
 
 ---
 
 ## Scalability Considerations
 
-| Concern | Current (3 agents) | After (4 agents + file writer) | Note |
-|---------|--------------------|---------------------------------|------|
-| Context size | Unbounded handoff growth | 8K cap + windowing | Bounded handoffs prevent degradation |
-| CLI calls per cycle | 4 (plan+exec+review+decision) | 6 (plan+exec+test+review+2 decisions) | ~50% more CLI calls per full cycle |
-| Disk writes | None (code only in DB) | After each execute run | Git recovery for overwrites |
-| Decision quality | No system prompt, all sections | System prompt + filtered sections | Fewer tokens, better routing |
-| Agent additions | 3-place manual edit | 1-place registry edit + prompt file | Dynamic schema handles new agents |
+| Concern | Current (4 agents) | With templates (4-10 agents) | At 20+ agents |
+|---------|---------------------|------------------------------|----------------|
+| Registry lookup | O(1) dict | O(1) same | O(1) same |
+| Schema build | Computed once at import | Computed per task (<1ms) | Still fast |
+| Orchestrator prompt | ~50 tokens for agent list | ~150 tokens | ~400 tokens, may need trimming |
+| Agent discovery | N/A | ~5ms filesystem scan | Add TTL cache if >50ms |
+| CLI routing quality | Excellent (few choices) | Good | May degrade -- keep under 10 total |
+
+**Practical limit:** Keep total agents per project under 10. The Claude CLI orchestrator's routing quality degrades with too many choices. This is a model limitation, not an architectural one.
 
 ---
 
 ## Sources
 
-All findings based on direct codebase analysis (HIGH confidence):
-
-- `src/pipeline/orchestrator.py` -- Main loop, state machine, handoff accumulation, decision handling
-- `src/agents/config.py` -- Agent registry pattern, `AgentConfig` dataclass, `resolve_pipeline_order()`
-- `src/agents/base.py` -- `AgentResult` dataclass, `BaseAgent` lifecycle
-- `src/pipeline/handoff.py` -- `build_handoff()` current implementation
-- `src/pipeline/protocol.py` -- `TaskContext` Protocol definition (5 methods)
-- `src/runner/runner.py` -- `stream_claude()`, `call_orchestrator_claude()` (missing system prompt)
-- `src/engine/context.py` -- `WebTaskContext` implementation (approval gates, streaming)
-- `src/agents/prompts/orchestrator_system.txt` -- Routing rules (unused due to runner bug)
-- `src/agents/prompts/execute_system.txt` -- CODE section format for file writer parser
-- `src/agents/prompts/review_system.txt` -- ISSUES/IMPROVEMENTS sections for re-route extraction
-- `src/parser/extractor.py` -- `extract_sections()` regex pattern
-- `src/git/autocommit.py` -- Staging patterns (`src/`, `tests/`, tracked files)
-- `docs/orchestration-improvements.md` -- 8-improvement analysis document
+- Direct codebase analysis of all affected files (HIGH confidence)
+- `docs/template-system-overhaul.md` -- team-authored design document with architecture proposal (HIGH confidence)
+- Existing template structure in `templates/fastapi-pg/.claude/` (HIGH confidence)
+- `src/agents/config.py` -- AgentConfig dataclass, registry pattern (HIGH confidence)
+- `src/pipeline/orchestrator.py` -- orchestration loop, schema building, routing (HIGH confidence)
+- `src/context/assembler.py` -- context assembly pattern (HIGH confidence)
+- `src/server/routers/templates.py` -- template CRUD endpoints (HIGH confidence)
 
 ---
-*Architecture research for: AI Agent Console v2.3 Orchestration Improvements*
+*Architecture research for: AI Agent Console v2.4 Template System Overhaul*
 *Researched: 2026-03-14*
