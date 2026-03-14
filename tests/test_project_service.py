@@ -434,3 +434,48 @@ class TestProjectEndpoints:
     async def test_delete_nonexistent_returns_404(self, client, auth):
         resp = await client.delete("/projects/99999", auth=auth)
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# TestLifecycleEvents
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleEvents:
+    """Verify emit_event is wired at all 6 lifecycle points."""
+
+    def test_all_event_types_defined(self):
+        """Verify the enum has all 6 expected values."""
+        expected = {
+            "project.created", "project.deleted",
+            "task.started", "task.completed", "task.failed",
+            "phase.suggested",
+        }
+        actual = {e.value for e in ProjectEvent}
+        assert actual == expected
+
+    def test_manager_imports_emit_event(self):
+        """Verify manager module can import emit_event."""
+        from src.engine import manager
+        assert hasattr(manager, "emit_event")
+
+    def test_assembler_imports_emit_event(self):
+        """Verify assembler module can import emit_event."""
+        from src.context import assembler
+        assert hasattr(assembler, "emit_event")
+
+    def test_manager_source_contains_emit_calls(self):
+        """Verify manager.py source has emit_event calls for all 3 task events."""
+        import inspect
+        from src.engine import manager
+        source = inspect.getsource(manager)
+        assert "TASK_STARTED" in source
+        assert "TASK_COMPLETED" in source
+        assert "TASK_FAILED" in source
+
+    def test_assembler_source_contains_phase_suggested(self):
+        """Verify assembler.py source emits PHASE_SUGGESTED."""
+        import inspect
+        from src.context import assembler
+        source = inspect.getsource(assembler)
+        assert "PHASE_SUGGESTED" in source

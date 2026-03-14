@@ -19,6 +19,7 @@ import asyncpg
 from src.db.pg_repository import TaskRepository
 from src.db.pg_schema import Task
 from src.engine.context import WebTaskContext
+from src.pipeline.events import ProjectEvent, emit_event
 from src.pipeline.orchestrator import orchestrate_pipeline
 
 log = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ class TaskManager:
             async with self._semaphore:
                 # Mark as running once semaphore acquired
                 await self._repo.update_status(task_id, "running")
+                await emit_event(ProjectEvent.TASK_STARTED, {"task_id": task_id})
 
                 ctx = WebTaskContext(
                     task_id=task_id,
@@ -117,6 +119,7 @@ class TaskManager:
                     task_id, "completed",
                     completed_at=datetime.now(timezone.utc),
                 )
+                await emit_event(ProjectEvent.TASK_COMPLETED, {"task_id": task_id})
                 if self._connection_manager:
                     await self._connection_manager.send_status(task_id, "completed")
         except asyncio.CancelledError:
@@ -134,6 +137,7 @@ class TaskManager:
                 error=str(exc),
                 completed_at=datetime.now(timezone.utc),
             )
+            await emit_event(ProjectEvent.TASK_FAILED, {"task_id": task_id, "error": str(exc)})
             if self._connection_manager:
                 await self._connection_manager.send_status(task_id, "failed")
         finally:

@@ -20,6 +20,8 @@ from typing import Any
 
 import asyncpg
 
+from src.pipeline.events import ProjectEvent, emit_event
+
 log = logging.getLogger(__name__)
 
 MAX_FILES = 200
@@ -267,6 +269,12 @@ async def suggest_next_phase(project_path: str) -> dict[str, Any] | None:
                 "reason": f"Phase {phase['phase_id']} ({phase['phase_name']}) is the next {'in-progress' if phase['status'] == 'in_progress' else 'pending'} phase",
             }
             break
+
+    if suggestion is not None:
+        await emit_event(
+            ProjectEvent.PHASE_SUGGESTED,
+            {"phase_id": suggestion["phase_id"], "phase_name": suggestion["phase_name"]},
+        )
 
     return {
         "suggestion": suggestion,
