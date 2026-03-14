@@ -215,8 +215,8 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 ### Template Editor
 
 - [x] **EDIT-01**: L'utente può visualizzare la struttura ad albero dei file di un template (preview)
-- [ ] **EDIT-02**: L'utente può modificare inline il contenuto di ogni file del template
-- [ ] **EDIT-03**: L'utente può salvare le modifiche (preview-before-save flow)
+- [x] **EDIT-02**: L'utente può modificare inline il contenuto di ogni file del template
+- [x] **EDIT-03**: L'utente può salvare le modifiche (preview-before-save flow)
 
 ## Future Requirements
 
@@ -409,8 +409,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AIGEN-02 | Phase 29 | Complete |
 | AIGEN-03 | Phase 29 | Complete |
 | EDIT-01 | Phase 30 | Complete |
-| EDIT-02 | Phase 30 | Pending |
-| EDIT-03 | Phase 30 | Pending |
+| EDIT-02 | Phase 30 | Complete |
+| EDIT-03 | Phase 30 | Complete |
 
 **Coverage:**
 - v2.4 requirements: 18 total

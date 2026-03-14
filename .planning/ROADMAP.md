@@ -74,7 +74,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 27: Commands & Settings Loaders** - Discover commands from `.claude/commands/` and apply project settings from `.claude/settings.local.json` (completed 2026-03-14)
 - [x] **Phase 28: Orchestrator Dynamic Registry** - Build orchestrator schema per-task from injected registry, enable routing to project-specific agents and commands (completed 2026-03-14)
 - [x] **Phase 29: AI Template Generation** - Generate complete templates from natural language descriptions via Claude CLI with validation (completed 2026-03-14)
-- [ ] **Phase 30: Template Editor UI** - Preview file tree, edit file contents inline, save with preview-before-save flow
+- [x] **Phase 30: Template Editor UI** - Preview file tree, edit file contents inline, save with preview-before-save flow (completed 2026-03-14)
 
 ## Phase Details
 
@@ -142,7 +142,7 @@ Plans:
   1. User can view a template's complete file structure as a collapsible tree (directories and files) in the browser
   2. User can click any file in the tree to view and edit its contents inline via a textarea
   3. User can save modifications with a preview-before-save flow -- changes are visible before committing
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 30-01-PLAN.md — File content endpoint + collapsible tree view + content viewer
 - [ ] 30-02-PLAN.md — Inline textarea editor + preview-before-save flow
@@ -183,4 +183,4 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 | 27. Commands & Settings Loaders | 2/2 | Complete    | 2026-03-14 | - |
 | 28. Orchestrator Dynamic Registry | 2/2 | Complete    | 2026-03-14 | - |
 | 29. AI Template Generation | 2/2 | Complete    | 2026-03-14 | - |
-| 30. Template Editor UI | 1/2 | In Progress|  | - |
+| 30. Template Editor UI | 2/2 | Complete   | 2026-03-14 | - |
