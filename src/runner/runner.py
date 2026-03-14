@@ -170,23 +170,31 @@ async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file:
         cmd += ["--system-prompt", system_prompt]
     elif system_prompt_file:
         cmd += ["--system-prompt-file", system_prompt_file]
+    # Check if extra_args contains empty strings (e.g. --tools "")
+    # In that case, pass prompt via stdin to avoid CLI argument confusion
+    use_stdin = False
     if extra_args:
         cmd += extra_args
-    cmd.append(prompt)
+        if "" in extra_args:
+            use_stdin = True
 
-    log.info("call_orchestrator_claude: launching decision call, prompt_len=%d system_prompt_file=%s", len(prompt), system_prompt_file)
+    if not use_stdin:
+        cmd.append(prompt)
+
+    log.info("call_orchestrator_claude: launching decision call, prompt_len=%d system_prompt_file=%s stdin=%s", len(prompt), system_prompt_file, use_stdin)
     log.debug("call_orchestrator_claude: prompt_preview=%r", prompt[:300])
 
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
+        stdin=asyncio.subprocess.PIPE if use_stdin else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
     log.info("call_orchestrator_claude: process started pid=%s", proc.pid)
-    stdout, stderr = await proc.communicate()
+    stdout, stderr = await proc.communicate(input=prompt.encode() if use_stdin else None)
     log.info("call_orchestrator_claude: process exited rc=%s stdout_len=%d", proc.returncode, len(stdout))
 
     if proc.returncode != 0:
