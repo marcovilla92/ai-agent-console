@@ -5,7 +5,8 @@
 - ✅ **v1.0 MVP** -- Phases 1-5 (shipped 2026-03-12)
 - ✅ **v2.0 Web Platform** -- Phases 6-11 (shipped 2026-03-13)
 - ✅ **v2.1 Project Router** -- Phases 12-17 (shipped 2026-03-14)
-- 🚧 **v2.2 UI Redesign** -- Phases 18-21 (in progress)
+- ✅ **v2.2 UI Redesign** -- Phases 18-21 (shipped 2026-03-14)
+- 🚧 **v2.3 Orchestration Improvements** -- Phases 22-25 (in progress)
 
 ## Phases
 
@@ -46,69 +47,74 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
-### v2.2 UI Redesign
+<details>
+<summary>v2.2 UI Redesign (Phases 18-21) -- SHIPPED 2026-03-14</summary>
 
-- [ ] **Phase 18: Design System Foundation** - Tailwind CSS setup, color palette, component styles, transitions
-- [ ] **Phase 19: Sidebar Layout & Responsive Shell** - Fixed sidebar, responsive breakpoints, navigation
-- [ ] **Phase 20: Project & Template Views** - Project dashboard with KPI cards, task list, template grid
-- [ ] **Phase 21: Task Flow & Polish** - Task creation, running view, approval UI, global tasks page
+- [x] Phase 18: Design System Foundation (1/1 plans) -- completed 2026-03-14
+- [x] Phase 19: Sidebar Layout & Responsive Shell (1/1 plans) -- completed 2026-03-14
+- [x] Phase 20: Project & Template Views (1/1 plans) -- completed 2026-03-14
+- [x] Phase 21: Task Flow & Polish (1/1 plans) -- completed 2026-03-14
+
+</details>
+
+### v2.3 Orchestration Improvements
+
+- [ ] **Phase 22: Bug Fixes & Foundation** - Fix agent/orchestrator system prompts and implement bounded handoff windowing
+- [ ] **Phase 23: Core Output** - File writer module, targeted re-route prompts, and smart section filtering
+- [ ] **Phase 24: Pipeline Extension** - Dynamic schema from registry, routing validation, and test agent
+- [ ] **Phase 25: Autonomy Refinement** - Confidence-based gating with autonomous-by-default mode
 
 ## Phase Details
 
-### Phase 18: Design System Foundation
-**Goal**: The application has a consistent visual language -- Tailwind CSS replaces Pico CSS with a clean light theme, reusable component styles, and polished loading/transition states
-**Depends on**: Phase 17 (v2.1 complete)
-**Requirements**: DS-01, DS-02, DS-03, DS-04, DS-05
+### Phase 22: Bug Fixes & Foundation
+**Goal**: Agents follow their formatting rules and the orchestrator knows its routing role -- the pipeline produces structured, predictable output with bounded context growth
+**Depends on**: Phase 21 (v2.2 complete)
+**Requirements**: FIX-01, FIX-02, CTX-05, CTX-06
 **Success Criteria** (what must be TRUE):
-  1. Pico CSS is removed and Tailwind CSS (CDN) is the sole styling framework -- all existing UI elements render correctly
-  2. The application uses a consistent light color palette with uniform typography and spacing across all views
-  3. Buttons, cards, badges, inputs, and modals follow reusable Tailwind utility patterns that look visually cohesive
-  4. Every async operation (API calls, page loads) shows a loading spinner or skeleton placeholder instead of blank space
-  5. View transitions use fade or slide animations -- switching between views feels smooth, not jarring
-**Plans**: 1 plan
-Plans:
-- [ ] 18-01-PLAN.md -- Replace Pico with Tailwind, design system, loading states, transitions
-
-### Phase 19: Sidebar Layout & Responsive Shell
-**Goal**: Users navigate the application through a persistent sidebar that adapts gracefully across desktop, tablet, and mobile screen sizes
-**Depends on**: Phase 18
-**Requirements**: NAV-01, NAV-02, NAV-03, NAV-04, NAV-05, RES-01, RES-02, RES-03, RES-04, RES-05
-**Success Criteria** (what must be TRUE):
-  1. A fixed sidebar on the left shows navigation links (Projects, Templates, Tasks) with the app name/logo at top -- it persists across all views
-  2. Active page is visually highlighted in the sidebar so users always know where they are
-  3. On desktop (>1024px), the sidebar is fully expanded with labels; on tablet (768-1024px), it collapses to icon-only; on mobile (<768px), it hides behind a hamburger toggle
-  4. Main content fills the remaining viewport width without horizontal scrolling at any breakpoint
-  5. All interactive elements (buttons, list items, nav links) have at least 44px tap targets on mobile for touch-friendliness
+  1. Every agent (plan, execute, review) produces output that follows its system prompt formatting sections -- visible in the streaming output log
+  2. Orchestrator routing decisions reference its role definition and agent descriptions -- decisions are no longer generic "pick next"
+  3. Handoff context passed between agents contains only the last complete cycle (plan+execute+review) and stays under 8000 characters -- older cycles are dropped
+  4. On re-route cycles, the original plan handoff is always preserved in context regardless of windowing -- execute never loses the initial task description
 **Plans**: TBD
 
-### Phase 20: Project & Template Views
-**Goal**: Users can browse projects and templates in clean card-based layouts, drill into a project dashboard with KPI metrics, and explore task history with expandable detail
-**Depends on**: Phase 19
-**Requirements**: PROJ-10, PROJ-11, PROJ-12, PROJ-13, PROJ-14, PROJ-15, PROJ-16, TMPL-10, TMPL-11, TMPL-12
+### Phase 23: Core Output
+**Goal**: The pipeline writes real code files to disk and provides focused feedback on re-route cycles -- execute output becomes usable artifacts, not just text in a database
+**Depends on**: Phase 22
+**Requirements**: FWRT-01, FWRT-02, FWRT-03, FWRT-04, FWRT-05, FWRT-06, CTX-07, CTX-08
 **Success Criteria** (what must be TRUE):
-  1. Project list page displays all projects as cards in a responsive grid, each showing name, description, stack badges, and last activity time
-  2. Clicking a project card opens a dashboard view with KPI cards (total tasks, running, completed, failed) and a task list below
-  3. Task rows in the project dashboard show status badge, prompt preview, timestamp, and duration -- clicking a row expands it to reveal full agent output
-  4. A prominent "New Task" button is visible in the project dashboard header
-  5. Template page displays templates as cards in a grid with name, description, stack info, and builtin/custom badge -- clicking a card shows file list and metadata
+  1. After execute completes, code blocks with file path annotations are parsed and written as actual files under the project workspace -- files exist on disk
+  2. The file writer reports exactly which files were written -- the list appears in the task log and feeds into auto-commit
+  3. If execute produces a non-empty CODE section but zero files are extracted, a warning is logged instead of silent success
+  4. When review triggers a re-route back to execute, the execute agent receives a targeted prompt listing specific ISSUES/IMPROVEMENTS from review -- not the full handoff dump
+  5. Orchestrator routing prompt includes only sections relevant to the last agent type (via ROUTING_SECTIONS map) -- CODE sections from execute do not pollute routing decisions
 **Plans**: TBD
 
-### Phase 21: Task Flow & Polish
-**Goal**: Users can create tasks, monitor running tasks with live output, handle approval gates, and browse all tasks across projects from a single page
-**Depends on**: Phase 20
-**Requirements**: TASK-20, TASK-21, TASK-22, TASK-23, TASK-24
+### Phase 24: Pipeline Extension
+**Goal**: Adding a new agent to the pipeline requires only a registry entry -- the orchestrator auto-discovers agents, validates routing transitions, and a test agent performs static code review between execute and review
+**Depends on**: Phase 23
+**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05
 **Success Criteria** (what must be TRUE):
-  1. Task creation form provides project selector, prompt textarea, mode toggle (supervised/autonomous), and submit button -- all styled consistently with the design system
-  2. Running task view shows a status indicator, live-streaming output via WebSocket, and a cancel button
-  3. When a task hits an approval gate, a clear action card appears with approve/reject/continue buttons that are easy to identify and tap
-  4. Completed task view shows final status, full output log, and offers "back to project" and "new task" navigation actions
-  5. Global tasks page lists all tasks across all projects with status filtering (running, completed, failed, all)
+  1. Orchestrator JSON schema enum is generated from AGENT_REGISTRY keys at runtime -- adding a new agent config automatically makes it routable
+  2. Orchestrator system prompt dynamically lists available agents and their descriptions from the registry -- no hardcoded agent names
+  3. Invalid routing transitions (e.g., review to test skipping execute) are caught and fall back to the agent's configured next_agent
+  4. A test agent exists in the pipeline that performs static code review via LLM (no subprocess execution) and produces findings for the review agent
+  5. The default pipeline flow is plan -> execute -> [file_write] -> test -> review with the orchestrator able to re-route as needed
 **Plans**: TBD
+
+### Phase 25: Autonomy Refinement
+**Goal**: Tasks run fully autonomously by default with no user confirmations -- supervised mode remains as an opt-in option for when the user wants control
+**Depends on**: Phase 24
+**Requirements**: AUTO-01, AUTO-02, AUTO-03, AUTO-04
+**Success Criteria** (what must be TRUE):
+  1. New tasks default to autonomous mode -- the pipeline runs from prompt to completion without any user confirmations
+  2. In autonomous mode, low confidence decisions (< 0.5) log a visible warning in the task output but never block execution
+  3. In supervised mode, low confidence decisions (< 0.5) trigger a user confirmation gate before proceeding
+  4. Users can still select supervised mode when creating a task -- it works exactly as before with approval gates at each stage
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 18 -> 19 -> 20 -> 21
+Phases execute in numeric order: 22 -> 23 -> 24 -> 25
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -129,7 +135,11 @@ Phases execute in numeric order: 18 -> 19 -> 20 -> 21
 | 15. Project Service and API | v2.1 | 2/2 | Complete | 2026-03-14 |
 | 16. Task-Project Integration | v2.1 | 1/1 | Complete | 2026-03-14 |
 | 17. SPA Frontend | v2.1 | 2/2 | Complete | 2026-03-14 |
-| 18. Design System Foundation | v2.2 | 0/1 | Not started | - |
-| 19. Sidebar Layout & Responsive Shell | v2.2 | 0/TBD | Not started | - |
-| 20. Project & Template Views | v2.2 | 0/TBD | Not started | - |
-| 21. Task Flow & Polish | v2.2 | 0/TBD | Not started | - |
+| 18. Design System Foundation | v2.2 | 1/1 | Complete | 2026-03-14 |
+| 19. Sidebar Layout & Responsive Shell | v2.2 | 1/1 | Complete | 2026-03-14 |
+| 20. Project & Template Views | v2.2 | 1/1 | Complete | 2026-03-14 |
+| 21. Task Flow & Polish | v2.2 | 1/1 | Complete | 2026-03-14 |
+| 22. Bug Fixes & Foundation | v2.3 | 0/TBD | Not started | - |
+| 23. Core Output | v2.3 | 0/TBD | Not started | - |
+| 24. Pipeline Extension | v2.3 | 0/TBD | Not started | - |
+| 25. Autonomy Refinement | v2.3 | 0/TBD | Not started | - |

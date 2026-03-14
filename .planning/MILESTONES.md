@@ -3,7 +3,7 @@
 ## v1.0 MVP (Shipped: 2026-03-12)
 
 **Phases:** 5 | **Plans:** 16 | **Files:** 114 | **LOC:** 4,524 Python (2,176 src + 2,348 tests)
-**Timeline:** 2 days (2026-03-11 → 2026-03-12)
+**Timeline:** 2 days (2026-03-11 -> 2026-03-12)
 **Git range:** 27 feat commits
 
 **Key accomplishments:**
@@ -22,7 +22,7 @@
 
 ## v2.1 Project Router (Shipped: 2026-03-14)
 
-**Phases:** 6 (12-17) | **Plans:** 10 | **Timeline:** 2 days (2026-03-13 → 2026-03-14)
+**Phases:** 6 (12-17) | **Plans:** 10 | **Timeline:** 2 days (2026-03-13 -> 2026-03-14)
 
 **Key accomplishments:**
 1. Projects table with auto-registration of ~/projects/ folders
@@ -34,16 +34,30 @@
 
 ---
 
-## v2.2 UI Redesign (In Progress)
+## v2.2 UI Redesign (Shipped: 2026-03-14)
 
-**Phases:** 4 (18-21) | **Plans:** TBD | **Timeline:** Started 2026-03-14
+**Phases:** 4 (18-21) | **Plans:** 4 | **Timeline:** 1 day (2026-03-14)
 
 **Goal:** Complete visual overhaul -- clean light theme, fixed sidebar navigation, KPI dashboard cards, expandable task lists, and modern design system with Tailwind CSS.
 
+**Key accomplishments:**
+1. Tailwind CSS replaces Pico CSS with consistent light theme and component styles
+2. Fixed sidebar with responsive breakpoints (desktop/tablet/mobile)
+3. Project dashboard with KPI cards and expandable task list
+4. Task flow polish with global tasks page, filters, and new task actions
+
+---
+
+## v2.3 Orchestration Improvements (In Progress)
+
+**Phases:** 4 (22-25) | **Plans:** TBD | **Timeline:** Started 2026-03-14
+
+**Goal:** Make the agent pipeline produce real output end-to-end -- file writing, smarter re-routing, bounded context, full autonomy by default, and a test agent for code review.
+
 **Phase overview:**
-1. Phase 18: Design System Foundation -- Tailwind CSS, color palette, component styles, transitions
-2. Phase 19: Sidebar Layout & Responsive Shell -- Fixed sidebar, responsive breakpoints, navigation
-3. Phase 20: Project & Template Views -- Project dashboard with KPI cards, task list, template grid
-4. Phase 21: Task Flow & Polish -- Task creation, running view, approval UI, global tasks page
+1. Phase 22: Bug Fixes & Foundation -- System prompt fixes, bounded handoff windowing
+2. Phase 23: Core Output -- File writer module, targeted re-routes, section filtering
+3. Phase 24: Pipeline Extension -- Dynamic schema, routing validation, test agent
+4. Phase 25: Autonomy Refinement -- Confidence gating, autonomous-by-default
 
 ---

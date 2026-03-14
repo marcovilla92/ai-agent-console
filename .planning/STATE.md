@@ -4,10 +4,10 @@ milestone: v2.3
 milestone_name: Orchestration Improvements
 status: active
 stopped_at: null
-last_updated: "2026-03-14T17:00:00.000Z"
-last_activity: 2026-03-14 -- Milestone v2.3 started
+last_updated: "2026-03-14T18:00:00.000Z"
+last_activity: 2026-03-14 -- Roadmap created for v2.3
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,21 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** v2.3 Orchestration Improvements
+**Current focus:** Phase 22 - Bug Fixes & Foundation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-14 — Milestone v2.3 started
+Phase: 22 of 25 (Bug Fixes & Foundation)
+Plan: --
+Status: Ready to plan
+Last activity: 2026-03-14 -- Roadmap created for v2.3
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 29 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4)
+- Total plans completed: 33 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4)
 - Average duration: 5min
-- Total execution time: ~2 hours
+- Total execution time: ~2.5 hours
 
 *Updated after each plan completion*
 
@@ -43,18 +45,12 @@ Last activity: 2026-03-14 — Milestone v2.3 started
 
 ### Decisions
 
-- [v2.0]: Frontend built last -- all APIs must exist before UI work begins
-- [v2.0]: asyncio.Semaphore(2) for concurrent task limit (RAM constraint)
-- [v2.1]: SPA last -- same "APIs before UI" pattern as v2.0
-- [v2.2]: Tailwind CSS CDN replaces Pico CSS -- no build step needed
-- [v2.2]: Responsive design: sidebar collapses to hamburger on mobile
-- [v2.2]: Project dashboard view with KPI cards between select and prompt views
-- [v2.2]: statusClass() helper for dynamic status badge colors
-- [v2.2]: Page-based navigation (projects/templates/tasks) with sub-views
 - [v2.3]: File writer overwrites always, git for recovery
 - [v2.3]: Test agent does static code review, no subprocess execution
 - [v2.3]: Autonomous mode is default, no confirmations even with low confidence
 - [v2.3]: Supervised mode remains as opt-in option
+- [v2.3]: Bug fixes before features -- all structured output parsing depends on system prompts being loaded
+- [v2.3]: Pin first plan handoff (exempt from windowing) to preserve original context on re-routes
 
 ### Pending Todos
 
@@ -64,9 +60,10 @@ None.
 
 - x-show (not x-if) in Alpine.js SPA to preserve WebSocket connections
 - MAX_CONTEXT_CHARS = 6000 cap to prevent prompt cost inflation
+- Execute system prompt format must be verified before writing file writer regex
 
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Defining requirements for v2.3
+Stopped at: Roadmap created for v2.3, ready to plan Phase 22
 Resume file: None
