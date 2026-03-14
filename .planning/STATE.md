@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Project Router
-status: completed
-stopped_at: Completed 14-02-PLAN.md -- Context router endpoints
-last_updated: "2026-03-13T23:27:37.528Z"
-last_activity: 2026-03-13 -- Completed 14-02 Context router endpoints
+status: in_progress
+stopped_at: Completed 15-01-PLAN.md -- Project service and events
+last_updated: "2026-03-14T00:10:26Z"
+last_activity: 2026-03-14 -- Completed 15-01 Project service and events
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_plans: 7
+  completed_plans: 6
+  percent: 85
 ---
 
 # Project State
@@ -21,26 +21,26 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 14 complete - Context Assembly (v2.1 Project Router)
+**Current focus:** Phase 15 in progress - Project Service and API (v2.1 Project Router)
 
 ## Current Position
 
-Phase: 14 of 17 (Context Assembly)
-Plan: 02 of 02 (complete)
-Status: Phase 14 complete
-Last activity: 2026-03-13 -- Completed 14-02 Context router endpoints
+Phase: 15 of 17 (Project Service and API)
+Plan: 01 of 02 (complete)
+Status: Phase 15 in progress
+Last activity: 2026-03-14 -- Completed 15-01 Project service and events
 
-Progress: [██████████] 100%
+Progress: [████████░░] 85%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22 (v1.0: 16, v2.0: 10, v2.1: 5)
+- Total plans completed: 23 (v1.0: 16, v2.0: 10, v2.1: 6)
 - Average duration: 5min
-- Total execution time: ~1.5 hours
+- Total execution time: ~1.6 hours
 
 **Recent Trend:**
-- Last 5 plans: 6min, 5min, 4min, 5min, 4min
+- Last 5 plans: 5min, 4min, 5min, 4min, 4min
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -68,6 +68,9 @@ Progress: [██████████] 100%
 - [14-01]: Phase in_progress detection cross-references STATE.md Phase line
 - [14-02]: PhaseSuggestionResponse returns empty all_phases list when no .planning/ dir
 - [14-02]: project_router follows identical pattern to template_router
+- [15-01]: ProjectService filters list_all by workspace_root prefix for test isolation
+- [15-01]: detect_stack extracted as standalone function from assembler
+- [15-01]: workspace_root override param in ProjectService for testability
 
 ### Pending Todos
 
@@ -84,6 +87,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T22:58:21Z
-Stopped at: Completed 14-02-PLAN.md -- Context router endpoints
+Last session: 2026-03-14T00:10:26Z
+Stopped at: Completed 15-01-PLAN.md -- Project service and events
 Resume file: None
