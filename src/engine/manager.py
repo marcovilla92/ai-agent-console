@@ -49,6 +49,7 @@ class TaskManager:
         self._running: dict[int, RunningTask] = {}
         self._repo = TaskRepository(pool)
         self._connection_manager = connection_manager
+        self._shutting_down = False
 
     async def submit(
         self,
@@ -133,12 +134,20 @@ class TaskManager:
                 if self._connection_manager:
                     await self._connection_manager.send_status(task_id, "completed")
         except asyncio.CancelledError:
-            await self._repo.update_status(
-                task_id, "cancelled",
-                completed_at=datetime.now(timezone.utc),
-            )
-            if self._connection_manager:
-                await self._connection_manager.send_status(task_id, "cancelled")
+            if self._shutting_down:
+                # Server shutdown — mark as interrupted for resume on restart
+                await self._repo.update_status(task_id, "interrupted")
+                log.info("Task %d interrupted by server shutdown (will resume)", task_id)
+                if self._connection_manager:
+                    await self._connection_manager.send_status(task_id, "interrupted")
+            else:
+                # User-initiated cancellation
+                await self._repo.update_status(
+                    task_id, "cancelled",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                if self._connection_manager:
+                    await self._connection_manager.send_status(task_id, "cancelled")
             raise
         except Exception as exc:
             log.exception("Task %d failed", task_id)
@@ -211,8 +220,100 @@ class TaskManager:
         """List all tasks from the database."""
         return await self._repo.list_all()
 
+    async def resume_interrupted(self) -> list[int]:
+        """Resume tasks left in 'interrupted' or 'running' status from a previous server session.
+
+        Called during startup to pick up work that was cut short by a restart.
+        Returns the list of task IDs that were re-submitted.
+        """
+        resumed: list[int] = []
+        rows = await self._pool.fetch(
+            "SELECT id, prompt, mode, project_path, project_id "
+            "FROM tasks WHERE status IN ('interrupted', 'running') "
+            "ORDER BY id"
+        )
+        for row in rows:
+            task_id = row["id"]
+            log.info("Resuming interrupted task %d: %s", task_id, row["prompt"][:80])
+
+            # Re-enrich prompt with project context if project_id exists
+            pipeline_prompt = row["prompt"]
+            if row["project_id"]:
+                try:
+                    from src.context.assembler import assemble_full_context
+                    from src.db.pg_repository import ProjectRepository
+
+                    project_repo = ProjectRepository(self._pool)
+                    project = await project_repo.get(row["project_id"])
+                    if project:
+                        ctx_data = await assemble_full_context(project.path, self._pool)
+                        parts = []
+                        for key in ("workspace", "claude_md", "git_log"):
+                            if ctx_data.get(key):
+                                parts.append(f"=== {key.upper()} ===\n{ctx_data[key]}")
+                        for doc_name, doc_content in ctx_data.get("planning_docs", {}).items():
+                            if doc_content:
+                                parts.append(f"=== {doc_name} ===\n{doc_content}")
+                        if parts:
+                            prefix = "\n\n".join(parts) + "\n\n"
+                            pipeline_prompt = prefix + row["prompt"]
+                except Exception:
+                    log.exception("Failed to re-enrich prompt for task %d, using original", task_id)
+
+            # Mark as running and re-submit
+            await self._repo.update_status(task_id, "running")
+
+            handle = asyncio.create_task(
+                self._execute(task_id, pipeline_prompt, row["mode"], row["project_path"]),
+                name=f"task-{task_id}-resume",
+            )
+            ctx = WebTaskContext(
+                task_id=task_id,
+                pool=self._pool,
+                mode=row["mode"],
+                project_path=row["project_path"],
+                connection_manager=self._connection_manager,
+            )
+            self._running[task_id] = RunningTask(
+                handle=handle, task_id=task_id, ctx=ctx,
+            )
+            resumed.append(task_id)
+
+        if resumed:
+            log.info("Resumed %d interrupted tasks: %s", len(resumed), resumed)
+        return resumed
+
     async def shutdown(self) -> None:
-        """Cancel all running tasks for clean server shutdown."""
+        """Gracefully interrupt all running tasks for server shutdown.
+
+        Marks tasks as 'interrupted' (not 'cancelled') so they can be
+        resumed on the next server startup.
+        """
+        self._shutting_down = True
         task_ids = list(self._running.keys())
         for task_id in task_ids:
-            await self.cancel(task_id)
+            log.info("Interrupting task %d for shutdown", task_id)
+            running = self._running.get(task_id)
+            if running is None:
+                continue
+
+            # Terminate subprocess if one exists
+            proc = running.ctx.proc
+            if proc is not None:
+                try:
+                    proc.send_signal(signal.SIGTERM)
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                except ProcessLookupError:
+                    pass
+
+            # Cancel the asyncio.Task — the CancelledError handler will
+            # check self._shutting_down to decide status
+            running.handle.cancel()
+            try:
+                await running.handle
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._running.clear()

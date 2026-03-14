@@ -59,6 +59,15 @@ async def lifespan(app: FastAPI):
             connection_manager=app.state.connection_manager,
         )
         log.info("Schema applied, TaskManager created, server ready")
+
+        # Resume any tasks interrupted by a previous shutdown
+        try:
+            resumed = await app.state.task_manager.resume_interrupted()
+            if resumed:
+                log.info("Resumed %d interrupted tasks on startup", len(resumed))
+        except Exception:
+            log.exception("Failed to resume interrupted tasks")
+
         yield
     finally:
         await app.state.task_manager.shutdown()
@@ -72,8 +81,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AI Agent Console", lifespan=lifespan)
 
     @app.get("/")
-    async def root(_=Depends(verify_credentials)):
-        """Serve the Alpine.js SPA."""
+    async def root():
+        """Serve the Alpine.js SPA (auth handled in frontend)."""
         return FileResponse(STATIC_DIR / "index.html")
 
     app.include_router(health_router)

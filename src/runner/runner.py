@@ -37,6 +37,7 @@ async def stream_claude(
     *,
     system_prompt_file: str | None = None,
     extra_args: list[str] | None = None,
+    on_process: callable = None,
 ) -> AsyncGenerator[str | dict, None]:
     """
     Async generator that launches Claude CLI and yields text chunks.
@@ -72,6 +73,10 @@ async def stream_claude(
         env=env,
     )
     log.info("stream_claude: process started pid=%s", proc.pid)
+
+    # Expose process reference for termination support
+    if on_process is not None:
+        on_process(proc)
 
     # Drain stderr concurrently -- never block on it
     stderr_task = asyncio.create_task(proc.stderr.read())

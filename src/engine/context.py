@@ -95,7 +95,10 @@ class WebTaskContext:
 
         raw_parts: list[str] = []
 
-        async for event in stream_claude(prompt, system_prompt_file=system_prompt):
+        def _capture_proc(p):
+            self.proc = p
+
+        async for event in stream_claude(prompt, system_prompt_file=system_prompt, on_process=_capture_proc):
             if isinstance(event, str):
                 raw_parts.append(event)
                 if self._connection_manager:
