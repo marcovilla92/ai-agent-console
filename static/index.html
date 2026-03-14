@@ -395,16 +395,33 @@
                 self.currentStep = step;
                 /* Track pipeline stages */
                 if (state === 'streaming' && agent !== 'orchestrator') {
-                  var already = self.pipelineHistory.find(function(h) { return h.agent === agent && h.iteration === self.pipelineHistory.filter(function(x) { return x.agent === agent; }).length; });
-                  if (!already || self.pipelineHistory[self.pipelineHistory.length - 1].agent !== agent) {
-                    self.pipelineHistory.push({ agent: agent, state: state, startedAt: new Date().toISOString() });
+                  var lastEntry = self.pipelineHistory.length > 0 ? self.pipelineHistory[self.pipelineHistory.length - 1] : null;
+                  if (!lastEntry || lastEntry.agent !== agent) {
+                    /* Mark previous entry as done */
+                    if (lastEntry && lastEntry.state !== 'done') {
+                      lastEntry.completedAt = new Date().toISOString();
+                      lastEntry.state = 'done';
+                    }
+                    self.pipelineHistory.push({ agent: agent, state: 'active', startedAt: new Date().toISOString() });
                   }
                 } else if (state === 'routing') {
                   self.currentNextAction = step;
-                  /* Mark last history entry as done */
-                  if (self.pipelineHistory.length > 0) {
-                    self.pipelineHistory[self.pipelineHistory.length - 1].completedAt = new Date().toISOString();
-                    self.pipelineHistory[self.pipelineHistory.length - 1].state = 'done';
+                  /* Extract which agent just finished from the routing context */
+                  /* The orchestrator routes AFTER an agent completes, so deduce the completed agent */
+                  var lastEntry = self.pipelineHistory.length > 0 ? self.pipelineHistory[self.pipelineHistory.length - 1] : null;
+                  /* If no history yet, the plan agent ran before WS connected — backfill it */
+                  if (!lastEntry) {
+                    self.pipelineHistory.push({ agent: 'plan', state: 'done', startedAt: self.taskStartedAt ? new Date(self.taskStartedAt).toISOString() : new Date().toISOString(), completedAt: new Date().toISOString() });
+                  } else if (lastEntry.state !== 'done') {
+                    lastEntry.completedAt = new Date().toISOString();
+                    lastEntry.state = 'done';
+                  }
+                } else if (state === 'committed') {
+                  /* Pipeline complete — mark all remaining as done */
+                  var lastEntry = self.pipelineHistory.length > 0 ? self.pipelineHistory[self.pipelineHistory.length - 1] : null;
+                  if (lastEntry && lastEntry.state !== 'done') {
+                    lastEntry.completedAt = new Date().toISOString();
+                    lastEntry.state = 'done';
                   }
                 }
                 /* Keep taskStatus as 'running' for pipeline states */
@@ -417,6 +434,12 @@
                 /* Simple status: running, completed, failed, etc. */
                 self.taskStatus = raw;
                 if (raw === 'completed' || raw === 'failed' || raw === 'cancelled') {
+                  /* Mark last active step as done */
+                  var lastEntry = self.pipelineHistory.length > 0 ? self.pipelineHistory[self.pipelineHistory.length - 1] : null;
+                  if (lastEntry && lastEntry.state !== 'done') {
+                    lastEntry.completedAt = new Date().toISOString();
+                    lastEntry.state = 'done';
+                  }
                   self.currentAgent = null;
                   self.currentStep = null;
                   if (self._elapsedTimer) { clearInterval(self._elapsedTimer); self._elapsedTimer = null; }
@@ -938,38 +961,31 @@
               </div>
             </div>
 
-            <!-- KPI Cards -->
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <!-- Current Agent -->
-              <div class="bg-white border border-surface-200 rounded-lg p-4">
-                <div class="text-xs font-medium text-surface-400 uppercase tracking-wide">Agent</div>
-                <div class="mt-1 text-lg font-bold text-primary-600" x-text="$store.app.currentAgent ? $store.app.currentAgent.toUpperCase() : '—'"></div>
-                <div class="mt-0.5 text-xs text-surface-400 truncate" x-text="$store.app.currentStep || 'Waiting...'"></div>
+            <!-- Pipeline Status Panel -->
+            <div class="bg-white border border-surface-200 rounded-lg p-4 space-y-3">
+              <!-- KPI row -->
+              <div class="flex items-center gap-4 flex-wrap">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-surface-400 uppercase">Agent:</span>
+                  <span class="text-sm font-bold text-primary-600" x-text="$store.app.currentAgent ? $store.app.currentAgent.toUpperCase() : '—'"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-surface-400 uppercase">Elapsed:</span>
+                  <span class="text-sm font-bold text-surface-900" x-text="$store.app.taskElapsed"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-surface-400 uppercase">Steps:</span>
+                  <span class="text-sm font-bold text-surface-900" x-text="$store.app.pipelineHistory.length"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-medium text-surface-400 uppercase">Iterations:</span>
+                  <span class="text-sm font-bold text-surface-900" x-text="$store.app.pipelineHistory.filter(function(h) { return h.agent === 'review'; }).length"></span>
+                </div>
+                <div class="flex-1 text-right">
+                  <span class="text-xs text-surface-400 truncate" x-text="$store.app.currentStep || ''"></span>
+                </div>
               </div>
-              <!-- Elapsed Time -->
-              <div class="bg-white border border-surface-200 rounded-lg p-4">
-                <div class="text-xs font-medium text-surface-400 uppercase tracking-wide">Elapsed</div>
-                <div class="mt-1 text-lg font-bold text-surface-900" x-text="$store.app.taskElapsed"></div>
-                <div class="mt-0.5 text-xs text-surface-400" x-text="$store.app.taskStartedAt ? 'Started ' + timeAgo(new Date($store.app.taskStartedAt).toISOString()) : ''"></div>
-              </div>
-              <!-- Pipeline Step -->
-              <div class="bg-white border border-surface-200 rounded-lg p-4">
-                <div class="text-xs font-medium text-surface-400 uppercase tracking-wide">Pipeline Step</div>
-                <div class="mt-1 text-lg font-bold text-surface-900" x-text="$store.app.pipelineHistory.length || '0'"></div>
-                <div class="mt-0.5 text-xs text-surface-400" x-text="$store.app.pipelineHistory.length > 0 ? $store.app.pipelineHistory.map(function(h) { return h.agent; }).join(' → ') : 'Not started'"></div>
-              </div>
-              <!-- Iteration -->
-              <div class="bg-white border border-surface-200 rounded-lg p-4">
-                <div class="text-xs font-medium text-surface-400 uppercase tracking-wide">Iterations</div>
-                <div class="mt-1 text-lg font-bold text-surface-900" x-text="$store.app.pipelineHistory.filter(function(h) { return h.agent === 'review'; }).length"></div>
-                <div class="mt-0.5 text-xs text-surface-400">review cycles completed</div>
-              </div>
-            </div>
-
-            <!-- Pipeline Progress Bar -->
-            <div class="bg-white border border-surface-200 rounded-lg p-4"
-                 x-show="$store.app.taskStatus === 'running' || $store.app.pipelineHistory.length > 0">
-              <div class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-3">Pipeline Progress</div>
+              <!-- Progress bar -->
               <div class="flex items-center gap-1">
                 <template x-for="(stage, idx) in ['plan', 'execute', 'test', 'review']" :key="stage">
                   <div class="flex items-center flex-1">
