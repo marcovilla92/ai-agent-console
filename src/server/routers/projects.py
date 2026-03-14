@@ -123,6 +123,33 @@ async def create_project(
     )
 
 
+@project_router.get("/{project_id}")
+async def get_project(
+    project_id: int,
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Return a single project by ID."""
+    repo = ProjectRepository(pool)
+    project = await repo.get(project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+    from src.context.assembler import detect_stack
+
+    return ProjectSummary(
+        id=project.id,
+        name=project.name,
+        slug=project.slug,
+        path=project.path,
+        description=project.description,
+        stack=detect_stack(project.path),
+        created_at=project.created_at.isoformat() if project.created_at else None,
+        last_used_at=project.last_used_at.isoformat() if project.last_used_at else None,
+    )
+
+
 @project_router.delete("/{project_id}")
 async def delete_project(
     project_id: int,

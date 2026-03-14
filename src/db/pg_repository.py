@@ -140,6 +140,9 @@ class ProjectRepository:
         )
 
     async def delete(self, project_id: int) -> None:
+        await self._pool.execute(
+            "UPDATE tasks SET project_id = NULL WHERE project_id = $1", project_id
+        )
         await self._pool.execute("DELETE FROM projects WHERE id = $1", project_id)
 
     async def update_last_used(self, project_id: int) -> None:

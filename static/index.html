@@ -408,7 +408,7 @@
     <div x-show="$store.app.view === 'running'">
 
       <hgroup>
-        <h2>Task Running</h2>
+        <h2 x-text="['completed','failed','cancelled'].includes($store.app.taskStatus) ? 'Task ' + $store.app.taskStatus.charAt(0).toUpperCase() + $store.app.taskStatus.slice(1) : 'Task Running'"></h2>
         <p>
           Status: <span :data-status="$store.app.taskStatus" x-text="$store.app.taskStatus || 'connecting...'"></span>
         </p>
