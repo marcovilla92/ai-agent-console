@@ -405,26 +405,68 @@ async def generate_template(req: GenerateTemplateRequest):
         # Cap description length
         description = req.description[:2000]
 
-        # Build prompt
-        prompt = f"Generate a project template for: {description}"
-        if req.stack:
-            prompt += f"\nPreferred stack: {req.stack}"
-
         # Load system prompt
         system_prompt_text = _GEN_SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 
         log.info("Template generation requested: %.100s...", description)
 
-        # Call Claude CLI with structured output + timeout
+        # STEP 1: Research phase — Claude can use web search to find best practices
+        research_prompt = (
+            f"Research the best tools, libraries, plugins, agents and skills for this project:\n\n"
+            f"{description}\n\n"
+            f"Return a concise summary of your findings: recommended stack, key libraries with versions, "
+            f"best practices, and what specialist agents would be useful. "
+            f"Be specific — name exact packages and explain why."
+        )
+        if req.stack:
+            research_prompt += f"\nPreferred stack: {req.stack}"
+
+        log.info("Step 1: Research phase starting...")
+        try:
+            research_raw = await asyncio.wait_for(
+                call_orchestrator_claude(
+                    prompt=research_prompt,
+                    schema=json.dumps({"type": "object", "properties": {"research": {"type": "string"}}, "required": ["research"]}),
+                    system_prompt="You are a senior developer researching the best tools and practices for a project. Search the web for current best practices, latest library versions, and recommended approaches. Return your findings as a research summary.",
+                ),
+                timeout=300,
+            )
+            # Extract research text
+            research_data = json.loads(research_raw)
+            if "result" in research_data:
+                r = research_data["result"]
+                if isinstance(r, str):
+                    try:
+                        r = json.loads(r)
+                    except json.JSONDecodeError:
+                        pass
+                research_text = r.get("research", str(r)) if isinstance(r, dict) else str(r)
+            elif "research" in research_data:
+                research_text = research_data["research"]
+            else:
+                research_text = str(research_data)
+            log.info("Step 1 complete: research_len=%d", len(research_text))
+        except (asyncio.TimeoutError, Exception) as exc:
+            log.warning("Research phase failed (%s), continuing without research", exc)
+            research_text = ""
+
+        # STEP 2: Generate template JSON — no tools, just structured output
+        gen_prompt = f"Generate a project template for: {description}"
+        if research_text:
+            gen_prompt += f"\n\n## Research Findings\n{research_text[:4000]}"
+        if req.stack:
+            gen_prompt += f"\nPreferred stack: {req.stack}"
+
+        log.info("Step 2: Template generation starting...")
         try:
             raw = await asyncio.wait_for(
                 call_orchestrator_claude(
-                    prompt=prompt,
+                    prompt=gen_prompt,
                     schema=TEMPLATE_GEN_SCHEMA,
                     system_prompt=system_prompt_text,
                     extra_args=["--tools", ""],
                 ),
-                timeout=600,
+                timeout=300,
             )
         except asyncio.TimeoutError:
             raise HTTPException(
