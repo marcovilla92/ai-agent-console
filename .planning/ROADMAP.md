@@ -75,7 +75,10 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. Orchestrator routing decisions reference its role definition and agent descriptions -- decisions are no longer generic "pick next"
   3. Handoff context passed between agents contains only the last complete cycle (plan+execute+review) and stays under 8000 characters -- older cycles are dropped
   4. On re-route cycles, the original plan handoff is always preserved in context regardless of windowing -- execute never loses the initial task description
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 22-01-PLAN.md — Fix system prompts for agents and orchestrator (FIX-01, FIX-02)
+- [ ] 22-02-PLAN.md — Bounded handoff windowing with pinned first plan (CTX-05, CTX-06)
 
 ### Phase 23: Core Output
 **Goal**: The pipeline writes real code files to disk and provides focused feedback on re-route cycles -- execute output becomes usable artifacts, not just text in a database
@@ -87,7 +90,10 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. If execute produces a non-empty CODE section but zero files are extracted, a warning is logged instead of silent success
   4. When review triggers a re-route back to execute, the execute agent receives a targeted prompt listing specific ISSUES/IMPROVEMENTS from review -- not the full handoff dump
   5. Orchestrator routing prompt includes only sections relevant to the last agent type (via ROUTING_SECTIONS map) -- CODE sections from execute do not pollute routing decisions
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 22-01-PLAN.md — Fix system prompts for agents and orchestrator (FIX-01, FIX-02)
+- [ ] 22-02-PLAN.md — Bounded handoff windowing with pinned first plan (CTX-05, CTX-06)
 
 ### Phase 24: Pipeline Extension
 **Goal**: Adding a new agent to the pipeline requires only a registry entry -- the orchestrator auto-discovers agents, validates routing transitions, and a test agent performs static code review between execute and review
@@ -99,7 +105,10 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. Invalid routing transitions (e.g., review to test skipping execute) are caught and fall back to the agent's configured next_agent
   4. A test agent exists in the pipeline that performs static code review via LLM (no subprocess execution) and produces findings for the review agent
   5. The default pipeline flow is plan -> execute -> [file_write] -> test -> review with the orchestrator able to re-route as needed
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 22-01-PLAN.md — Fix system prompts for agents and orchestrator (FIX-01, FIX-02)
+- [ ] 22-02-PLAN.md — Bounded handoff windowing with pinned first plan (CTX-05, CTX-06)
 
 ### Phase 25: Autonomy Refinement
 **Goal**: Tasks run fully autonomously by default with no user confirmations -- supervised mode remains as an opt-in option for when the user wants control
@@ -139,7 +148,7 @@ Phases execute in numeric order: 22 -> 23 -> 24 -> 25
 | 19. Sidebar Layout & Responsive Shell | v2.2 | 1/1 | Complete | 2026-03-14 |
 | 20. Project & Template Views | v2.2 | 1/1 | Complete | 2026-03-14 |
 | 21. Task Flow & Polish | v2.2 | 1/1 | Complete | 2026-03-14 |
-| 22. Bug Fixes & Foundation | v2.3 | 0/TBD | Not started | - |
+| 22. Bug Fixes & Foundation | v2.3 | 0/2 | Not started | - |
 | 23. Core Output | v2.3 | 0/TBD | Not started | - |
 | 24. Pipeline Extension | v2.3 | 0/TBD | Not started | - |
 | 25. Autonomy Refinement | v2.3 | 0/TBD | Not started | - |
