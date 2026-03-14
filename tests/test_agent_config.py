@@ -1,8 +1,21 @@
 """Tests for agent configuration registry."""
+import logging
 from unittest.mock import patch
 
 import pytest
-from src.agents.config import AGENT_REGISTRY, get_agent_config, AgentConfig, resolve_pipeline_order
+from src.agents.config import (
+    AGENT_REGISTRY,
+    AgentConfig,
+    DEFAULT_REGISTRY,
+    PROTECTED_AGENTS,
+    build_agent_descriptions,
+    build_agent_enum,
+    get_agent_config,
+    get_project_registry,
+    merge_registries,
+    resolve_pipeline_order,
+    validate_transition,
+)
 
 
 def test_registry_contains_all_agents():
@@ -113,3 +126,145 @@ def test_existing_registry_agents_have_default_new_fields():
         assert cfg.system_prompt_inline is None, f"{name} should have None inline"
         assert cfg.source == "default", f"{name} should have source='default'"
         assert cfg.file_path is None, f"{name} should have None file_path"
+
+
+# --- v2.4 Plan 02: Registry merge and core protection ---
+
+
+def _make_project_agent(name: str) -> AgentConfig:
+    """Helper to create a project agent config."""
+    return AgentConfig(
+        name=name,
+        system_prompt_file="",
+        system_prompt_inline=f"You are {name}.",
+        description=f"Project agent: {name}",
+        source="project",
+    )
+
+
+class TestDefaultRegistryAlias:
+    """DEFAULT_REGISTRY is the canonical name; AGENT_REGISTRY is backward-compat."""
+
+    def test_default_registry_exists(self):
+        assert DEFAULT_REGISTRY is not None
+        assert len(DEFAULT_REGISTRY) == 4
+
+    def test_agent_registry_is_alias(self):
+        assert AGENT_REGISTRY is DEFAULT_REGISTRY
+
+
+class TestProtectedAgents:
+    """PROTECTED_AGENTS frozenset contains the four core agent names."""
+
+    def test_protected_agents_contents(self):
+        assert PROTECTED_AGENTS == frozenset({"plan", "execute", "test", "review"})
+
+    def test_protected_agents_is_frozenset(self):
+        assert isinstance(PROTECTED_AGENTS, frozenset)
+
+
+class TestMergeRegistries:
+    """merge_registries() creates new dict, protects core agents."""
+
+    def test_merge_adds_project_agents(self):
+        """Project agents 'db-migrator' and 'api-tester' appear in merged result."""
+        project = {
+            "db-migrator": _make_project_agent("db-migrator"),
+            "api-tester": _make_project_agent("api-tester"),
+        }
+        merged = merge_registries(DEFAULT_REGISTRY, project)
+        assert "db-migrator" in merged
+        assert "api-tester" in merged
+        # Core agents still present
+        for core in ("plan", "execute", "test", "review"):
+            assert core in merged
+
+    def test_core_agents_protected(self):
+        """A project agent named 'plan' is skipped; original core 'plan' remains."""
+        project = {"plan": _make_project_agent("plan")}
+        merged = merge_registries(DEFAULT_REGISTRY, project)
+        assert merged["plan"].source == "default"
+
+    def test_core_override_logs_warning(self, caplog):
+        """Merging a project agent named 'execute' logs a warning."""
+        project = {"execute": _make_project_agent("execute")}
+        with caplog.at_level(logging.WARNING):
+            merge_registries(DEFAULT_REGISTRY, project)
+        assert any("conflicts with core agent" in r.message for r in caplog.records)
+
+    def test_default_registry_unchanged(self):
+        """After merge, DEFAULT_REGISTRY still has exactly 4 agents with source='default'."""
+        project = {"custom": _make_project_agent("custom")}
+        merge_registries(DEFAULT_REGISTRY, project)
+        assert len(DEFAULT_REGISTRY) == 4
+        for cfg in DEFAULT_REGISTRY.values():
+            assert cfg.source == "default"
+
+    def test_merge_returns_new_dict(self):
+        """Merged result is a new dict, not the same object as default."""
+        merged = merge_registries(DEFAULT_REGISTRY, {})
+        assert merged is not DEFAULT_REGISTRY
+
+
+class TestGetProjectRegistry:
+    """get_project_registry() returns isolated per-project registries."""
+
+    def test_project_registry_is_isolated(self):
+        """Modifying returned registry does not affect DEFAULT_REGISTRY."""
+        with patch("src.agents.config.discover_project_agents", return_value={
+            "custom": _make_project_agent("custom"),
+        }):
+            reg = get_project_registry("/some/path")
+            reg["hacked"] = _make_project_agent("hacked")
+            assert "hacked" not in DEFAULT_REGISTRY
+            assert "custom" not in DEFAULT_REGISTRY
+
+    def test_get_project_registry_no_path(self):
+        """get_project_registry(None) returns copy of DEFAULT_REGISTRY."""
+        reg = get_project_registry(None)
+        assert reg == dict(DEFAULT_REGISTRY)
+        assert reg is not DEFAULT_REGISTRY
+
+    def test_get_project_registry_no_agents_dir(self):
+        """get_project_registry('/nonexistent') returns copy of DEFAULT_REGISTRY."""
+        reg = get_project_registry("/nonexistent")
+        assert reg == dict(DEFAULT_REGISTRY)
+
+
+class TestRegistryAwareFunctions:
+    """Functions accept optional registry parameter."""
+
+    def test_build_agent_enum_with_custom_registry(self):
+        custom = {"alpha": _make_project_agent("alpha")}
+        result = build_agent_enum(registry=custom)
+        assert "alpha" in result
+        assert "approved" in result
+        assert "plan" not in result
+
+    def test_build_agent_descriptions_with_custom_registry(self):
+        custom = {"alpha": _make_project_agent("alpha")}
+        result = build_agent_descriptions(registry=custom)
+        assert "ALPHA" in result
+        assert "PLAN" not in result
+
+    def test_validate_transition_with_custom_registry(self):
+        custom = {
+            "alpha": AgentConfig(
+                name="alpha", system_prompt_file="",
+                allowed_transitions=("beta",), next_agent="beta",
+            ),
+            "beta": _make_project_agent("beta"),
+        }
+        assert validate_transition("alpha", "beta", registry=custom) == "beta"
+
+    def test_get_agent_config_with_custom_registry(self):
+        custom = {"alpha": _make_project_agent("alpha")}
+        cfg = get_agent_config("alpha", registry=custom)
+        assert cfg.name == "alpha"
+
+    def test_resolve_pipeline_order_with_custom_registry(self):
+        custom = {
+            "a": AgentConfig(name="a", system_prompt_file="", next_agent="b"),
+            "b": AgentConfig(name="b", system_prompt_file="", next_agent=None),
+        }
+        assert resolve_pipeline_order("a", registry=custom) == ["a", "b"]
