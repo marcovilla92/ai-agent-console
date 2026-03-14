@@ -72,7 +72,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 26: Agent Loader Foundation** - Discover agents from project `.claude/agents/`, parse frontmatter, build per-project registry with core agent protection (completed 2026-03-14)
 - [x] **Phase 27: Commands & Settings Loaders** - Discover commands from `.claude/commands/` and apply project settings from `.claude/settings.local.json` (completed 2026-03-14)
-- [ ] **Phase 28: Orchestrator Dynamic Registry** - Build orchestrator schema per-task from injected registry, enable routing to project-specific agents and commands
+- [x] **Phase 28: Orchestrator Dynamic Registry** - Build orchestrator schema per-task from injected registry, enable routing to project-specific agents and commands (completed 2026-03-14)
 - [ ] **Phase 29: AI Template Generation** - Generate complete templates from natural language descriptions via Claude CLI with validation
 - [ ] **Phase 30: Template Editor UI** - Preview file tree, edit file contents inline, save with preview-before-save flow
 
@@ -116,7 +116,7 @@ Plans:
   3. The orchestrator can route to project-specific agents (e.g., a `db-migrator` from a FastAPI template) and execution proceeds with that agent's system prompt
   4. Commands discovered from `.claude/commands/` can be targeted by the orchestrator as routing destinations
   5. Project-specific agents appear in the orchestrator's system prompt with their descriptions so it knows when to route to them
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 28-01-PLAN.md &mdash; Inline prompt support + public schema builder + dynamic system prompt + command injection
 - [ ] 28-02-PLAN.md &mdash; Registry threading through WebTaskContext, orchestrate_pipeline, and TaskManager
@@ -181,6 +181,6 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 | 25. Autonomy Refinement | v2.3 | 1/1 | Complete | 2026-03-14 |
 | 26. Agent Loader Foundation | 2/2 | Complete    | 2026-03-14 | - |
 | 27. Commands & Settings Loaders | 2/2 | Complete    | 2026-03-14 | - |
-| 28. Orchestrator Dynamic Registry | 1/2 | In Progress|  | - |
+| 28. Orchestrator Dynamic Registry | 2/2 | Complete   | 2026-03-14 | - |
 | 29. AI Template Generation | v2.4 | 0/0 | Not started | - |
 | 30. Template Editor UI | v2.4 | 0/0 | Not started | - |

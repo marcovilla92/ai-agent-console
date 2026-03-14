@@ -203,8 +203,8 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 ### Orchestrator Integration
 
 - [x] **ORCH-01**: Lo schema dell'orchestrator viene costruito dinamicamente per ogni task (`build_orchestrator_schema(registry)`)
-- [ ] **ORCH-02**: Il pipeline accetta un registry come parametro iniettato (non modulo-level constant)
-- [ ] **ORCH-03**: L'orchestrator può routare verso agenti specifici del progetto
+- [x] **ORCH-02**: Il pipeline accetta un registry come parametro iniettato (non modulo-level constant)
+- [x] **ORCH-03**: L'orchestrator può routare verso agenti specifici del progetto
 
 ### AI Template Generation
 
@@ -403,8 +403,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SETG-01 | Phase 27 | Complete |
 | SETG-02 | Phase 27 | Complete |
 | ORCH-01 | Phase 28 | Complete |
-| ORCH-02 | Phase 28 | Pending |
-| ORCH-03 | Phase 28 | Pending |
+| ORCH-02 | Phase 28 | Complete |
+| ORCH-03 | Phase 28 | Complete |
 | AIGEN-01 | Phase 29 | Pending |
 | AIGEN-02 | Phase 29 | Pending |
 | AIGEN-03 | Phase 29 | Pending |

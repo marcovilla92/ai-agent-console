@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.4
 milestone_name: Template System Overhaul
-status: executing
-stopped_at: Completed 28-01-PLAN.md
-last_updated: "2026-03-14T18:06:41.912Z"
-last_activity: 2026-03-14 -- Completed 28-01 Dynamic Registry Foundation
+status: completed
+stopped_at: Completed 28-02-PLAN.md
+last_updated: "2026-03-14T18:33:38.277Z"
+last_activity: 2026-03-14 -- Completed 28-02 Registry Pipeline Wiring
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 6
-  completed_plans: 5
-  percent: 87
+  completed_plans: 6
+  percent: 90
 ---
 
 # Project State
@@ -25,17 +25,17 @@ See: .planning/PROJECT.md (updated 2026-03-14)
 
 ## Current Position
 
-Phase: 28 of 30 (Orchestrator Dynamic Registry)
-Plan: 1 of 2 in current phase (28-01 COMPLETE)
-Status: In progress
-Last activity: 2026-03-14 -- Completed 28-01 Dynamic Registry Foundation
+Phase: 28 of 30 (Orchestrator Dynamic Registry) -- COMPLETE
+Plan: 2 of 2 in current phase (28-02 COMPLETE)
+Status: Phase 28 complete
+Last activity: 2026-03-14 -- Completed 28-02 Registry Pipeline Wiring
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 41 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 4)
+- Total plans completed: 42 (v1.0: 16, v2.0: 10, v2.1: 8, v2.2: 4, v2.3: 6, v2.4: 5)
 - Average duration: 5min
 - Total execution time: ~3 hours
 
@@ -60,6 +60,11 @@ Progress: [█████████░] 87%
 - [Phase 27]: Command descriptions truncated to 100 chars in context assembly for prompt budget
 - [Phase 28]: Inline system_prompt takes priority over system_prompt_file when both provided
 - [Phase 28]: inject_commands_as_agents reads command file content into system_prompt_inline
+- [Phase 28]: Registry=None fallback creates dict copy of DEFAULT_REGISTRY for isolation
+- [Phase 28]: TaskManager._build_registry is a static method with exception fallback
+- [Phase 28]: Per-task schema and system prompt built once at orchestrate_pipeline entry
+- [Phase 28]: Registry=None fallback creates dict copy of DEFAULT_REGISTRY for isolation
+- [Phase 28]: Per-task schema and system prompt built once at orchestrate_pipeline entry
 
 ### Pending Todos
 
@@ -71,6 +76,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T18:06:41.908Z
-Stopped at: Completed 28-01-PLAN.md
+Last session: 2026-03-14T18:33:32.420Z
+Stopped at: Completed 28-02-PLAN.md
 Resume file: None
