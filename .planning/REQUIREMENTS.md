@@ -186,8 +186,8 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 
 - [x] **AGLD-01**: Il sistema scopre automaticamente tutti i file `.claude/agents/*.md` nella directory del progetto
 - [x] **AGLD-02**: Il sistema parsa YAML frontmatter dagli agent MD con default sensati per file plain-text
-- [ ] **AGLD-03**: Il sistema crea un registry per-progetto isolato (copia mergiata, nessuna mutazione globale)
-- [ ] **AGLD-04**: Gli agenti core (plan/execute/test/review) non possono essere sovrascritti da agenti del progetto
+- [x] **AGLD-03**: Il sistema crea un registry per-progetto isolato (copia mergiata, nessuna mutazione globale)
+- [x] **AGLD-04**: Gli agenti core (plan/execute/test/review) non possono essere sovrascritti da agenti del progetto
 
 ### Command Loading
 
@@ -395,8 +395,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | AGLD-01 | Phase 26 | Complete |
 | AGLD-02 | Phase 26 | Complete |
-| AGLD-03 | Phase 26 | Pending |
-| AGLD-04 | Phase 26 | Pending |
+| AGLD-03 | Phase 26 | Complete |
+| AGLD-04 | Phase 26 | Complete |
 | CMLD-01 | Phase 27 | Pending |
 | CMLD-02 | Phase 27 | Pending |
 | CMLD-03 | Phase 28 | Pending |
