@@ -8,19 +8,16 @@ A web-based multi-agent platform that orchestrates AI workflows using Claude CLI
 
 The orchestrator must reliably coordinate agents through iterative cycles — taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
 
-## Current Milestone: v2.3 Orchestration Improvements
+## Current Milestone: v2.4 Template System Overhaul
 
-**Goal:** Make the agent pipeline produce real output end-to-end — file writing, smarter re-routing, bounded context, full autonomy by default, and a test agent for code review.
+**Goal:** Transform templates from static file scaffolding into live environments that automatically load agents, skills, and plugins — and enable AI-powered template creation.
 
 **Target features:**
-- File writer: parse EXECUTE output and write files to disk (overwrite, git for recovery)
-- Targeted re-route prompts with extracted ISSUES on review feedback loops
-- Bounded handoffs: keep last cycle only, cap size at 8000 chars
-- Fix missing orchestrator system prompt on decision calls
-- Smart section filtering per agent type for orchestrator routing
-- Test agent (static code review, no subprocess) between execute and review
-- Confidence-based autonomy: default autonomous, no confirmations; supervised stays as option
-- Dynamic schema/prompt generation from agent registry
+- Dynamic agent loading: discover and register agents from `.claude/agents/*.md` in project directory
+- Skill/command activation: discover and activate commands from `.claude/commands/*.md`
+- Project settings application: read and apply `.claude/settings.local.json` per-project
+- AI template generation: describe a project in natural language, AI generates complete template (files, CLAUDE.md, agents, commands, settings)
+- Template editor: preview, modify, and customize templates before and after saving
 
 ## Requirements
 
@@ -46,14 +43,11 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 
 ### Active
 
-- [ ] File writer module that writes EXECUTE output to disk
-- [ ] Targeted re-route prompts extracting ISSUES/IMPROVEMENTS from review
-- [ ] Bounded handoff windowing (last cycle + 8000 char cap)
-- [ ] Orchestrator system prompt passed on decision calls
-- [ ] Smart section filtering for orchestrator routing
-- [ ] Test agent (static code review) in pipeline
-- [ ] Confidence-based decision gating (autonomous default, no confirmations)
-- [ ] Dynamic schema/prompt from agent registry
+- [ ] Dynamic discovery and loading of agents from `.claude/agents/*.md`
+- [ ] Dynamic discovery and activation of commands from `.claude/commands/*.md`
+- [ ] Project-level settings application from `.claude/settings.local.json`
+- [ ] AI-powered template generation from natural language description
+- [ ] Template preview and editor UI (before and after saving)
 
 ### Out of Scope
 
@@ -73,6 +67,7 @@ v1.0 shipped as TUI with 4,524 LOC Python, 160 tests, 5 phases.
 v2.0 shipped as web platform: FastAPI + asyncpg + Alpine.js, 6 phases (06-11), deployed on Coolify.
 v2.1 shipped project router: projects, templates, context assembly, phase suggestions, SPA. 6 phases (12-17).
 v2.2 shipped UI redesign: Tailwind CSS, sidebar nav, KPI cards, responsive design. 4 phases (18-21).
+v2.3 shipped orchestration improvements: file writer, bounded handoffs, test agent, autonomous mode. 4 phases (22-25).
 App live at console.amcsystem.uk with WebSocket streaming, approval gates, task parallelism.
 
 VPS: OVH 4-core, 7.6GB RAM, Ubuntu 24.04, Coolify 4.0.
@@ -107,4 +102,4 @@ Orchestration analysis: docs/orchestration-improvements.md (8 improvements, prio
 | Manual project selection (no auto-detect) | Explicit user choice, predictable behavior | — Pending |
 
 ---
-*Last updated: 2026-03-14 after v2.3 milestone start*
+*Last updated: 2026-03-14 after v2.4 milestone start*
