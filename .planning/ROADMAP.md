@@ -131,8 +131,8 @@ Plans:
   3. AI template generation uses a separate semaphore from the pipeline tasks -- generating a template does not consume a task slot, and returns HTTP 429 if the generation slot is busy
 **Plans:** 2 plans
 Plans:
-- [ ] 27-01-PLAN.md — Command loader + settings loader modules with tests
-- [ ] 27-02-PLAN.md — Context assembly integration (commands + settings injection)
+- [ ] 29-01-PLAN.md — System prompt + generate endpoint with validation and semaphore
+- [ ] 29-02-PLAN.md — Test suite for template generation (mocked Claude CLI)
 
 ### Phase 30: Template Editor UI
 **Goal**: Users can preview and modify template contents before and after saving -- full visibility and control over what a template contains
@@ -182,5 +182,5 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 | 26. Agent Loader Foundation | 2/2 | Complete    | 2026-03-14 | - |
 | 27. Commands & Settings Loaders | 2/2 | Complete    | 2026-03-14 | - |
 | 28. Orchestrator Dynamic Registry | 2/2 | Complete    | 2026-03-14 | - |
-| 29. AI Template Generation | v2.4 | 0/0 | Not started | - |
+| 29. AI Template Generation | v2.4 | 0/2 | Not started | - |
 | 30. Template Editor UI | v2.4 | 0/0 | Not started | - |
