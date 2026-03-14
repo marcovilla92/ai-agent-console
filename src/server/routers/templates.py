@@ -434,25 +434,34 @@ async def generate_template(req: GenerateTemplateRequest):
 
         # Parse response — Claude CLI returns various formats
         try:
-            log.info("AI generation raw response length: %d, preview: %.500s", len(raw), raw[:500])
+            log.warning("AI generation raw response length: %d, preview: %.1000s", len(raw), raw[:1000])
             response = json.loads(raw)
+            log.warning("AI generation parsed type=%s keys=%s", type(response).__name__, list(response.keys()) if isinstance(response, dict) else "N/A")
             # Try multiple extraction paths
             if isinstance(response, dict):
-                data = response.get("structured_output") or response.get("result") or response
+                # Check for nested result/structured_output (use 'in' not truthiness)
+                if "structured_output" in response and response["structured_output"] is not None:
+                    data = response["structured_output"]
+                elif "result" in response and response["result"] is not None:
+                    data = response["result"]
+                else:
+                    data = response
                 if isinstance(data, str):
                     data = json.loads(data)
             elif isinstance(response, list):
                 # Sometimes returns array of messages — find the structured output
+                data = None
                 for item in response:
                     if isinstance(item, dict) and item.get("type") == "result":
                         data = item.get("result") or item.get("structured_output")
                         if isinstance(data, str):
                             data = json.loads(data)
                         break
-                else:
+                if data is None:
                     data = response
             else:
                 data = response
+            log.warning("AI generation extracted data type=%s keys=%s", type(data).__name__, list(data.keys()) if isinstance(data, dict) else str(data)[:200])
             if not isinstance(data, dict):
                 raise ValueError(f"Expected dict, got {type(data).__name__}: {str(data)[:200]}")
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
