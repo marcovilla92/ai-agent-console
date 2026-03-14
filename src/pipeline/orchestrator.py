@@ -81,6 +81,44 @@ ORCHESTRATOR_PROMPT_FILE = str(
     Path(__file__).parent.parent / "agents" / "prompts" / "orchestrator_system.txt"
 )
 
+MAX_HANDOFF_ENTRIES = 3  # One complete cycle: plan + execute + review
+MAX_HANDOFF_CHARS = 8000  # Cap on windowed portion (excludes pinned plan)
+
+
+# --- Handoff windowing ---
+
+def apply_handoff_windowing(state: OrchestratorState) -> None:
+    """Apply sliding window to accumulated handoffs.
+
+    Keeps at most MAX_HANDOFF_ENTRIES recent handoffs plus the pinned
+    first plan handoff (index 0). Enforces MAX_HANDOFF_CHARS on the
+    windowed portion only (pinned plan exempt).
+    """
+    handoffs = state.accumulated_handoffs
+
+    # Entry windowing: pin first + keep last MAX_HANDOFF_ENTRIES
+    if len(handoffs) > MAX_HANDOFF_ENTRIES + 1:
+        pinned = handoffs[0]
+        recent = handoffs[-MAX_HANDOFF_ENTRIES:]
+        handoffs = [pinned] + recent
+
+    # Character cap on windowed portion (index 1+)
+    if len(handoffs) > 1:
+        pinned = handoffs[0]
+        windowed = handoffs[1:]
+        total = "\n\n".join(windowed)
+        while len(total) > MAX_HANDOFF_CHARS and len(windowed) > 1:
+            windowed.pop(0)
+            total = "\n\n".join(windowed)
+        handoffs = [pinned] + windowed
+
+    state.accumulated_handoffs = handoffs
+    log.info(
+        "apply_handoff_windowing: total_handoffs=%d total_chars=%d",
+        len(state.accumulated_handoffs),
+        sum(len(h) for h in state.accumulated_handoffs),
+    )
+
 
 # --- Prompt building ---
 
@@ -260,6 +298,7 @@ async def orchestrate_pipeline(
             handoff=sections.get("HANDOFF"),
         )
         state.accumulated_handoffs.append(build_handoff(agent_result))
+        apply_handoff_windowing(state)
         log.info("orchestrate_pipeline: built handoff from %s, total_handoffs=%d", state.current_agent, len(state.accumulated_handoffs))
 
         # 4. If review just ran, increment iteration counter
