@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Agent Console</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    [data-status="running"] { color: #0ea5e9; }
+    [data-status="completed"] { color: #22c55e; }
+    [data-status="failed"] { color: #ef4444; }
+    [data-status="queued"] { color: #6b7280; }
+    [data-status="awaiting_approval"] { color: #f59e0b; }
+    [data-status="cancelled"] { color: #9ca3af; }
+    .log-output { max-height: 70vh; overflow-y: auto; font-size: 0.85em; }
+    .badge {
+      display: inline-block;
+      padding: 0.15em 0.5em;
+      margin: 0.1em 0.15em;
+      font-size: 0.75em;
+      border-radius: 4px;
+      background: var(--pico-secondary-background);
+      color: var(--pico-secondary-inverse);
+    }
+    .time-ago { font-size: 0.8em; color: var(--pico-muted-color); }
+    .error-msg { color: var(--pico-del-color); }
+    .phase-reason { font-size: 0.9em; color: var(--pico-muted-color); }
+    article.project-card { cursor: pointer; }
+    article.project-card:hover { outline: 2px solid var(--pico-primary); }
+  </style>
+
+  <script>
+    /* Helper functions */
+    function timeAgo(dateStr) {
+      if (!dateStr) return 'never';
+      const diff = Date.now() - new Date(dateStr).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + 'h ago';
+      const days = Math.floor(hrs / 24);
+      return days + 'd ago';
+    }
+
+    function stackBadges(stack) {
+      if (!stack) return [];
+      return stack.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    }
+
+    /* Alpine Store */
+    document.addEventListener('alpine:init', function() {
+      Alpine.store('app', {
+        view: 'select',
+        selectedProject: null,
+        projects: [],
+        templates: [],
+        phaseSuggestion: null,
+        contextData: null,
+        showContext: false,
+        activeTaskId: null,
+        logText: '',
+        taskStatus: null,
+        approvalPending: false,
+        approvalData: null,
+        ws: null,
+        error: null,
+
+        /* --- Project Selection --- */
+        async loadProjects() {
+          try {
+            const resp = await fetch('/projects', { credentials: 'same-origin' });
+            if (resp.ok) {
+              const data = await resp.json();
+              this.projects = data.projects;
+            }
+          } catch (e) {
+            this.error = 'Failed to load projects';
+          }
+        },
+
+        selectProject(project) {
+          this.selectedProject = project;
+          this.phaseSuggestion = null;
+          this.contextData = null;
+          this.showContext = false;
+          this.view = 'prompt';
+          this.loadSuggestion();
+        },
+
+        /* --- Project Creation --- */
+        async loadTemplates() {
+          try {
+            const resp = await fetch('/templates', { credentials: 'same-origin' });
+            if (resp.ok) {
+              const data = await resp.json();
+              this.templates = data.templates;
+            }
+          } catch (e) {
+            this.error = 'Failed to load templates';
+          }
+        },
+
+        async createProject(name, description, template) {
+          this.error = null;
+          try {
+            const resp = await fetch('/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ name: name, description: description, template: template })
+            });
+            if (resp.ok) {
+              await this.loadProjects();
+              this.view = 'select';
+            } else {
+              const err = await resp.json().catch(function() { return {}; });
+              this.error = err.detail || 'Failed to create project';
+            }
+          } catch (e) {
+            this.error = 'Failed to create project';
+          }
+        },
+
+        /* --- Prompt View --- */
+        async loadSuggestion() {
+          if (!this.selectedProject) return;
+          try {
+            const resp = await fetch(
+              '/projects/' + this.selectedProject.id + '/suggested-phase',
+              { credentials: 'same-origin' }
+            );
+            if (resp.ok) this.phaseSuggestion = await resp.json();
+          } catch (e) {
+            /* phase suggestion is optional */
+          }
+        },
+
+        async loadContext() {
+          if (!this.selectedProject) return;
+          try {
+            const resp = await fetch(
+              '/projects/' + this.selectedProject.id + '/context',
+              { credentials: 'same-origin' }
+            );
+            if (resp.ok) this.contextData = await resp.json();
+          } catch (e) {
+            this.error = 'Failed to load context';
+          }
+        },
+
+        async submitTask(prompt, mode) {
+          this.error = null;
+          try {
+            const resp = await fetch('/tasks', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                prompt: prompt,
+                mode: mode,
+                project_id: this.selectedProject ? this.selectedProject.id : null
+              })
+            });
+            if (resp.ok) {
+              const task = await resp.json();
+              this.activeTaskId = task.id;
+              this.logText = '';
+              this.taskStatus = 'running';
+              this.approvalPending = false;
+              this.approvalData = null;
+              this.view = 'running';
+              this.connectWS(task.id);
+            } else {
+              const err = await resp.json().catch(function() { return {}; });
+              this.error = err.detail || 'Failed to submit task';
+            }
+          } catch (e) {
+            this.error = 'Failed to submit task';
+          }
+        },
+
+        /* --- Running View (WebSocket) --- */
+        connectWS(taskId) {
+          var self = this;
+          var token = sessionStorage.getItem('ws_token');
+          if (!token) {
+            var user = prompt('Username:');
+            var pass = prompt('Password:');
+            token = btoa(user + ':' + pass);
+            sessionStorage.setItem('ws_token', token);
+          }
+          var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          var url = proto + '//' + location.host + '/ws/tasks/' + taskId + '?token=' + token;
+          self.ws = new WebSocket(url);
+
+          self.ws.onmessage = function(e) {
+            var msg = JSON.parse(e.data);
+            if (msg.type === 'chunk') {
+              self.logText += msg.data;
+              /* Auto-scroll handled in x-effect on the log container */
+            } else if (msg.type === 'status') {
+              self.taskStatus = msg.data;
+            } else if (msg.type === 'approval_required') {
+              self.approvalPending = true;
+              self.approvalData = typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data, null, 2);
+            }
+          };
+
+          self.ws.onclose = function() {
+            if (['running', 'queued', 'awaiting_approval'].includes(self.taskStatus)) {
+              setTimeout(function() { self.connectWS(taskId); }, 3000);
+            }
+          };
+        },
+
+        async sendApproval(decision) {
+          await fetch('/tasks/' + this.activeTaskId + '/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ decision: decision })
+          });
+          this.approvalPending = false;
+        },
+
+        async cancelTask() {
+          await fetch('/tasks/' + this.activeTaskId + '/cancel', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+        },
+
+        backToSelect() {
+          if (this.ws) { this.ws.close(); this.ws = null; }
+          this.activeTaskId = null;
+          this.logText = '';
+          this.taskStatus = null;
+          this.approvalPending = false;
+          this.approvalData = null;
+          this.view = 'select';
+          this.loadProjects();
+        }
+      });
+    });
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="container">
+    <ul><li><strong>AI Agent Console</strong></li></ul>
+    <ul>
+      <li x-data x-show="$store.app.selectedProject && ($store.app.view === 'prompt' || $store.app.view === 'running')" x-text="$store.app.selectedProject?.name"></li>
+    </ul>
+  </nav>
+
+  <main class="container" x-data>
+
+    <!-- Error banner -->
+    <p class="error-msg" x-show="$store.app.error" x-text="$store.app.error"></p>
+
+    <!-- ============================================================ -->
+    <!-- VIEW: Select Project                                         -->
+    <!-- ============================================================ -->
+    <div x-show="$store.app.view === 'select'" x-init="$store.app.loadProjects()">
+
+      <hgroup>
+        <h2>Select Project</h2>
+        <p>Choose a project to work on or create a new one</p>
+      </hgroup>
+
+      <button @click="$store.app.loadTemplates(); $store.app.view = 'create'">New Project</button>
+
+      <!-- Project cards -->
+      <div x-show="$store.app.projects.length > 0">
+        <template x-for="project in $store.app.projects" :key="project.id">
+          <article class="project-card" @click="$store.app.selectProject(project)">
+            <header>
+              <strong x-text="project.name"></strong>
+              <span class="time-ago" x-text="timeAgo(project.last_used_at)"></span>
+            </header>
+            <p x-show="project.description" x-text="project.description"></p>
+            <footer>
+              <template x-for="badge in stackBadges(project.stack)" :key="badge">
+                <span class="badge" x-text="badge"></span>
+              </template>
+            </footer>
+          </article>
+        </template>
+      </div>
+
+      <!-- Empty state -->
+      <p x-show="$store.app.projects.length === 0">No projects found. Create one to get started.</p>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- VIEW: Create Project                                         -->
+    <!-- ============================================================ -->
+    <div x-show="$store.app.view === 'create'">
+
+      <hgroup>
+        <h2>Create Project</h2>
+        <p>
+          <a href="#" @click.prevent="$store.app.view = 'select'">&larr; Back to projects</a>
+        </p>
+      </hgroup>
+
+      <form @submit.prevent="$store.app.createProject(
+              $refs.projName.value,
+              $refs.projDesc.value,
+              $refs.projTemplate.value
+            )">
+        <label>
+          Name
+          <input type="text" x-ref="projName" required placeholder="my-project">
+        </label>
+
+        <label>
+          Description
+          <textarea x-ref="projDesc" placeholder="Optional project description" rows="2"></textarea>
+        </label>
+
+        <label>
+          Template
+          <select x-ref="projTemplate">
+            <option value="">No template</option>
+            <template x-for="tmpl in $store.app.templates" :key="tmpl.id">
+              <option :value="tmpl.id" x-text="tmpl.name"></option>
+            </template>
+          </select>
+        </label>
+
+        <button type="submit">Create Project</button>
+      </form>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- VIEW: Prompt                                                 -->
+    <!-- ============================================================ -->
+    <div x-show="$store.app.view === 'prompt'">
+
+      <hgroup>
+        <h2 x-text="$store.app.selectedProject?.name || 'Project'"></h2>
+        <p>
+          <a href="#" @click.prevent="$store.app.selectedProject = null; $store.app.view = 'select'">&larr; Back to projects</a>
+        </p>
+      </hgroup>
+
+      <!-- Phase suggestion -->
+      <article x-show="$store.app.phaseSuggestion">
+        <header><strong>Suggested Phase</strong></header>
+        <p x-show="$store.app.phaseSuggestion?.suggestion">
+          <span x-text="$store.app.phaseSuggestion?.suggestion?.phase_name"></span>
+          <span class="badge" x-text="$store.app.phaseSuggestion?.suggestion?.status" :data-status="$store.app.phaseSuggestion?.suggestion?.status"></span>
+        </p>
+        <p class="phase-reason" x-show="$store.app.phaseSuggestion?.suggestion?.reason" x-text="$store.app.phaseSuggestion?.suggestion?.reason"></p>
+        <p x-show="!$store.app.phaseSuggestion?.suggestion">No phase suggestion available</p>
+      </article>
+
+      <!-- Context preview -->
+      <details>
+        <summary @click="if (!$store.app.contextData) { $store.app.loadContext(); }">Show context</summary>
+        <div x-show="$store.app.contextData">
+          <p><strong>Workspace:</strong> <span x-text="$store.app.contextData?.workspace"></span></p>
+          <details x-show="$store.app.contextData?.claude_md">
+            <summary>CLAUDE.md</summary>
+            <pre><code x-text="($store.app.contextData?.claude_md || '').substring(0, 2000)"></code></pre>
+          </details>
+          <details x-show="$store.app.contextData?.git_log">
+            <summary>Git Log</summary>
+            <pre><code x-text="$store.app.contextData?.git_log"></code></pre>
+          </details>
+          <details x-show="$store.app.contextData?.planning_docs">
+            <summary>Planning Docs</summary>
+            <pre><code x-text="$store.app.contextData?.planning_docs"></code></pre>
+          </details>
+        </div>
+        <p x-show="!$store.app.contextData">Loading context...</p>
+      </details>
+
+      <!-- Prompt form -->
+      <form @submit.prevent="$store.app.submitTask($refs.taskPrompt.value, $refs.taskMode.value)">
+        <label>
+          Prompt
+          <textarea x-ref="taskPrompt" required rows="5" placeholder="Describe what you want the agent to do..."></textarea>
+        </label>
+
+        <label>
+          Mode
+          <select x-ref="taskMode">
+            <option value="autonomous" selected>Autonomous</option>
+            <option value="supervised">Supervised</option>
+          </select>
+        </label>
+
+        <button type="submit">Run Task</button>
+      </form>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- VIEW: Running                                                -->
+    <!-- ============================================================ -->
+    <div x-show="$store.app.view === 'running'">
+
+      <hgroup>
+        <h2>Task Running</h2>
+        <p>
+          Status: <span :data-status="$store.app.taskStatus" x-text="$store.app.taskStatus || 'connecting...'"></span>
+        </p>
+      </hgroup>
+
+      <!-- Action buttons -->
+      <div role="group">
+        <button
+          @click="$store.app.cancelTask()"
+          x-show="$store.app.taskStatus === 'running' || $store.app.taskStatus === 'queued'"
+          class="secondary"
+        >Cancel Task</button>
+        <button
+          @click="$store.app.backToSelect()"
+          x-show="$store.app.taskStatus === 'completed' || $store.app.taskStatus === 'failed' || $store.app.taskStatus === 'cancelled'"
+          class="contrast"
+        >Back to Projects</button>
+      </div>
+
+      <!-- Approval UI -->
+      <article x-show="$store.app.approvalPending">
+        <header>Approval Required</header>
+        <pre x-text="$store.app.approvalData"></pre>
+        <footer>
+          <div role="group">
+            <button @click="$store.app.sendApproval('approve')">Approve</button>
+            <button @click="$store.app.sendApproval('reject')" class="secondary">Reject</button>
+            <button @click="$store.app.sendApproval('continue')" class="contrast">Continue</button>
+          </div>
+        </footer>
+      </article>
+
+      <!-- Streaming log output -->
+      <h3>Live Output</h3>
+      <pre class="log-output" x-ref="logContainer"
+           x-effect="if ($store.app.logText) { $nextTick(() => { $el.scrollTop = $el.scrollHeight; }); }"
+      ><code x-text="$store.app.logText"></code></pre>
+
+    </div>
+
+  </main>
+</body>
+</html>
