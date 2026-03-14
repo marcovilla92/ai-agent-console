@@ -1,21 +1,55 @@
 """
-Template management REST endpoints (full CRUD).
+Template management REST endpoints (full CRUD + AI generation).
 
-Provides listing, detail, create, update, and delete endpoints for project templates.
-Builtin templates are protected from mutation (403 Forbidden).
+Provides listing, detail, create, update, delete, and AI-generate endpoints
+for project templates.  Builtin templates are protected from mutation (403).
 """
+import asyncio
+import json
+import logging
 import shutil
+import tempfile
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from src.agents.config import PROTECTED_AGENTS
+from src.agents.loader import discover_project_agents
+from src.commands.loader import discover_project_commands
+from src.runner.runner import call_orchestrator_claude
 from src.server.dependencies import verify_credentials
+
+log = logging.getLogger(__name__)
 
 TEMPLATES_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "templates"
 REGISTRY_PATH = TEMPLATES_ROOT / "registry.yaml"
 EXCLUDE_DIRS = {".git", "__pycache__", "node_modules", ".mypy_cache"}
+
+# --- AI generation constants ---
+
+_gen_lock = asyncio.Lock()
+
+TEMPLATE_GEN_SCHEMA = json.dumps(
+    {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "files": {"type": "object", "additionalProperties": {"type": "string"}},
+        },
+        "required": ["id", "name", "description", "files"],
+    }
+)
+
+_GEN_SYSTEM_PROMPT_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "agents"
+    / "prompts"
+    / "template_gen_system.txt"
+)
 
 
 # --- Pydantic models ---
@@ -66,6 +100,19 @@ class TemplateUpdateRequest(BaseModel):
     description: str | None = None
     files_upsert: dict[str, str] | None = None  # {relative_path: content}
     files_delete: list[str] | None = None  # [relative_path]
+
+
+class GenerateTemplateRequest(BaseModel):
+    description: str  # Natural language project description (max 2000 chars)
+    stack: str | None = None  # Optional stack hint
+
+
+class GenerateTemplateResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    files: dict[str, str]
+    validation_errors: list[str]
 
 
 # --- Helpers ---
@@ -275,3 +322,120 @@ async def delete_template(template_id: str):
     data["templates"] = [t for t in data["templates"] if t["id"] != template_id]
     save_registry(data)
     return {"status": "deleted", "id": template_id}
+
+
+# --- AI template generation ---
+
+
+def _validate_generated_files(files: dict[str, str]) -> list[str]:
+    """Validate generated template files through existing loaders."""
+    errors: list[str] = []
+    tmp_dir = tempfile.mkdtemp(prefix="tmpl-validate-")
+    try:
+        for rel_path, content in files.items():
+            # Check path safety
+            if rel_path.startswith("/") or ".." in rel_path:
+                errors.append(f"Invalid path: {rel_path}")
+                continue
+            target = Path(tmp_dir) / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+
+        # Check reserved agent names
+        agents_dir = Path(tmp_dir) / ".claude" / "agents"
+        if agents_dir.is_dir():
+            for md in agents_dir.glob("*.md"):
+                stem = md.stem.lower().replace(" ", "-")
+                if stem in PROTECTED_AGENTS:
+                    errors.append(f"Agent '{stem}' uses reserved core agent name")
+
+        # Run full agent loader to catch parse errors
+        try:
+            discover_project_agents(tmp_dir)
+        except Exception as exc:
+            errors.append(f"Agent validation error: {exc}")
+
+        # Run command loader to catch parse errors
+        try:
+            discover_project_commands(tmp_dir)
+        except Exception as exc:
+            errors.append(f"Command validation error: {exc}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    return errors
+
+
+@template_router.post("/generate", response_model=GenerateTemplateResponse)
+async def generate_template(req: GenerateTemplateRequest):
+    """Generate a project template from a natural language description using AI."""
+    # AIGEN-03: Non-blocking lock check
+    if _gen_lock.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="Template generation already in progress",
+            headers={"Retry-After": "30"},
+        )
+
+    async with _gen_lock:
+        # Cap description length
+        description = req.description[:2000]
+
+        # Build prompt
+        prompt = f"Generate a project template for: {description}"
+        if req.stack:
+            prompt += f"\nPreferred stack: {req.stack}"
+
+        # Load system prompt
+        system_prompt_text = _GEN_SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+
+        log.info("Template generation requested: %.100s...", description)
+
+        # Call Claude CLI with structured output + timeout
+        try:
+            raw = await asyncio.wait_for(
+                call_orchestrator_claude(
+                    prompt=prompt,
+                    schema=TEMPLATE_GEN_SCHEMA,
+                    system_prompt=system_prompt_text,
+                ),
+                timeout=120,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="Template generation timed out",
+            )
+
+        # Parse response (same pattern as orchestrator.py)
+        try:
+            response = json.loads(raw)
+            data = response.get("structured_output") or response.get("result")
+            if isinstance(data, str):
+                data = json.loads(data)
+            if not isinstance(data, dict):
+                raise ValueError("Expected dict from structured output")
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            log.error("AI generation produced invalid response: %s", exc)
+            raise HTTPException(
+                status_code=502,
+                detail="AI generation produced invalid response",
+            )
+
+        # AIGEN-02: Validate generated files
+        generated_files = data.get("files", {})
+        validation_errors = _validate_generated_files(generated_files)
+
+        log.info(
+            "Template generated: id=%s files=%d errors=%d",
+            data.get("id"),
+            len(generated_files),
+            len(validation_errors),
+        )
+
+        return GenerateTemplateResponse(
+            id=data["id"],
+            name=data["name"],
+            description=data["description"],
+            files=generated_files,
+            validation_errors=validation_errors,
+        )
