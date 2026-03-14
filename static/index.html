@@ -335,7 +335,8 @@
               var data = await resp.json();
               this.fileTree = data.tree;
             } else {
-              this.error = 'Failed to load file tree';
+              var err = await resp.json().catch(function() { return {}; });
+              this.error = err.detail || 'Failed to load file tree';
             }
           } catch (e) {
             this.error = 'Failed to load file tree';
