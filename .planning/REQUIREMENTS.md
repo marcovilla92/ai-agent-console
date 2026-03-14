@@ -191,14 +191,14 @@ Requirements for Template System Overhaul milestone. Each maps to roadmap phases
 
 ### Command Loading
 
-- [ ] **CMLD-01**: Il sistema scopre automaticamente tutti i file `.claude/commands/*.md` nella directory del progetto
+- [x] **CMLD-01**: Il sistema scopre automaticamente tutti i file `.claude/commands/*.md` nella directory del progetto
 - [ ] **CMLD-02**: I comandi scoperti vengono iniettati nel contesto degli agenti del pipeline
 - [ ] **CMLD-03**: I comandi possono essere eseguiti come target di routing dall'orchestrator
 
 ### Settings
 
-- [ ] **SETG-01**: Il sistema legge `.claude/settings.local.json` dalla directory del progetto
-- [ ] **SETG-02**: Le settings del progetto vengono mergiate con le settings globali (progetto sovrascrive dove specificato)
+- [x] **SETG-01**: Il sistema legge `.claude/settings.local.json` dalla directory del progetto
+- [x] **SETG-02**: Le settings del progetto vengono mergiate con le settings globali (progetto sovrascrive dove specificato)
 
 ### Orchestrator Integration
 
@@ -397,11 +397,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGLD-02 | Phase 26 | Complete |
 | AGLD-03 | Phase 26 | Complete |
 | AGLD-04 | Phase 26 | Complete |
-| CMLD-01 | Phase 27 | Pending |
+| CMLD-01 | Phase 27 | Complete |
 | CMLD-02 | Phase 27 | Pending |
 | CMLD-03 | Phase 28 | Pending |
-| SETG-01 | Phase 27 | Pending |
-| SETG-02 | Phase 27 | Pending |
+| SETG-01 | Phase 27 | Complete |
+| SETG-02 | Phase 27 | Complete |
 | ORCH-01 | Phase 28 | Pending |
 | ORCH-02 | Phase 28 | Pending |
 | ORCH-03 | Phase 28 | Pending |
