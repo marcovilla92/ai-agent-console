@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: Orchestration Improvements
 status: planning
-stopped_at: Completed 22-01-PLAN.md
-last_updated: "2026-03-14T14:39:42.461Z"
+stopped_at: Completed 22-02-PLAN.md
+last_updated: "2026-03-14T14:42:40.878Z"
 last_activity: 2026-03-14 -- Roadmap created for v2.3
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 - [v2.3]: Pin first plan handoff (exempt from windowing) to preserve original context on re-routes
 - [Phase 22]: System prompt lookup lives inside WebTaskContext.stream_output, not in the TaskContext Protocol
 - [Phase 22]: Unknown agent names log warning and fall back to None rather than crashing
+- [Phase 22]: Pin handoff by index 0, drop entire entries only, pinned exempt from char cap
 
 ### Pending Todos
 
@@ -66,6 +67,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-14T14:39:42.458Z
-Stopped at: Completed 22-01-PLAN.md
+Last session: 2026-03-14T14:42:40.875Z
+Stopped at: Completed 22-02-PLAN.md
 Resume file: None

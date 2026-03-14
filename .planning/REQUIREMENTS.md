@@ -158,8 +158,8 @@ Requirements for Orchestration Improvements milestone. Each maps to roadmap phas
 
 ### Context Management
 
-- [ ] **CTX-05**: Handoffs are bounded to the last complete cycle (plan+execute+review) with 8000-char cap
-- [ ] **CTX-06**: First plan handoff is pinned (exempt from windowing) to preserve original context on re-routes
+- [x] **CTX-05**: Handoffs are bounded to the last complete cycle (plan+execute+review) with 8000-char cap
+- [x] **CTX-06**: First plan handoff is pinned (exempt from windowing) to preserve original context on re-routes
 - [ ] **CTX-07**: On re-route from review, execute receives a targeted prompt with extracted ISSUES/IMPROVEMENTS instead of full handoff dump
 - [ ] **CTX-08**: Orchestrator routing prompt includes only sections relevant to the last agent (ROUTING_SECTIONS map)
 
@@ -312,8 +312,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | FIX-01 | Phase 22 | Complete |
 | FIX-02 | Phase 22 | Complete |
-| CTX-05 | Phase 22 | Pending |
-| CTX-06 | Phase 22 | Pending |
+| CTX-05 | Phase 22 | Complete |
+| CTX-06 | Phase 22 | Complete |
 | FWRT-01 | Phase 23 | Pending |
 | FWRT-02 | Phase 23 | Pending |
 | FWRT-03 | Phase 23 | Pending |
