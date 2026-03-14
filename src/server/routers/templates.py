@@ -7,6 +7,7 @@ for project templates.  Builtin templates are protected from mutation (403).
 import asyncio
 import json
 import logging
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -465,17 +466,23 @@ async def generate_template(req: GenerateTemplateRequest):
         generated_files = data.get("files", {})
         validation_errors = _validate_generated_files(generated_files)
 
+        # Extract fields with fallbacks
+        tmpl_name = data.get("name") or data.get("project_name") or data.get("template_name") or "ai-generated"
+        tmpl_id = data.get("id") or data.get("slug") or data.get("template_id") or re.sub(r"[^a-z0-9-]", "", tmpl_name.lower().replace(" ", "-"))
+        tmpl_desc = data.get("description") or data.get("project_description") or description[:200]
+
         log.info(
-            "Template generated: id=%s files=%d errors=%d",
-            data.get("id"),
+            "Template generated: id=%s name=%s files=%d errors=%d keys=%s",
+            tmpl_id, tmpl_name,
             len(generated_files),
             len(validation_errors),
+            list(data.keys()),
         )
 
         return GenerateTemplateResponse(
-            id=data["id"],
-            name=data["name"],
-            description=data["description"],
+            id=tmpl_id,
+            name=tmpl_name,
+            description=tmpl_desc,
             files=generated_files,
             validation_errors=validation_errors,
         )
