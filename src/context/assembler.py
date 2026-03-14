@@ -162,6 +162,31 @@ async def get_recent_tasks(
     ]
 
 
+MAX_CMD_DESC_CHARS = 100
+
+
+def format_available_commands(project_path: str) -> str:
+    """Format discovered commands as a string for prompt injection.
+
+    Returns lines like "- /migrate: Analyze the current database..."
+    Returns empty string if no commands found.
+    """
+    from src.commands.loader import discover_project_commands
+
+    commands = discover_project_commands(project_path)
+    if not commands:
+        return ""
+
+    lines = []
+    for name, info in sorted(commands.items()):
+        desc = info.description.replace("\n", " ").strip()
+        if len(desc) > MAX_CMD_DESC_CHARS:
+            desc = desc[:MAX_CMD_DESC_CHARS]
+        lines.append(f"- /{name}: {desc}")
+
+    return "\n".join(lines)
+
+
 async def assemble_full_context(
     project_path: str, pool: asyncpg.Pool
 ) -> dict[str, Any]:
@@ -197,12 +222,21 @@ async def assemble_full_context(
     # 5. Recent tasks
     recent_tasks = await get_recent_tasks(pool, project_path)
 
+    # 6. Available commands (lazy import to avoid circular deps)
+    available_commands = format_available_commands(project_path)
+
+    # 7. Project settings (lazy import)
+    from src.settings.loader import load_project_settings
+    project_settings = load_project_settings(project_path)
+
     return {
         "workspace": workspace,
         "claude_md": claude_md,
         "planning_docs": planning_docs,
         "git_log": git_log,
         "recent_tasks": recent_tasks,
+        "available_commands": available_commands,
+        "project_settings": project_settings,
     }
 
 
