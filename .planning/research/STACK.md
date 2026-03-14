@@ -1,357 +1,325 @@
-# Stack Research
+# Technology Stack
 
-**Domain:** Project Router additions to existing AI Agent Console (v2.1 milestone)
-**Researched:** 2026-03-13
+**Project:** AI Agent Console v2.3 - Orchestration Improvements
+**Researched:** 2026-03-14
 **Confidence:** HIGH
 
 ---
 
 ## Context: What Already Exists (Do Not Re-research)
 
-The v2.0 stack is validated and deployed:
-- FastAPI + asyncpg + uvicorn — backend fully operational
-- Jinja2 >= 3.1 — already installed, used for HTML templates
-- Alpine.js 3.x (CDN) + Pico CSS 2.x — frontend in use
-- asyncio.create_subprocess_exec — already in `src/git/autocommit.py`
-- subprocess / asyncio patterns — established codebase patterns
-- PostgreSQL 16 — live on VPS
+The v2.0-v2.2 stack is validated and deployed:
+- Python 3.12, FastAPI >= 0.115, asyncpg >= 0.30, uvicorn >= 0.34
+- Claude CLI via `asyncio.create_subprocess_exec` (stream-json and json output modes)
+- PostgreSQL 16 with asyncpg connection pool
+- Alpine.js 3.x + Tailwind CSS frontend (SPA)
+- Pydantic models, pytest, Docker on Coolify
 
-This document covers ONLY new capabilities needed for v2.1.
-
----
-
-## New Capabilities Required
-
-### 1. YAML Parsing — registry.yaml for template system
-
-**Requirement:** Read/write `templates/registry.yaml` (template index). Must support round-trip — add/remove entries without destroying formatting.
-
-**Recommendation: PyYAML >= 6.0.2 (already a Python stdlib companion, zero new deps)**
-
-PyYAML is already available on the system (confirmed: `python3 -c "import yaml"` succeeds). The `registry.yaml` use case is simple: load a dict, append/remove an entry, write it back. Comment preservation is not needed because `registry.yaml` is machine-managed only (not human-edited between API calls).
-
-Use `yaml.safe_load()` and `yaml.safe_dump()`. This is sufficient.
-
-**Do NOT add ruamel.yaml.** It is a heavier dependency (multiple sub-packages) and is justified only when round-trip comment preservation is a hard requirement. For a machine-managed index file, PyYAML safe_dump is correct.
-
-```python
-import yaml
-
-def load_registry(path: Path) -> dict:
-    with open(path) as f:
-        return yaml.safe_load(f) or {"templates": []}
-
-def save_registry(path: Path, data: dict) -> None:
-    with open(path, "w") as f:
-        yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
-```
-
-**Version:** PyYAML 6.0.2+ (already installed system-wide; add `pyyaml>=6.0` to pyproject.toml if not already there to make it explicit).
+This document covers ONLY what v2.3 orchestration improvements need.
 
 ---
 
-### 2. Template Rendering — `.j2` scaffolding files
+## Key Finding: Zero New Dependencies
 
-**Requirement:** Render Jinja2 templates (`.j2` files) with project variables (`name`, `slug`, `date`) during project creation.
+All eight v2.3 features are **internal architecture refactors** using Python stdlib and existing libraries. This is not an accident -- the improvements target orchestration logic (prompt construction, context windowing, registry patterns), not new integrations.
 
-**Recommendation: Jinja2 (already installed — zero new dependency)**
-
-Jinja2 >= 3.1 is already in requirements.txt. The `templates/` directory is being repurposed from HTML templates to project scaffolding (confirmed in PROJECT.md key decisions). The `Environment` class with a `FileSystemLoader` is the correct API — not `Jinja2Templates` (which is the FastAPI/Starlette wrapper for HTTP responses).
-
-```python
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
-
-def render_template_file(template_path: Path, context: dict) -> str:
-    env = Environment(
-        loader=FileSystemLoader(str(template_path.parent)),
-        undefined=StrictUndefined,  # Fail fast on missing variables
-        keep_trailing_newline=True,
-    )
-    template = env.get_template(template_path.name)
-    return template.render(**context)
-```
-
-Context variables for all templates: `name` (display name), `slug` (kebab-case), `date` (ISO date string), `description`.
-
-**Use StrictUndefined** — template scaffolding errors must be loud, not silently blank.
-
-**Version:** Jinja2 >= 3.1 (already installed). No version change needed.
+**Net new pip dependencies: 0**
+**Net new frontend dependencies: 0**
 
 ---
 
-### 3. Git Subprocess — `git init` for new project creation
+## Feature-by-Feature Stack Analysis
 
-**Requirement:** Run `git init` (and optionally `git add`, first `git commit`) when creating a new project via `POST /projects`.
+### 1. File Writer -- `pathlib` + `re` (stdlib)
 
-**Recommendation: asyncio.create_subprocess_exec (already established pattern)**
+**Needs:** Parse markdown code fences from EXECUTE agent output, write files to disk.
 
-The codebase already uses `asyncio.create_subprocess_exec` in `src/git/autocommit.py` for git operations. Use the same pattern for `git init`. No new library needed.
-
-```python
-async def git_init(project_path: Path) -> None:
-    """Initialize a git repository in the new project directory."""
-    proc = await asyncio.create_subprocess_exec(
-        "git", "init",
-        cwd=str(project_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"git init failed: {stderr.decode()}")
-
-async def git_initial_commit(project_path: Path, project_name: str) -> None:
-    """Stage all scaffolded files and create initial commit."""
-    for cmd in [
-        ["git", "add", "."],
-        ["git", "commit", "-m", f"init: scaffold {project_name} from template"],
-    ]:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(project_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await proc.communicate()
-        if proc.returncode != 0:
-            break  # Silently skip if commit fails (no git identity configured)
-```
-
-**Why asyncio.create_subprocess_exec over subprocess.run in executor:**
-The codebase already uses the async subprocess pattern. Consistent is better than introducing a `run_in_executor` pattern for the same concern. `git init` on a local path is fast (< 100ms) and non-blocking in practice.
-
-**No new library.** Git is already present on the VPS (Ubuntu 24.04 ships git).
-
----
-
-### 4. Filesystem Scanning — `~/projects/` auto-registration
-
-**Requirement:** Scan `~/projects/` on `GET /projects` to discover unregistered directories and reconcile with the DB.
-
-**Recommendation: pathlib.Path (stdlib — zero new dependency)**
-
-Directory scanning is pure stdlib. No library is needed.
-
-```python
-import os
-from pathlib import Path
-
-def scan_projects_dir(base_path: str = "~/projects") -> list[Path]:
-    """Return all immediate subdirectories of base_path."""
-    root = Path(base_path).expanduser()
-    if not root.exists():
-        return []
-    return [
-        p for p in root.iterdir()
-        if p.is_dir() and not p.name.startswith(".")
-    ]
-
-def detect_stack(project_path: Path) -> str:
-    """Heuristic stack detection from project files."""
-    markers = {
-        "pyproject.toml": "Python",
-        "requirements.txt": "Python",
-        "package.json": "Node.js",
-        "go.mod": "Go",
-        "Cargo.toml": "Rust",
-        "pom.xml": "Java",
-    }
-    for filename, stack in markers.items():
-        if (project_path / filename).exists():
-            return stack
-    return "Unknown"
-```
-
-Stack detection is a heuristic used for the frontend display (e.g., "Python, Docker"). Check for `Dockerfile` presence separately.
-
-**No new library.** `pathlib` and `os` are stdlib.
-
----
-
-### 5. Alpine.js SPA — replacing multi-page Jinja2 templates
-
-**Requirement:** Replace three Jinja2 server-rendered pages (base.html, task_list.html, task_detail.html) with a single `index.html` SPA serving three views: project-select → prompt → running.
-
-**Recommendation: Alpine.js 3.x + `x-show` view switching (no router library)**
-
-The existing Alpine.js 3 CDN tag is already present (`alpinejs@3/dist/cdn.min.js`). For this SPA, three views are switched via a single `currentView` state variable. This is the correct Alpine.js pattern for small SPAs.
-
-**Do NOT add a router library** (alpinejs-router, pinecone-router). Three fixed views with no deep-linking requirement do not justify an external dependency. `x-show` with a global Alpine.store is sufficient and zero-overhead.
+**Why no library:** The output format is controlled by system prompts (``` ```language # path/to/file ```). A purpose-built regex is more reliable than a generic markdown parser because we define the format. This is ~80 LOC.
 
 **Pattern:**
-
-```html
-<script>
-document.addEventListener('alpine:init', () => {
-    Alpine.store('app', {
-        // View state: 'project-select' | 'prompt' | 'running'
-        view: 'project-select',
-
-        // Selected project
-        project: null,
-
-        // Active task
-        taskId: null,
-
-        // Navigate views
-        goToPrompt(project) {
-            this.project = project;
-            this.view = 'prompt';
-        },
-        goToRunning(taskId) {
-            this.taskId = taskId;
-            this.view = 'running';
-        },
-        reset() {
-            this.project = null;
-            this.taskId = null;
-            this.view = 'project-select';
-        }
-    });
-});
-</script>
-
-<!-- Each view section uses x-show for visibility toggling -->
-<section x-show="$store.app.view === 'project-select'">...</section>
-<section x-show="$store.app.view === 'prompt'">...</section>
-<section x-show="$store.app.view === 'running'">...</section>
-```
-
-**Why `Alpine.store` over `x-data` on a root element:**
-`Alpine.store` is globally accessible from any component without prop drilling. With three distinct sections that need shared state (project selection affects prompt which affects running), a global store is cleaner than a single massive `x-data` object on `<body>`.
-
-**Why `x-show` over `x-if`:**
-`x-show` keeps DOM elements alive (preserving WebSocket connections and scroll position in the running view). `x-if` destroys and recreates elements on each transition, which would kill an active WebSocket stream.
-
-**Current Alpine.js version:** 3.15.8 (confirmed via web search, March 2026).
-Pin CDN to specific version for production stability: `alpinejs@3.15.8`.
-
----
-
-### 6. Context Assembly — reading .planning/ docs and git log
-
-**Requirement:** `GET /projects/{id}/context` reads CLAUDE.md, .planning/ files, recent git log, and last N tasks from DB.
-
-**All stdlib + existing asyncpg. No new library.**
-
 ```python
-async def assemble_context(project_path: Path, pool: asyncpg.Pool, project_id: int) -> dict:
-    context = {}
+import re
+from dataclasses import dataclass
+from pathlib import Path
 
-    # CLAUDE.md
-    claude_md = project_path / "CLAUDE.md"
-    context["claude_md"] = claude_md.read_text() if claude_md.exists() else ""
+@dataclass
+class FileBlock:
+    path: str
+    content: str
+    language: str
 
-    # .planning/ docs
-    planning_dir = project_path / ".planning"
-    context["planning_docs"] = {}
-    if planning_dir.exists():
-        for doc in ["PROJECT.md", "STATE.md", "ROADMAP.md"]:
-            p = planning_dir / doc
-            if p.exists():
-                context["planning_docs"][doc] = p.read_text()
+# Match: ```python # src/main.py  or  ```typescript // src/app.ts
+FILE_BLOCK_RE = re.compile(
+    r'```(\w+)\s*[#/]+\s*(\S+)\s*\n(.*?)```',
+    re.DOTALL,
+)
 
-    # Git log (last 10 commits)
-    proc = await asyncio.create_subprocess_exec(
-        "git", "log", "--oneline", "-10",
-        cwd=str(project_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    context["git_log"] = stdout.decode() if proc.returncode == 0 else ""
+def extract_file_blocks(raw_output: str) -> list[FileBlock]:
+    return [
+        FileBlock(path=m.group(2), content=m.group(3).strip(), language=m.group(1))
+        for m in FILE_BLOCK_RE.finditer(raw_output)
+    ]
 
-    # Recent tasks from DB
-    rows = await pool.fetch(
-        "SELECT id, prompt, status, created_at FROM tasks "
-        "WHERE project_id = $1 ORDER BY created_at DESC LIMIT 5",
-        project_id
-    )
-    context["recent_tasks"] = [dict(r) for r in rows]
-    return context
+async def write_files(blocks: list[FileBlock], project_path: str) -> list[str]:
+    written = []
+    for block in blocks:
+        target = Path(project_path) / block.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(block.content)
+        written.append(str(target))
+    return written
 ```
 
-**No new library.** File I/O via `pathlib`, async subprocess for git, asyncpg for DB.
+**Integration point:** Called from `orchestrate_pipeline()` after EXECUTE completes, before handoff to REVIEW. The file writer sits between step 2 (run agent) and step 3 (record history) in the orchestration loop.
+
+**What NOT to use:**
+| Avoid | Why |
+|-------|-----|
+| tree-sitter | Overkill for extracting markdown fenced code blocks from a format we control |
+| markdown-it / mistune | Generic markdown parsers don't understand our `# filepath` comment convention |
+| aiofiles | `Path.write_text()` is fine -- files are small (code output), and the IO is negligible compared to the Claude CLI call that precedes it |
 
 ---
 
-## Summary: New Dependencies for v2.1
+### 2. Targeted Re-route Prompts -- string ops (stdlib)
 
-| Dependency | Action | Rationale |
-|------------|--------|-----------|
-| `pyyaml>=6.0` | Add to pyproject.toml | Make explicit; already system-installed. For registry.yaml read/write. |
-| Alpine.js `@3.15.8` | Pin CDN version | Was `@3` (floating). Pin for stability. |
-| Everything else | No change | Jinja2, asyncio subprocess, pathlib — all existing. |
+**Needs:** Extract ISSUES/IMPROVEMENTS from review sections dict, build focused prompt.
 
-**Net new pip dependencies: 1 (pyyaml, made explicit)**
+**Why no library:** The sections are already parsed by `extract_sections()` into `dict[str, str]`. Building a targeted prompt is string concatenation.
 
----
-
-## Updated pyproject.toml dependencies
-
-```toml
-dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-    "asyncpg>=0.30",
-    "jinja2>=3.1",
-    "python-multipart>=0.0.18",
-    "httpx>=0.28",
-    "pydantic-settings>=2.0",
-    "tenacity>=8.0",
-    "pyyaml>=6.0",      # NEW: template registry.yaml parsing
-]
+**Pattern:** New function in `src/pipeline/handoff.py`:
+```python
+def build_reroute_prompt(review_sections: dict[str, str], target_agent: str) -> str:
+    issues = review_sections.get("ISSUES", "")
+    improvements = review_sections.get("IMPROVEMENTS", "")
+    return f"Fix these specific issues found during review:\n\n{issues}\n\n{improvements}\n\nOnly modify files that need changes."
 ```
 
+**No library needed.** Pure string manipulation on existing data structures.
+
 ---
 
-## Alternatives Considered
+### 3. Bounded Handoffs -- list slicing + `len()` (stdlib)
 
-| Recommended | Alternative | Why Not |
-|-------------|-------------|---------|
-| PyYAML safe_load/dump | ruamel.yaml | ruamel.yaml justified only for round-trip comment preservation. registry.yaml is machine-managed — no comments to preserve. Extra dependency for zero benefit. |
-| Alpine.store + x-show | alpinejs-router | Three fixed views with no deep-link requirement. Router adds 15KB+ and API surface for a problem that x-show solves in 5 lines. |
-| Alpine.store + x-show | x-data on root body | Store is globally accessible without prop drilling. Root x-data becomes a 300-line god-object. Store separates concerns cleanly. |
-| asyncio.create_subprocess_exec | subprocess.run in run_in_executor | Consistent with existing git/autocommit.py pattern. Subprocess is async-native. run_in_executor adds thread-pool indirection for equivalent behavior. |
-| pathlib.Path.iterdir() | os.scandir / glob | pathlib is the modern Python stdlib standard. Already used throughout codebase. |
-| Jinja2 Environment + FileSystemLoader | Mako / Chevron | Jinja2 already installed. Mako/Chevron would be extra deps for identical capability. |
+**Needs:** Window accumulated handoffs to last cycle, cap at 8000 chars.
+
+**Why no library:** The handoffs are `list[str]` on `OrchestratorState`. Windowing is list slicing. Size capping is string truncation.
+
+**Pattern:** Replace unbounded join in `orchestrate_pipeline()`:
+```python
+# Current (unbounded):
+handoff_context = "\n\n".join(state.accumulated_handoffs)
+
+# New (windowed):
+HANDOFF_WINDOW = 3  # last cycle = plan + execute + review
+HANDOFF_MAX_CHARS = 8000
+
+recent = state.accumulated_handoffs[-HANDOFF_WINDOW:]
+handoff_context = "\n\n".join(recent)
+if len(handoff_context) > HANDOFF_MAX_CHARS:
+    handoff_context = handoff_context[-HANDOFF_MAX_CHARS:]
+```
+
+**What NOT to use:**
+| Avoid | Why |
+|-------|-----|
+| tiktoken | Character counting is a good-enough proxy for the 8000-char heuristic. Token counting adds a dependency for marginal accuracy on a threshold that is itself a heuristic. |
+| Redis / memcached | Context windowing is in-process list manipulation. No inter-process state needed. |
+
+---
+
+### 4. Orchestrator System Prompt Fix -- one-line change
+
+**Needs:** Pass `--system-prompt-file` to `call_orchestrator_claude()`.
+
+**Pattern:** In `src/runner/runner.py`:
+```python
+async def call_orchestrator_claude(prompt: str, schema: str, system_prompt_file: str | None = None) -> str:
+    cmd = [claude, "-p", "--output-format", "json", "--json-schema", schema, "--dangerously-skip-permissions"]
+    if system_prompt_file:
+        cmd += ["--system-prompt-file", system_prompt_file]
+    cmd.append(prompt)
+```
+
+**No library needed.** Literally adding two list elements to an existing subprocess command.
+
+---
+
+### 5. Smart Section Filtering -- dict comprehension (stdlib)
+
+**Needs:** Config mapping agent name to relevant routing sections.
+
+**Pattern:** Add to `src/agents/config.py`:
+```python
+ROUTING_SECTIONS: dict[str, list[str]] = {
+    "plan": ["HANDOFF", "GOAL"],
+    "execute": ["HANDOFF", "TARGET"],
+    "review": ["DECISION", "ISSUES", "SUMMARY"],
+    "test": ["TEST RESULTS", "FAILURES", "HANDOFF"],
+}
+```
+
+Use in `build_orchestrator_prompt()`:
+```python
+allowed = ROUTING_SECTIONS.get(state.current_agent, list(latest_sections.keys()))
+filtered = {k: v for k, v in latest_sections.items() if k in allowed}
+```
+
+**No library needed.** Dict filtering with a static config.
+
+---
+
+### 6. Test Agent -- new prompt file + registry entry
+
+**Needs:** System prompt file, registry config entry, schema enum update.
+
+**Why no library:** The test agent is another Claude CLI call with a different system prompt. It follows the exact same execution pattern as plan/execute/review. The spec explicitly says "static code review, no subprocess" -- so no pytest runner, no test framework integration.
+
+**Pattern:** Add to `AGENT_REGISTRY`:
+```python
+"test": AgentConfig(
+    name="test",
+    system_prompt_file=str(PROMPTS_DIR / "test_system.txt"),
+    output_sections=["TEST RESULTS", "COVERAGE", "FAILURES", "HANDOFF"],
+    next_agent="review",
+),
+```
+Update execute's `next_agent` from `"review"` to `"test"`.
+
+**No library needed.** Config-driven agent registration using existing `AgentConfig` dataclass.
+
+---
+
+### 7. Confidence-Based Autonomy -- float comparison (stdlib)
+
+**Needs:** Threshold checks on existing `decision.confidence` field (already a float 0.0-1.0).
+
+**Pattern:** In `orchestrate_pipeline()`, decision handling:
+```python
+# Low confidence: force confirmation even in autonomous mode
+if decision.confidence < 0.5:
+    confirmed = await ctx.confirm_reroute(decision.next_agent, decision.reasoning)
+    if not confirmed:
+        state.halted = True
+        break
+# Medium confidence: log warning, proceed
+elif decision.confidence < 0.7:
+    log.warning("Medium confidence (%.2f) on routing to %s", decision.confidence, decision.next_agent)
+# High confidence: proceed silently
+```
+
+**No library needed.** Float comparison on an existing field.
+
+---
+
+### 8. Dynamic Schema/Prompt from Registry -- `json` module (stdlib)
+
+**Needs:** Generate orchestrator JSON schema enum from `AGENT_REGISTRY` keys.
+
+**Pattern:** Replace hardcoded `ORCHESTRATOR_SCHEMA`:
+```python
+def build_orchestrator_schema() -> str:
+    agent_names = list(AGENT_REGISTRY.keys()) + ["approved"]
+    return json.dumps({
+        "type": "object",
+        "properties": {
+            "next_agent": {
+                "type": "string",
+                "enum": agent_names,
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "One-line explanation of the routing decision",
+            },
+            "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+            },
+        },
+        "required": ["next_agent", "reasoning", "confidence"],
+    })
+```
+
+For the system prompt template, use f-strings (not Jinja2 -- system prompts are plain text files with at most one dynamic substitution):
+```python
+def build_orchestrator_system_prompt() -> str:
+    agent_descriptions = "\n".join(
+        f"- {name}: {', '.join(cfg.output_sections)}"
+        for name, cfg in AGENT_REGISTRY.items()
+    )
+    template = Path(PROMPTS_DIR / "orchestrator_system.txt").read_text()
+    return template.replace("{{AGENTS}}", agent_descriptions)
+```
+
+**No library needed.** `json.dumps()` and string replacement.
 
 ---
 
 ## What NOT to Add
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| ruamel.yaml | Heavier than PyYAML, needed only for comment preservation in human-edited files. registry.yaml is not human-edited. | PyYAML safe_load/dump |
-| alpinejs-router / pinecone-router | 3-view SPA with no URL routing requirement. External dependency for a 5-line x-show pattern. | Alpine.store + x-show |
-| GitPython | 30MB+ dependency for git subprocess operations. asyncio.create_subprocess_exec already handles the 3 commands needed (init, add, commit). | asyncio.create_subprocess_exec |
-| watchdog / inotify | Project scan happens on demand (GET /projects), not via filesystem events. Event-driven scanning is over-engineering for a single-user tool. | pathlib.iterdir() on request |
-| Cookiecutter | External project scaffolding library. Template structure is simple (.j2 files + static files). Jinja2 Environment handles rendering. Cookiecutter adds CLI-oriented abstractions that don't fit the API-driven use case. | Jinja2 Environment |
+| Library | Why People Suggest It | Why Wrong Here |
+|---------|----------------------|----------------|
+| LangChain / LangGraph | "Agent orchestration framework" | We use Claude CLI via subprocess, not API calls. LangChain's abstractions don't map to subprocess-based execution. We already have a working orchestrator. Adding LangChain would require rewriting the entire execution model. |
+| CrewAI / AutoGen | "Multi-agent frameworks" | Same mismatch -- designed for API-based agents. Our agents are Claude CLI processes with system prompt files and structured JSON output. |
+| tree-sitter | "Parse code from output" | Overkill. A 10-line regex handles our controlled markdown fenced code block format. |
+| Jinja2 (for system prompts) | "Template dynamic prompts" | System prompts have at most one dynamic section (agent list). `str.replace()` is clearer and has zero import overhead. Jinja2 is already in deps but for a different purpose. |
+| Redis | "Bounded context store" | Context windowing is a Python list slice. Single-user, single-process. No inter-process state needed. |
+| tiktoken | "Token counting for context bounds" | Char counting is adequate for a heuristic threshold. Adding a C-extension dependency for marginal precision on a tunable constant is not justified. |
+| Pydantic (for FileBlock) | "Validate file blocks" | A stdlib `@dataclass` with 3 string fields is sufficient. No validation logic needed -- the regex already constrains the shape. |
+| aiofiles | "Async file writes" | File writes are tiny (code output files). `Path.write_text()` completes in microseconds. The preceding Claude CLI call takes 10-60 seconds. Async file I/O adds complexity for zero measurable benefit. |
+| GitPython | "Git operations" | `asyncio.create_subprocess_exec` already handles git in `autocommit.py`. GitPython is 30MB+ for wrapping the same `git` binary. |
 
 ---
 
-## Version Compatibility
+## Changes to Existing Dependencies
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| PyYAML 6.0.x | Python >= 3.8 | PyYAML 6.0.2 removed `yaml.load()` without Loader (security). Always use `yaml.safe_load()`. |
-| Jinja2 3.1.x | Python >= 3.8 | `Environment(undefined=StrictUndefined)` is the correct mode for scaffolding — fail loud. |
-| Alpine.js 3.15.8 | Any modern browser | `Alpine.store()` API stable since 3.0. No breaking changes expected in 3.x. |
-| asyncio.create_subprocess_exec | Python 3.12 (stdlib) | Already proven in autocommit.py. No compatibility concerns. |
+**None.** All current dependencies stay at their current versions. No version bumps needed.
+
+```txt
+# requirements.txt -- NO CHANGES
+aiosqlite>=0.20
+tenacity>=8.0
+textual>=0.50
+asyncpg>=0.30
+fastapi>=0.115
+uvicorn[standard]>=0.34
+pydantic-settings>=2.0
+httpx>=0.28
+jinja2>=3.1
+pytest>=8.0
+pytest-asyncio>=0.24
+```
+
+---
+
+## New Files (no new packages)
+
+| File | Purpose | Estimated Size |
+|------|---------|---------------|
+| `src/pipeline/file_writer.py` | Extract code blocks from EXECUTE output, write to disk | ~80 LOC |
+| `src/agents/prompts/test_system.txt` | Test agent system prompt (static code review) | ~30 lines |
+
+## Modified Files
+
+| File | Change | Scope |
+|------|--------|-------|
+| `src/pipeline/orchestrator.py` | Bounded handoffs, section filtering, dynamic schema, confidence gating, targeted re-route, file writer call | Major refactor (~100 lines changed) |
+| `src/pipeline/handoff.py` | Add `build_reroute_prompt()` | Small addition (~15 LOC) |
+| `src/agents/config.py` | Add test agent entry, add `ROUTING_SECTIONS` dict | Small addition (~15 LOC) |
+| `src/runner/runner.py` | Add `system_prompt_file` param to `call_orchestrator_claude()` | One-line fix |
+| `src/engine/context.py` | Call file writer after execute, handle low-confidence confirmation in autonomous mode | Moderate (~30 LOC) |
+| `src/agents/prompts/orchestrator_system.txt` | Add `{{AGENTS}}` placeholder, test agent rules | Rewrite |
 
 ---
 
 ## Sources
 
-- PyYAML 6.0.2 PyPI: https://pypi.org/project/PyYAML/ — version 6.0.2 confirmed stable (HIGH confidence)
-- Alpine.js releases: https://github.com/alpinejs/alpine/releases — 3.15.8 latest as of March 2026 (HIGH confidence)
-- Alpine.js store docs: https://alpinejs.dev/essentials/state — `Alpine.store()` pattern (HIGH confidence)
-- Python asyncio subprocess docs: https://docs.python.org/3/library/asyncio-subprocess.html — create_subprocess_exec (HIGH confidence)
-- Existing codebase: `src/git/autocommit.py` — asyncio subprocess pattern already in use (HIGH confidence)
-- Jinja2 docs: https://jinja.palletsprojects.com/en/3.1.x/api/#jinja2.Environment — StrictUndefined (HIGH confidence)
-- Web search (Alpine.js SPA patterns, 2025) — x-show vs x-if DOM behavior verified (MEDIUM confidence)
-- Web search (PyYAML vs ruamel.yaml comparison, 2025) — comment preservation tradeoff verified (MEDIUM confidence)
+- **Codebase inspection** (HIGH confidence): `src/pipeline/orchestrator.py`, `src/agents/config.py`, `src/pipeline/handoff.py`, `src/engine/context.py`, `src/runner/runner.py`, `src/parser/extractor.py`, `src/agents/base.py`, `src/git/autocommit.py`
+- **Feature spec** (HIGH confidence): `docs/orchestration-improvements.md` -- all 8 improvements analyzed with affected files
+- **Project context** (HIGH confidence): `.planning/PROJECT.md` -- constraints, key decisions, out-of-scope items
+- **Python stdlib docs** (HIGH confidence): `pathlib`, `re`, `json`, `asyncio.subprocess` -- all stdlib, no version concerns on Python 3.12
 
 ---
-*Stack research for: AI Agent Console v2.1 Project Router additions*
-*Researched: 2026-03-13*
+*Stack research for: AI Agent Console v2.3 Orchestration Improvements*
+*Researched: 2026-03-14*

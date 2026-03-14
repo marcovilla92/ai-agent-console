@@ -1,688 +1,556 @@
-# Architecture Research
+# Architecture Patterns
 
-**Domain:** AI Agent Console v2.1 — Project Router integration into existing FastAPI platform
-**Researched:** 2026-03-13
-**Confidence:** HIGH (direct codebase analysis + full design spec review)
+**Domain:** Multi-agent pipeline orchestration improvements (v2.3)
+**Researched:** 2026-03-14
+**Confidence:** HIGH (direct codebase analysis of all pipeline components)
 
 ---
 
 ## Note on Scope
 
-This document covers **v2.1 integration architecture only** — how the new Project Router
-components integrate with the existing v2.0 FastAPI platform. The v2.0 base architecture
-(TaskManager, ConnectionManager, ApprovalGate, asyncpg pool) is established and working;
-this document focuses on what changes, what is added, and how the pieces connect.
+This document covers **v2.3 orchestration improvements only** -- how file writing, bounded handoffs, targeted re-routing, test agent, dynamic schema, and confidence-based autonomy integrate with the existing pipeline architecture. The base architecture (orchestrator loop, agent registry, TaskContext Protocol, WebTaskContext, Claude CLI runner) is established and working.
 
 ---
 
-## System Overview
-
-### Current State (v2.0)
+## Current Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  BROWSER                                                      │
-│  Jinja2 HTML (task_list.html, task_detail.html) + Alpine.js  │
-└────────────────┬──────────────────────┬──────────────────────┘
-                 │ HTTP (Basic Auth)    │ WebSocket (?token=)
-                 ▼                      ▼
-┌──────────────────────────────────────────────────────────────┐
-│  FastAPI app.py                                               │
-│  lifespan: asyncpg pool → apply_schema → TaskManager         │
-├─────────────┬───────────────────┬────────────────────────────┤
-│ /tasks      │ /ws/tasks/{id}    │ /  /tasks/{id}/view        │
-│ tasks.py    │ ws.py             │ views.py (Jinja2Templates) │
-└─────────────┴───────────────────┴────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Engine / Service Layer                                       │
-│  TaskManager (engine/manager.py)                             │
-│  ├── asyncio.Semaphore(2)     concurrency cap                │
-│  ├── TaskRepository           DB CRUD                        │
-│  └── orchestrate_pipeline()   Plan/Execute/Review            │
-└──────────────────────────────────────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Data Layer                                                   │
-│  asyncpg Pool → PostgreSQL 16                                │
-│  Tables: tasks, agent_outputs, agent_usage,                  │
-│          orchestrator_decisions                              │
-└──────────────────────────────────────────────────────────────┘
+User prompt
+    |
+    v
+orchestrate_pipeline() [orchestrator.py]
+    |
+    +---> ctx.stream_output(agent, prompt) [context.py -> runner.py]
+    |         |
+    |         +---> stream_claude() subprocess
+    |         +---> extract_sections() parse output
+    |         +---> persist to agent_outputs DB
+    |         +---> return sections dict
+    |
+    +---> build_handoff(AgentResult) -> accumulated_handoffs[]
+    |
+    +---> get_orchestrator_decision(state, sections) [orchestrator.py]
+    |         |
+    |         +---> call_orchestrator_claude(prompt, schema) [runner.py]
+    |         +---> JSON parse -> OrchestratorDecision
+    |
+    +---> route: approved | forward | re-route (with user confirm)
+    |
+    +---> [loop back or exit]
+    |
+    v
+auto_commit() [autocommit.py] -- only if approved
 ```
 
-### Target State (v2.1)
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  BROWSER — SPA (no page reloads)                             │
-│  static/index.html — Alpine.js — 4 states:                   │
-│  select → create → prompt → running                          │
-└────────────────┬──────────────────────┬──────────────────────┘
-                 │ REST (Basic Auth)    │ WebSocket (unchanged)
-                 ▼                      ▼
-┌──────────────────────────────────────────────────────────────┐
-│  FastAPI app.py (modified lifespan + routers)                │
-│  StaticFiles("/static") + GET "/" → FileResponse(index.html) │
-├──────────┬──────────┬──────────┬────────┬────────────────────┤
-│/projects │/templates│/tasks    │/ws/    │/health             │
-│NEW       │NEW       │MODIFIED  │UNCHANGED│UNCHANGED          │
-└──────────┴──────────┴──────────┴────────┴────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Service Layer                                               │
-│  TaskManager (unchanged except stores project_id on task)    │
-│  ProjectService (NEW — pipeline/project_service.py)          │
-│  ├── ProjectRepository      DB CRUD for projects table       │
-│  ├── assemble_full_context()  enhanced async assembler       │
-│  ├── Jinja2 Environment     .j2 scaffolding renderer         │
-│  └── emit_event()           n8n hook placeholder (no-op)     │
-└──────────────────────────────────────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Data Layer                                                   │
-│  asyncpg Pool → PostgreSQL 16                                │
-│  Tables (existing): tasks (+project_id FK), agent_outputs,   │
-│          agent_usage, orchestrator_decisions                 │
-│  Tables (new): projects                                       │
-│  Filesystem: ~/projects/   (source of truth for project list)│
-│  Filesystem: src/templates/ (scaffolding .j2 + static files) │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Component Map
-
-| Component | File | Status | What Changes |
-|-----------|------|--------|--------------|
-| FastAPI lifespan | `server/app.py` | MODIFY | Add ProjectService init; add 2 new routers; remove view_router; add StaticFiles; add root route |
-| Settings | `server/config.py` | MODIFY | Add `n8n_webhook_url`, `n8n_events_enabled` |
-| Dependencies | `server/dependencies.py` | MODIFY | Add `get_project_service()` injector |
-| Projects router | `server/routers/projects.py` | NEW | 5 endpoints: project CRUD + context + suggested-phase |
-| Templates router | `server/routers/templates.py` | NEW | 5 endpoints: template CRUD |
-| Tasks router | `server/routers/tasks.py` | MODIFY | `TaskCreate` gains `project_id: int`; handler enriches prompt with context |
-| Views router | `server/routers/views.py` | REMOVE | Deleted; replaced by StaticFiles + FileResponse |
-| DB schema | `db/pg_schema.py` | MODIFY | Add `Project` dataclass; add `CREATE TABLE projects`; add `ALTER TABLE tasks ADD COLUMN project_id` |
-| DB repository | `db/pg_repository.py` | MODIFY | Add `ProjectRepository` class |
-| DB migrations | `db/migrations.py` | MODIFY | Run new DDL for projects table + tasks ALTER |
-| Context assembler | `context/assembler.py` | MODIFY | Add `assemble_full_context()` (async), `suggest_next_phase()`, `get_recent_git_log()`, `get_recent_tasks()` |
-| Project scaffold | `pipeline/project.py` | MODIFY | Add `scaffold_from_template()`, `git_init_and_commit()` |
-| Project service | `pipeline/project_service.py` | NEW | `ProjectService`: create/list/scan/context/delete |
-| Event system | `pipeline/events.py` | NEW | `ProjectEvent` enum + `emit_event()` no-op |
-| Template files | `src/templates/` | REPURPOSE | Delete HTML templates; add `registry.yaml` + 4 template dirs with `.j2` + static files |
-| SPA frontend | `static/index.html` | NEW | Alpine.js 4-state SPA |
-| TaskManager | `engine/manager.py` | MINOR | `submit()` stores `project_id` on task row |
-
-**Unchanged:** `engine/context.py`, `pipeline/orchestrator.py`, `pipeline/runner.py`,
-`pipeline/handoff.py`, `pipeline/protocol.py`, `server/connection_manager.py`, `server/routers/ws.py`
+Key boundary: `TaskContext` Protocol decouples orchestrator from UI. `WebTaskContext` is the web implementation. All agent execution flows through `ctx.stream_output()`.
 
 ---
 
-## Recommended Project Structure (v2.1 target)
+## New Components and Integration Points
 
-```
-src/
-├── server/
-│   ├── app.py               # +ProjectService in lifespan; +project_router, template_router
-│   │                        # +StaticFiles mount; +root FileResponse; -view_router
-│   ├── config.py            # +n8n_webhook_url: str = ""; +n8n_events_enabled: list[str] = []
-│   ├── dependencies.py      # +get_project_service() → app.state.project_service
-│   ├── connection_manager.py # UNCHANGED
-│   └── routers/
-│       ├── projects.py      # NEW: GET/POST/DELETE /projects
-│       │                    #      GET /projects/{id}/context
-│       │                    #      GET /projects/{id}/suggested-phase
-│       ├── templates.py     # NEW: GET/POST/PUT/DELETE /templates, GET /templates/{id}
-│       ├── tasks.py         # MODIFY: TaskCreate.project_id required; handler enriches prompt
-│       ├── ws.py            # UNCHANGED
-│       └── views.py         # DELETED
-│
-├── db/
-│   ├── pg_schema.py         # +Project dataclass; +DDL projects table; +ALTER tasks project_id
-│   ├── pg_repository.py     # +ProjectRepository (create/get/get_by_path/list_all/update_last_used/delete)
-│   ├── migrations.py        # +create_projects_table DDL; +alter_tasks_add_project_id
-│   ├── repository.py        # UNCHANGED (v1.0 aiosqlite, keep for existing tests)
-│   └── schema.py            # UNCHANGED (v1.0 dataclasses)
-│
-├── pipeline/
-│   ├── project_service.py   # NEW: ProjectService class
-│   ├── project.py           # +scaffold_from_template(); +git_init_and_commit(); +slugify()
-│   ├── events.py            # NEW: ProjectEvent enum + emit_event() no-op placeholder
-│   ├── orchestrator.py      # UNCHANGED
-│   ├── runner.py            # UNCHANGED
-│   ├── handoff.py           # UNCHANGED
-│   └── protocol.py         # UNCHANGED
-│
-├── engine/
-│   ├── manager.py           # MINOR: submit() stores project_id on task row
-│   └── context.py           # UNCHANGED
-│
-├── context/
-│   └── assembler.py         # +assemble_full_context() (async)
-│                            # +suggest_next_phase()
-│                            # +get_recent_git_log() (async subprocess)
-│                            # +get_recent_tasks() (DB query)
-│
-└── templates/               # REPURPOSED — was Jinja2 HTML templates
-    ├── registry.yaml         # Template index (builtin + custom entries)
-    ├── blank/
-    │   ├── CLAUDE.md.j2
-    │   └── .planning/README.md
-    ├── fastapi-pg/
-    │   ├── CLAUDE.md.j2
-    │   ├── .claude/settings.local.json
-    │   ├── .claude/agents/db-migrator.md
-    │   ├── .claude/agents/api-tester.md
-    │   ├── .claude/commands/migrate.md
-    │   ├── .claude/commands/seed.md
-    │   ├── .claude/commands/test-api.md
-    │   ├── src/__init__.py
-    │   ├── src/main.py
-    │   ├── src/config.py
-    │   ├── src/db/schema.py
-    │   ├── src/routers/__init__.py
-    │   ├── tests/conftest.py
-    │   ├── Dockerfile
-    │   ├── docker-compose.yml.j2
-    │   ├── pyproject.toml.j2
-    │   └── .gitignore
-    ├── telegram-bot/
-    │   ├── CLAUDE.md.j2
-    │   ├── .claude/agents/handler-builder.md
-    │   ├── .claude/commands/test-bot.md
-    │   ├── .claude/commands/deploy-bot.md
-    │   ├── src/bot.py
-    │   ├── src/handlers/__init__.py
-    │   ├── src/config.py
-    │   ├── Dockerfile
-    │   ├── requirements.txt
-    │   └── .gitignore
-    └── cli-tool/
-        ├── CLAUDE.md.j2
-        ├── .claude/agents/command-builder.md
-        ├── .claude/commands/release.md
-        ├── src/__init__.py
-        ├── src/cli.py
-        ├── src/commands/__init__.py
-        ├── pyproject.toml.j2
-        └── .gitignore
+### Component 1: Orchestrator System Prompt Fix
 
-static/
-└── index.html               # NEW: Alpine.js SPA (4 states, ~400 LOC)
-```
+**Files modified:** `src/runner/runner.py`, `src/pipeline/orchestrator.py`
+**Change type:** Bug fix (2 lines)
 
-### Structure Rationale
+**Problem:** `call_orchestrator_claude()` in runner.py (line 154) does not pass `--system-prompt-file`. The `orchestrator_system.txt` exists but is never used. The orchestrator makes routing decisions without its role definition or routing rules.
 
-- **`src/templates/` repurposed:** The existing directory currently holds `task_list.html`, `task_detail.html`, `base.html`. These are deleted when views.py is removed. The same directory becomes the scaffolding template store. This is explicit in the spec and key decisions table: "Jinja2 HTML templates removed, directory repurposed."
-- **`static/` at project root:** FastAPI mounts `StaticFiles(directory="static")`. Placing it at the project root (peer to `src/`) keeps it clearly separate from Python source. The SPA is a single `index.html` — no build step.
-- **`pipeline/project_service.py`:** Business logic belongs in pipeline layer, not server layer. Mirrors how `TaskManager` lives in `engine/` — both are services the router handlers depend on via DI.
-- **`pipeline/events.py` as a separate file:** Isolates the n8n placeholder. When webhooks are eventually implemented, only this file changes — no impact on ProjectService logic.
-
----
-
-## Architectural Patterns
-
-### Pattern 1: Repository Pattern — Extend to ProjectRepository
-
-**What:** Add `ProjectRepository` to `pg_repository.py` following the exact same pattern as `TaskRepository`. Constructor takes `asyncpg.Pool`. All SQL is inside the class. No SQL leaks into service or router layers.
-**When to use:** All DB access in this codebase.
+**Integration:**
 
 ```python
-class ProjectRepository:
-    def __init__(self, pool: asyncpg.Pool) -> None:
-        self._pool = pool
-
-    async def create(self, project: Project) -> int:
-        return await self._pool.fetchval(
-            "INSERT INTO projects (name, slug, path, description, created_at) "
-            "VALUES ($1, $2, $3, $4, $5) RETURNING id",
-            project.name, project.slug, project.path,
-            project.description, project.created_at,
-        )
-
-    async def get(self, project_id: int) -> Optional[Project]: ...
-    async def get_by_path(self, path: str) -> Optional[Project]: ...
-    async def list_all(self) -> list[Project]: ...
-    async def update_last_used(self, project_id: int) -> None: ...
-    async def delete(self, project_id: int) -> None: ...
-```
-
-### Pattern 2: app.state Service Injection — Extend to ProjectService
-
-**What:** `ProjectService` is created in lifespan alongside `TaskManager`, stored on `app.state`, extracted via a `get_project_service()` dependency in `dependencies.py`. Identical to the existing `get_task_manager()` pattern.
-
-```python
-# app.py lifespan addition:
-app.state.project_service = ProjectService(
-    pool=app.state.pool,
-    templates_dir=Path(__file__).resolve().parent.parent / "templates",
-    workspace_root=Path.home() / "projects",
-)
-
-# dependencies.py addition:
-async def get_project_service(request: Request) -> ProjectService:
-    return request.app.state.project_service
-```
-
-### Pattern 3: Jinja2 Reused for .j2 Scaffolding (separate Environment)
-
-**What:** The `jinja2` dependency is already installed. A second `jinja2.Environment` (distinct from any HTML template environment) handles `.j2` scaffolding files. Files without `.j2` suffix are copied verbatim.
-
-**Critical detail:** Use `StrictUndefined` — a missing `{{ slug }}` variable must raise an error, not silently render as empty string.
-
-```python
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
-import shutil
-
-def render_template_files(template_dir: Path, dest_dir: Path, context: dict) -> None:
-    env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
-        undefined=StrictUndefined,
-        keep_trailing_newline=True,
-    )
-    for src in template_dir.rglob("*"):
-        if src.is_dir():
-            continue
-        rel = src.relative_to(template_dir)
-        if src.suffix == ".j2":
-            dest = dest_dir / rel.with_suffix("")   # strip .j2
-            content = env.get_template(str(rel)).render(**context)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content)
-        else:
-            dest = dest_dir / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-```
-
-### Pattern 4: Async subprocess for git operations
-
-**What:** `asyncio.create_subprocess_exec` for all git calls. Never use `subprocess.run` in async handlers — it blocks the event loop and stalls WebSocket pings and concurrent tasks.
-
-```python
-async def git_init_and_commit(project_path: str, message: str = "Initial commit") -> None:
-    for args in [
-        ["git", "init"],
-        ["git", "add", "."],
-        ["git", "-c", "user.name=ubuntu", "-c", "user.email=ubuntu@localhost",
-         "commit", "-m", message],
-    ]:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            cwd=project_path,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"git {args[1]} failed: {stderr.decode()}")
-
-async def get_recent_git_log(project_path: str, count: int = 10) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "git", "log", f"--max-count={count}", "--oneline",
-        cwd=project_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    stdout, _ = await proc.communicate()
-    return stdout.decode().strip() if proc.returncode == 0 else ""
-```
-
-### Pattern 5: Alpine.js multi-state SPA with single x-data root
-
-**What:** Single `x-data="app()"` on `<body>`. State transitions via `this.state = 'prompt'`. Each view is a `<div x-show="state === 'select'">` block. No router, no build step.
-
-```html
-<body x-data="app()">
-  <div x-show="state === 'select'"> ... </div>
-  <div x-show="state === 'create'"> ... </div>
-  <div x-show="state === 'prompt'"> ... </div>
-  <div x-show="state === 'running'"> ... </div>
-</body>
-<script>
-function app() {
-  return {
-    state: 'select',
-    // Data
-    projects: [], selectedProject: null,
-    templates: [], selectedTemplate: 'blank',
-    suggestedPhase: null, allPhases: [],
-    projectContext: null, showContext: false,
-    currentTask: null, outputLines: [], ws: null,
-    // Lifecycle
-    async init() { await this.loadProjects() },
-    async loadProjects() { ... },
-    async selectProject(p) {
-      this.selectedProject = p
-      await Promise.all([this.loadSuggestedPhase(p.id), this.loadContext(p.id)])
-      this.state = 'prompt'
-    },
-    async submitPrompt(prompt, mode) {
-      const res = await fetch('/tasks', { method: 'POST',
-        headers: {...}, body: JSON.stringify({ prompt, mode, project_id: this.selectedProject.id }) })
-      this.currentTask = await res.json()
-      this.state = 'running'
-      this.connectWs(this.currentTask.id)
-    },
-    connectWs(taskId) {
-      this.ws = new WebSocket(`/ws/tasks/${taskId}?token=${btoa('user:pass')}`)
-      this.ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data)
-        if (msg.type === 'chunk') this.outputLines.push(msg.data)
-        if (msg.type === 'status') { /* terminal state */ }
-      }
-    }
-  }
-}
-</script>
-```
-
-### Pattern 6: SPA served via FastAPI StaticFiles + root FileResponse
-
-**What:** Replace `views.py` Jinja2 routes with `StaticFiles` mount and a root `GET /` that returns `static/index.html`. The SPA calls REST APIs directly.
-
-```python
-# app.py:
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/", include_in_schema=False)
-async def spa_root(username: str = Depends(verify_credentials)):
-    return FileResponse("static/index.html")
-```
-
-Note: HTTP Basic Auth must still protect the root route and all API routes. The `verify_credentials` dependency applies to `/` — the browser will prompt for credentials on first load.
-
----
-
-## Data Flow
-
-### Task Creation with Project Context (new flow)
-
-```
-User clicks "Invia" in SPA (state=prompt)
-    │
-    ▼
-POST /tasks { prompt, mode, project_id }
-    │
-    ▼
-tasks.py: create_task()
-    ├── 1. ProjectRepository.get(project_id)          → Project row (path, name)
-    ├── 2. ProjectService.get_project_context(id)
-    │       └── assemble_full_context(project.path, pool)
-    │               ├── assemble_workspace_context()  sync, existing
-    │               ├── read CLAUDE.md truncated       sync
-    │               ├── read .planning/ docs            sync
-    │               ├── get_recent_git_log()            async subprocess
-    │               └── get_recent_tasks(pool, path)    async DB
-    ├── 3. enriched_prompt = context_block + "\n\n" + body.prompt
-    ├── 4. TaskManager.submit(enriched_prompt, body.mode, project.path)
-    └── 5. ProjectRepository.update_last_used(project_id)
-    │
-    ▼
-HTTP 201 TaskResponse { id, status="queued", ... }
-    │
-    ▼
-SPA: state = 'running'; connectWs(task.id)
-    │
-    ▼
-WebSocket /ws/tasks/{id} (unchanged — streams enriched prompt execution)
-```
-
-### Project Creation Flow
-
-```
-User fills form (state=create) → POST /projects { name, description, template }
-    │
-    ▼
-projects.py: create_project()
-    └── ProjectService.create_new_project(name, description, template)
-            ├── slug = slugify(name)             e.g. "My API" → "my-api"
-            ├── path = ~/projects/{slug}          mkdir(exist_ok=False)
-            ├── render_template_files(            copy + render .j2 files
-            │       src/templates/{template}/,
-            │       path,
-            │       { name, slug, description, date, author="ubuntu" }
-            │   )
-            ├── git_init_and_commit(path)         async subprocess
-            ├── ProjectRepository.create(project) → project_id
-            └── emit_event(PROJECT_CREATED, {...}) no-op placeholder
-    │
-    ▼
-HTTP 201 ProjectResponse { id, name, slug, path, ... }
-    │
-    ▼
-SPA: selectedProject = response; load context + suggested-phase; state = 'prompt'
-```
-
-### GET /projects (filesystem reconciliation)
-
-```
-GET /projects
-    │
-    ▼
-ProjectService.list_projects()
-    ├── ProjectRepository.list_all()          → all DB records (as {path: project} dict)
-    ├── os.scandir(~/projects/)               → all subdirectories
-    ├── for each dir not tracked in DB:
-    │       ProjectRepository.create(auto-register with blank description)
-    └── return merged list sorted by last_used_at DESC
-    │
-    ▼
-{ projects: [...], count: N }
-```
-
-### Phase Suggestion Flow
-
-```
-GET /projects/{id}/suggested-phase
-    │
-    ▼
-suggest_next_phase(project_path)
-    ├── read .planning/STATE.md       → look for "Current Phase", "Next Phase"
-    ├── read .planning/ROADMAP.md     → parse phase list with status markers
-    ├── scandir .planning/phases/     → find first dir without SUMMARY.md
-    └── return { phase_id, phase_name, status, reason }
-    │
-    ▼
-{ suggestion: {...}, all_phases: [...] }
-```
-
-### Alpine.js State Machine
-
-```
-state: 'select'
-    │ user clicks project card
-    ▼ selectProject(p) → GET /projects/{id}/suggested-phase + GET /projects/{id}/context
-state: 'prompt'
-    │ user submits prompt
-    ▼ submitPrompt() → POST /tasks { project_id, prompt, mode }
-state: 'running'
-    │ task reaches terminal status (completed/failed/cancelled)
-    ▼ [back button or new task] → state = 'select'
-
-Parallel path from 'select':
-    │ user clicks "+ Nuovo"
-    ▼ GET /templates
-state: 'create'
-    │ user submits form
-    ▼ POST /projects
-state: 'prompt' (with new project as selectedProject)
-```
-
----
-
-## Integration Points
-
-### New vs Modified — Complete File Map
-
-| File | Change | Detail |
-|------|--------|--------|
-| `src/db/pg_schema.py` | MODIFY | Add `Project` dataclass (id, name, slug, path, description, created_at, last_used_at); add `CREATE TABLE projects` DDL; add `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id)` |
-| `src/db/pg_repository.py` | MODIFY | Add `ProjectRepository` class with 6 methods |
-| `src/db/migrations.py` | MODIFY | Call `CREATE TABLE projects` DDL + `ALTER TABLE tasks ADD COLUMN project_id` |
-| `src/context/assembler.py` | MODIFY | Add `assemble_full_context(project_path, pool)` async; `suggest_next_phase(project_path)` async; `get_recent_git_log(path, count)` async; `get_recent_tasks(pool, path, limit)` async |
-| `src/pipeline/project.py` | MODIFY | Add `scaffold_from_template(template_dir, dest_dir, context)`, `git_init_and_commit(path)`, `slugify(name)` |
-| `src/pipeline/project_service.py` | NEW | `ProjectService` class: `create_new_project`, `list_projects`, `scan_and_register`, `get_project_context`, `delete_project` |
-| `src/pipeline/events.py` | NEW | `ProjectEvent` enum; `async emit_event(event, payload)` no-op stub |
-| `src/server/routers/projects.py` | NEW | 5 endpoints on `project_router` with prefix `/projects` |
-| `src/server/routers/templates.py` | NEW | 5 endpoints on `template_router` with prefix `/templates` |
-| `src/server/routers/tasks.py` | MODIFY | `TaskCreate.project_id: int` (required); handler adds context enrichment + `update_last_used` |
-| `src/server/routers/views.py` | REMOVE | Delete file; remove include from app.py |
-| `src/server/app.py` | MODIFY | Lifespan adds `ProjectService`; include `project_router`, `template_router`; remove `view_router`; add `StaticFiles` mount + root `FileResponse` |
-| `src/server/config.py` | MODIFY | Add `n8n_webhook_url: str = ""` and `n8n_events_enabled: list[str] = []` |
-| `src/server/dependencies.py` | MODIFY | Add `get_project_service(request) → ProjectService` |
-| `src/templates/task_list.html` | DELETE | Replaced by SPA |
-| `src/templates/task_detail.html` | DELETE | Replaced by SPA |
-| `src/templates/base.html` | DELETE | Replaced by SPA |
-| `src/templates/registry.yaml` | NEW | Template index YAML |
-| `src/templates/blank/` | NEW | Blank template files |
-| `src/templates/fastapi-pg/` | NEW | FastAPI+PG template files |
-| `src/templates/telegram-bot/` | NEW | Telegram bot template files |
-| `src/templates/cli-tool/` | NEW | CLI tool template files |
-| `static/index.html` | NEW | Alpine.js SPA |
-
-### Boundary: tasks.py ↔ ProjectService
-
-The task creation handler in `tasks.py` gains a dependency on `ProjectService`. This is the key integration point for context enrichment:
-
-```python
-@task_router.post("", status_code=201, response_model=TaskResponse)
-async def create_task(
-    body: TaskCreate,
-    manager: TaskManager = Depends(get_task_manager),
-    project_svc: ProjectService = Depends(get_project_service),
-    pool: asyncpg.Pool = Depends(get_pool),
-):
-    repo = ProjectRepository(pool)
-    project = await repo.get(body.project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    ctx = await project_svc.get_project_context(body.project_id)
-    context_block = format_context_for_prompt(ctx)
-    enriched_prompt = f"{context_block}\n\n{body.prompt}"
-
-    task_id = await manager.submit(
-        prompt=enriched_prompt,
-        mode=body.mode,
-        project_path=project.path,
-    )
-    await repo.update_last_used(body.project_id)
+# runner.py -- add parameter to call_orchestrator_claude()
+async def call_orchestrator_claude(
+    prompt: str, schema: str, system_prompt_file: str | None = None
+) -> str:
+    cmd = [claude, "-p", "--output-format", "json", "--json-schema", schema,
+           "--dangerously-skip-permissions"]
+    if system_prompt_file:
+        cmd += ["--system-prompt-file", system_prompt_file]
+    cmd.append(prompt)
     ...
+
+# orchestrator.py -- pass the prompt file
+from pathlib import Path
+ORCHESTRATOR_PROMPT_FILE = str(
+    Path(__file__).parent.parent / "agents" / "prompts" / "orchestrator_system.txt"
+)
+# In get_orchestrator_decision():
+raw = await call_orchestrator_claude(prompt, ORCHESTRATOR_SCHEMA, ORCHESTRATOR_PROMPT_FILE)
 ```
 
-### Boundary: templates.py ↔ Filesystem
+**Impact:** Immediate improvement to routing decision quality. Zero risk. Should be built first.
 
-Templates router does NOT use `ProjectService` — it works directly with the `src/templates/` directory and `registry.yaml`. Operations: read registry YAML, create/modify/delete template directories, enforce builtin protection (403 if `builtin: true`).
+---
 
-### Boundary: app.py lifespan (before/after)
+### Component 2: Smart Section Filtering
+
+**Files modified:** `src/pipeline/orchestrator.py`
+**Change type:** Optimization in `build_orchestrator_prompt()`
+
+**Problem:** Line 100 truncates ALL sections to 500 chars blindly. The CODE section (irrelevant for routing, often thousands of chars) wastes tokens, while DECISION (critical, usually short) is always within limit.
+
+**Integration:** Add a routing-relevant section map and filter before building the prompt:
 
 ```python
-# BEFORE (v2.0):
-app.state.connection_manager = ConnectionManager()
-app.state.task_manager = TaskManager(pool=app.state.pool, ...)
+ROUTING_SECTIONS: dict[str, set[str]] = {
+    "plan": {"GOAL", "HANDOFF", "TASKS"},
+    "execute": {"TARGET", "HANDOFF", "FILES"},
+    "review": {"DECISION", "ISSUES", "SUMMARY"},
+    "test": {"TEST RESULTS", "FAILURES", "HANDOFF"},
+}
 
-# AFTER (v2.1):
-app.state.connection_manager = ConnectionManager()
-app.state.task_manager = TaskManager(pool=app.state.pool, ...)
-app.state.project_service = ProjectService(     # NEW
-    pool=app.state.pool,
-    templates_dir=Path("src/templates"),
-    workspace_root=Path.home() / "projects",
-)
+def build_orchestrator_prompt(state, latest_sections):
+    relevant = ROUTING_SECTIONS.get(state.current_agent, set())
+    filtered = {k: v for k, v in latest_sections.items() if k in relevant}
+    if not filtered:
+        filtered = latest_sections  # fallback: pass everything if no match
+    # ... use filtered instead of latest_sections
 ```
 
-### External Services
-
-| Service | Integration | Notes |
-|---------|-------------|-------|
-| PostgreSQL 16 | asyncpg pool (unchanged) | New `projects` table; `tasks.project_id` FK nullable for backward compat |
-| Filesystem `~/projects/` | `pathlib.Path` operations | Source of truth; never delete on `DELETE /projects/{id}` |
-| git | `asyncio.create_subprocess_exec` | project creation (init+commit) + context assembly (log) |
-| n8n webhook | `emit_event()` no-op | No HTTP calls in v2.1; placeholder only |
+**Interaction:** When test agent is added later, its entry in `ROUTING_SECTIONS` is added in the same dict. No structural change needed.
 
 ---
 
-## Build Order
+### Component 3: Bounded Handoffs
 
-The spec's execution order is dependency-correct. Here is the rationale:
+**Files modified:** `src/pipeline/orchestrator.py`
+**Change type:** Modification to handoff accumulation (lines 224-258)
 
-| Step | What | Why This Position |
-|------|------|-------------------|
-| 1 | `pg_schema.py` + `migrations.py` | All layers depend on `projects` table and `tasks.project_id` column existing |
-| 2 | `pg_repository.py` + `ProjectRepository` | `ProjectService` and task router handler depend on this |
-| 3 | `src/templates/` content (registry.yaml + template dirs) | `ProjectService.create_new_project()` reads from here |
-| 4 | `context/assembler.py` enhancements | `ProjectService.get_project_context()` calls `assemble_full_context()` |
-| 5 | `pipeline/project.py` scaffold + git functions | `ProjectService` delegates filesystem operations here |
-| 6 | `pipeline/events.py` stub | `ProjectService` calls `emit_event()` — must exist before service |
-| 7 | `pipeline/project_service.py` | Depends on steps 2–6 |
-| 8 | `server/routers/projects.py` + `templates.py` | Depend on ProjectService (step 7) |
-| 9 | `server/routers/tasks.py` modification | Depends on ProjectRepository (step 2) + ProjectService (step 7) |
-| 10 | `server/app.py` + `config.py` + `dependencies.py` | Wire everything; StaticFiles needs `static/` dir |
-| 11 | `static/index.html` SPA | All API endpoints must exist first |
-| 12 | Tests + verification | End-to-end check against running server |
+**Problem:** `accumulated_handoffs` grows unbounded. After 3 cycles (9 agent runs), the prompt can exceed Claude's context window or degrade response quality.
 
-**Critical constraint at step 9:** Changing `TaskCreate.project_id` to required breaks any existing tests that create tasks without a project. Either add a migration for existing task rows, make `project_id` optional with a fallback to `settings.project_path`, or update all tests. The spec makes it required — plan for test updates.
+**Integration:** After building each handoff, apply windowing:
 
-**Critical constraint at step 10:** `views.py` removal and `StaticFiles` addition happen together. The existing Jinja2 `Jinja2Templates` instance in `views.py` disappears. The `jinja2` package itself stays (needed by the scaffolding engine in step 5).
+```python
+MAX_HANDOFF_CHARS = 8000
+MAX_HANDOFFS = 3  # One complete cycle (plan + execute + review)
 
----
+# After line 257: state.accumulated_handoffs.append(build_handoff(agent_result))
+if len(state.accumulated_handoffs) > MAX_HANDOFFS:
+    state.accumulated_handoffs = state.accumulated_handoffs[-MAX_HANDOFFS:]
 
-## Anti-Patterns
+# Cap total size by dropping oldest
+total = "\n\n".join(state.accumulated_handoffs)
+while len(total) > MAX_HANDOFF_CHARS and len(state.accumulated_handoffs) > 1:
+    state.accumulated_handoffs.pop(0)
+    total = "\n\n".join(state.accumulated_handoffs)
+```
 
-### Anti-Pattern 1: Context Assembly in the Router Handler
-
-**What people do:** Build `assemble_full_context()` inline inside `tasks.py:create_task()`, importing assembler functions directly in the router.
-**Why it's wrong:** Router becomes responsible for a service-layer concern. Hard to test. Context assembly logic duplicated if called from other places.
-**Do this instead:** `ProjectService.get_project_context()` owns assembly. Router calls service, receives result string, prepends it. Router stays thin.
-
-### Anti-Pattern 2: Blocking subprocess for git
-
-**What people do:** `subprocess.run(["git", "log", ...])` inside an async handler or service method.
-**Why it's wrong:** Blocks the asyncio event loop. Stalls WebSocket pings and all other concurrent coroutines while git runs.
-**Do this instead:** `asyncio.create_subprocess_exec()` with `await proc.communicate()`. The existing `pipeline/runner.py` already uses this pattern for Claude CLI — same applies to git.
-
-### Anti-Pattern 3: Reusing the HTML Jinja2Templates instance for .j2 scaffolding
-
-**What people do:** Pass the `Jinja2Templates` object from `views.py` (or a shared instance) to the scaffolding code.
-**Why it's wrong:** `Jinja2Templates` uses `Undefined` (silent) by default. A missing `{{ slug }}` in a template renders as empty string — silently corrupt scaffolding. Also wrong loader (points to HTML dir, not template dir).
-**Do this instead:** Create a separate `jinja2.Environment(undefined=StrictUndefined, loader=FileSystemLoader(...))` scoped to the specific template directory. Fails loudly on missing variables. Never share environments across concerns.
-
-### Anti-Pattern 4: Deleting the project folder on DELETE /projects/{id}
-
-**What people do:** Implement `DELETE /projects/{id}` to `shutil.rmtree(project.path)`.
-**Why it's wrong:** Irreversible data loss. A user who just unregisters a project from the console loses their entire codebase.
-**Do this instead:** The spec is explicit — `DELETE /projects/{id}` removes only the DB record. Folder stays. Users delete folders manually if desired.
-
-### Anti-Pattern 5: Making project_id optional with settings.project_path fallback
-
-**What people do:** Keep `TaskCreate.project_id: Optional[int] = None` and fall back to `settings.project_path` when not provided.
-**Why it's wrong:** Undermines the entire Project Router premise. Tasks would run in an untracked project context with no context enrichment.
-**Do this instead:** `project_id` is required. Update existing tests to pass a valid project_id (create a test project fixture). The fallback behavior is eliminated in v2.1.
-
-### Anti-Pattern 6: YAML registry as single source of truth for custom templates
-
-**What people do:** Store all template metadata only in `registry.yaml`, without verifying the template directory exists.
-**Why it's wrong:** Registry and filesystem can drift. A template in the registry with a missing directory causes a 500 on `GET /templates/{id}` or `POST /projects`.
-**Do this instead:** On `GET /templates`, reconcile registry with filesystem — skip entries whose directory is missing (log a warning). On `POST /templates`, create directory first, then write to registry. On `DELETE /templates/{id}`, remove directory first, then remove from registry. Directory is the source of truth; registry is an index.
+**Interaction with targeted re-route (Component 5):** On re-route, `build_reroute_prompt()` replaces accumulated handoffs entirely. Bounded handoffs caps forward flow; targeted re-route replaces on feedback loops. They are complementary.
 
 ---
 
-## Scaling Considerations
+### Component 4: File Writer
 
-This is a single-user system. Scaling is operational, not traffic-driven.
+**Files added:** `src/pipeline/file_writer.py` (NEW)
+**Files modified:** `src/pipeline/orchestrator.py`
+**Change type:** New module + orchestrator integration
 
-| Scale | Architecture |
-|-------|-------------|
-| 1 user, current | asyncio.Semaphore(2), asyncpg pool size 5, in-memory ConnectionManager |
-| 1 user, many projects | No change needed — project list is a simple `SELECT` + fast `scandir` |
-| Context assembly on large repos | Already capped: 200 files, CLAUDE.md 2000 chars, 10 git commits, 5 recent tasks |
-| Multi-user (future, out of scope) | Add `user_id` FK on projects+tasks; scope all queries; replace Basic Auth with JWT |
+**Responsibility:** Parse EXECUTE agent's CODE section, extract file paths and contents from markdown code blocks, write files to disk.
+
+**Integration point:** Called from `orchestrate_pipeline()` after EXECUTE agent completes (after `stream_output` returns sections, before orchestrator decision). NOT inside `WebTaskContext.stream_output()` -- that method is agent-agnostic and must stay that way.
+
+```python
+# In orchestrate_pipeline(), after stream_output returns:
+sections = await ctx.stream_output(state.current_agent, agent_prompt, {})
+
+if state.current_agent == "execute":
+    from src.pipeline.file_writer import write_files_from_sections
+    written = await write_files_from_sections(ctx.project_path, sections)
+    await ctx.update_status(
+        agent="file_writer", state="complete",
+        step=f"Wrote {len(written)} files", next_action="Continuing...",
+    )
+```
+
+**Parser design:** The EXECUTE agent outputs code blocks with file paths in the CODE section:
+
+```
+CODE:
+```python # src/main.py
+import asyncio
+...
+```  (close)
+```
+
+Extract using regex on code block openers: `` ^```\w*\s*#?\s*(.+\.[\w]+)$ `` to capture file path, content until closing triple-backtick.
+
+```python
+# src/pipeline/file_writer.py
+import os
+import re
+import logging
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+CODE_BLOCK_RE = re.compile(
+    r'^```\w*\s*#?\s*(.+?)\s*$\n(.*?)^```\s*$',
+    re.MULTILINE | re.DOTALL,
+)
+
+async def write_files_from_sections(
+    project_path: str, sections: dict[str, str]
+) -> list[str]:
+    """Extract code blocks from CODE section and write to disk."""
+    code = sections.get("CODE", "")
+    if not code:
+        return []
+
+    written = []
+    for match in CODE_BLOCK_RE.finditer(code):
+        file_path = match.group(1).strip()
+        content = match.group(2)
+        full_path = Path(project_path) / file_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content)
+        written.append(file_path)
+        log.info("file_writer: wrote %s (%d chars)", file_path, len(content))
+
+    return written
+```
+
+**Key decisions:**
+- Overwrite always, git provides recovery (per PROJECT.md design intent)
+- Create directories with `mkdir(parents=True, exist_ok=True)`
+- Return list of written file paths for UI status updates
+- No patch mode -- on re-route iterations, the targeted prompt (Component 5) tells execute to only output changed files, so the writer gets only changed files
+- Async function but uses sync file I/O (file writes are fast, no need for `aiofiles`)
+
+**Interaction with auto_commit:** `auto_commit()` already stages files in `src/` and `tests/` plus tracked files. Written files will be picked up naturally. May need to expand staging patterns if files are written outside those directories.
+
+---
+
+### Component 5: Targeted Re-route Prompts
+
+**Files modified:** `src/pipeline/handoff.py`, `src/pipeline/orchestrator.py`
+**Change type:** New function in handoff.py + orchestrator re-route branch modification
+
+**Integration:** New function `build_reroute_prompt()` in `handoff.py`:
+
+```python
+def build_reroute_prompt(
+    review_sections: dict[str, str],
+    target_agent: str,
+) -> str:
+    """Build focused re-route prompt from review feedback."""
+    lines = ["=== REVIEW FEEDBACK - FIX REQUIRED ===", ""]
+
+    if target_agent == "execute":
+        for key in ("ISSUES", "IMPROVEMENTS"):
+            if key in review_sections:
+                lines.append(f"{key}:")
+                lines.append(review_sections[key])
+                lines.append("")
+        lines.append("Fix ONLY the issues listed above. Do not rewrite working code.")
+        lines.append("Output only the files that need changes.")
+    elif target_agent == "plan":
+        for key in ("ISSUES", "RISKS", "DECISION"):
+            if key in review_sections:
+                lines.append(f"{key}:")
+                lines.append(review_sections[key])
+                lines.append("")
+        lines.append("Revise the plan to address these architectural issues.")
+
+    lines.append("=== END REVIEW FEEDBACK ===")
+    return "\n".join(lines)
+```
+
+**Orchestrator change (line 288-309):** On re-route, replace accumulated handoffs with targeted prompt:
+
+```python
+if decision.next_agent in ("plan", "execute") and state.current_agent == "review":
+    # Build targeted prompt instead of carrying all handoffs
+    reroute_prompt = build_reroute_prompt(sections, decision.next_agent)
+    state.accumulated_handoffs = [reroute_prompt]  # Replace, don't append
+    # ... rest of re-route logic (iteration check, confirmation) unchanged
+```
+
+**Why replace instead of append:** The targeted prompt contains everything the next agent needs to know. Old handoffs are noise at this point -- they describe previous iterations that led to the issues being fixed. The bounded handoff window (Component 3) is for forward flow; targeted re-route is for feedback loops.
+
+---
+
+### Component 6: Dynamic Schema from Registry
+
+**Files modified:** `src/pipeline/orchestrator.py`
+**Change type:** Replace hardcoded schema constant with function
+
+**Problem:** `ORCHESTRATOR_SCHEMA` (line 59-77) hardcodes `["plan", "execute", "review", "approved"]`. Adding a new agent (test) requires manual schema update.
+
+**Integration:** Replace the constant with a builder function:
+
+```python
+from src.agents.config import AGENT_REGISTRY
+
+def build_orchestrator_schema() -> str:
+    """Generate JSON schema with agent enum from registry."""
+    agent_names = list(AGENT_REGISTRY.keys()) + ["approved"]
+    return json.dumps({
+        "type": "object",
+        "properties": {
+            "next_agent": {"type": "string", "enum": agent_names},
+            "reasoning": {"type": "string", "description": "One-line explanation"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        "required": ["next_agent", "reasoning", "confidence"],
+    })
+
+# Usage: call build_orchestrator_schema() in get_orchestrator_decision()
+# Can cache at module level if AGENT_REGISTRY is static after import
+ORCHESTRATOR_SCHEMA = build_orchestrator_schema()
+```
+
+**System prompt generation:** The `orchestrator_system.txt` should also reflect available agents. Two options:
+
+1. Generate prompt text dynamically (requires changing `call_orchestrator_claude` to accept inline text instead of file path)
+2. Keep static file, update manually when adding agents
+
+**Recommendation:** Option 2. The system prompt changes rarely (only when adding agents). The schema is the critical part -- it enforces valid JSON responses with correct enum values. Update `orchestrator_system.txt` when adding the test agent. The cognitive overhead of dynamic prompt generation is not worth the marginal maintenance savings.
+
+---
+
+### Component 7: Test Agent
+
+**Files added:** `src/agents/prompts/test_system.txt` (NEW)
+**Files modified:** `src/agents/config.py`, `src/pipeline/orchestrator.py` (section filter map), `src/agents/prompts/orchestrator_system.txt`
+**Change type:** New agent in registry + prompt file
+
+**Design decision: Static code review, NOT subprocess execution.** Running `pytest` via subprocess adds complexity (venv management, dependency installation, path resolution, security sandboxing). Claude excels at static analysis -- missing error handling, type mismatches, import issues, logic errors.
+
+**Registry entry in config.py:**
+
+```python
+"test": AgentConfig(
+    name="test",
+    system_prompt_file=str(PROMPTS_DIR / "test_system.txt"),
+    output_sections=["TEST RESULTS", "FAILURES", "SUGGESTIONS", "HANDOFF"],
+    next_agent="review",
+),
+```
+
+**Pipeline flow change:** Update execute's `next_agent`:
+
+```python
+"execute": AgentConfig(
+    name="execute",
+    system_prompt_file=str(PROMPTS_DIR / "execute_system.txt"),
+    output_sections=["TARGET", "PROJECT STRUCTURE", "FILES", "CODE",
+                     "COMMANDS", "SETUP NOTES", "HANDOFF"],
+    next_agent="test",  # Changed from "review"
+),
+```
+
+**Pipeline flow:** plan -> execute -> [file_write] -> test -> review
+
+**Orchestrator system prompt update:** Add TEST agent to routing rules:
+
+```
+The pipeline has four agents:
+- PLAN: Creates a structured development plan
+- EXECUTE: Implements the plan by writing code
+- TEST: Reviews code for bugs, errors, and quality issues (static analysis)
+- REVIEW: Final review of implementation quality
+
+Routing rules:
+...
+4. If TEST finds critical failures: route to "execute" for fixes
+5. If TEST passes: route to "review"
+```
+
+**Section filter map update (Component 2):**
+
+```python
+ROUTING_SECTIONS["test"] = {"TEST RESULTS", "FAILURES", "HANDOFF"}
+```
+
+**Interaction with dynamic schema (Component 6):** If dynamic schema is built first, adding "test" to `AGENT_REGISTRY` automatically includes it in the schema enum. If not, manual schema update is needed -- this is why Component 6 should precede Component 7.
+
+---
+
+### Component 8: Confidence-Based Autonomy
+
+**Files modified:** `src/pipeline/orchestrator.py`, `src/pipeline/protocol.py`, `src/engine/context.py`
+**Change type:** Protocol extension + orchestrator logic change
+
+**Integration:** After `get_orchestrator_decision()` returns, check confidence before acting:
+
+```python
+# In orchestrate_pipeline(), after getting decision:
+decision = await get_orchestrator_decision(state, sections)
+
+# Low confidence gate -- force user confirmation even in autonomous mode
+if decision.confidence < 0.5:
+    confirmed = await ctx.confirm_reroute(
+        decision.next_agent,
+        f"LOW CONFIDENCE ({decision.confidence:.0%}): {decision.reasoning}",
+        force=True,  # bypass autonomous auto-approve
+    )
+    if not confirmed:
+        state.halted = True
+        break
+```
+
+**Protocol change:** Add optional `force` parameter to `confirm_reroute`:
+
+```python
+# protocol.py
+async def confirm_reroute(
+    self, next_agent: str, reasoning: str, force: bool = False
+) -> bool: ...
+
+# context.py (WebTaskContext)
+async def confirm_reroute(
+    self, next_agent: str, reasoning: str, force: bool = False
+) -> bool:
+    if self._mode != "supervised" and not force:
+        return True  # auto-approve in autonomous mode
+    # Otherwise, wait for user approval
+    decision = await self._wait_for_approval(
+        "reroute", {"next_agent": next_agent, "reasoning": reasoning}
+    )
+    return decision == "approve"
+```
+
+**Why this goes last:** It touches the Protocol (a shared interface contract). All other features must be stable before adjusting how autonomy decisions flow. The improved decision quality from system prompt fix + section filtering makes confidence scores more meaningful.
+
+---
+
+## Data Flow: Before vs After
+
+### Before (current):
+
+```
+prompt + ALL accumulated_handoffs (unbounded)
+    -> agent (no system prompt on orchestrator)
+    -> ALL sections (truncated to 500 chars each)
+    -> orchestrator decision (no system prompt, confidence ignored)
+    -> no files written to disk
+```
+
+### After (target):
+
+```
+prompt + WINDOWED handoffs (last cycle, 8K cap)
+    -> agent
+    |
+    +-- if execute: sections -> file_writer -> disk
+    |
+    +-- FILTERED sections (routing-relevant only)
+    -> orchestrator decision (WITH system prompt, dynamic schema)
+    |
+    +-- if re-route: TARGETED prompt (ISSUES only) replaces handoffs
+    +-- if low confidence: force user confirmation
+    |
+    +-- if forward to test: test agent reviews before review agent
+```
+
+---
+
+## Component Boundaries
+
+| Component | Responsibility | Communicates With |
+|-----------|---------------|-------------------|
+| `orchestrator.py` | Main loop, state machine, routing | All components below |
+| `file_writer.py` (NEW) | Parse CODE section, write to disk | Called by orchestrator after execute |
+| `handoff.py` | Build handoff context + re-route prompts | Called by orchestrator |
+| `runner.py` | Claude CLI subprocess execution | Called by orchestrator + context |
+| `context.py` | Stream output, approval gates | Called by orchestrator |
+| `config.py` | Agent registry (declarative) | Read by orchestrator, schema builder |
+| `agents/prompts/` | System prompts for each agent | Read by runner |
+
+---
+
+## Recommended Build Order
+
+### Phase 1: Foundation fixes (no new features, immediate quality improvement)
+
+| Step | What | Files | Why This Position |
+|------|------|-------|-------------------|
+| 1 | System prompt fix | `runner.py`, `orchestrator.py` | Zero risk, 10-minute fix, immediately improves routing |
+| 2 | Section filtering | `orchestrator.py` | Reduces wasted tokens, pairs with prompt fix |
+| 3 | Bounded handoffs | `orchestrator.py` | Prevents context overflow, must land before file writer |
+
+Steps 1-3 are independent -- can be built in any order or parallelized. Group as one phase because they are all small orchestrator fixes.
+
+### Phase 2: Core output capability
+
+| Step | What | Files | Why This Position |
+|------|------|-------|-------------------|
+| 4 | File writer | NEW `file_writer.py`, `orchestrator.py` | Most impactful feature -- pipeline finally produces files |
+| 5 | Targeted re-route | `handoff.py`, `orchestrator.py` | Makes re-route cycles effective (focused instructions + file writes) |
+
+Step 4 depends on step 3 (bounded handoffs prevent bloat during write-rewrite cycles). Step 5 depends on step 4 (targeted re-routes are meaningful only when files get written).
+
+### Phase 3: Pipeline extension
+
+| Step | What | Files | Why This Position |
+|------|------|-------|-------------------|
+| 6 | Dynamic schema | `orchestrator.py` | Must land before test agent (avoids manual schema update) |
+| 7 | Test agent | NEW `test_system.txt`, `config.py`, `orchestrator_system.txt` | Depends on dynamic schema + file writer + section filtering |
+
+### Phase 4: Autonomy refinement
+
+| Step | What | Files | Why This Position |
+|------|------|-------|-------------------|
+| 8 | Confidence-based autonomy | `orchestrator.py`, `protocol.py`, `context.py` | Touches Protocol (breaking change); needs stable pipeline first |
+
+### Dependency Graph
+
+```
+[1] System prompt fix ----+
+[2] Section filtering ----+--> [4] File writer --> [5] Targeted re-route
+[3] Bounded handoffs -----+         |
+                                    v
+                          [6] Dynamic schema --> [7] Test agent
+                                                      |
+                                                      v
+                                              [8] Confidence autonomy
+```
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Putting file_writer inside WebTaskContext.stream_output()
+
+**What:** Making `stream_output` aware of which agent is running and conditionally writing files.
+**Why bad:** Violates single responsibility. `stream_output` is agent-agnostic by design -- it streams Claude CLI output, parses sections, and persists to DB. Adding execute-specific logic couples it to agent knowledge and breaks the Protocol contract (other TaskContext implementations would need the same logic).
+**Instead:** Call `file_writer` from `orchestrate_pipeline()` after `stream_output` returns, conditioned on `state.current_agent == "execute"`.
+
+### Anti-Pattern 2: Building re-route instructions in the orchestrator system prompt
+
+**What:** Telling the orchestrator Claude to generate targeted instructions for the next agent as part of its routing decision.
+**Why bad:** Doubles the orchestrator's job (routing + prompt engineering). The orchestrator should decide WHERE to route, not WHAT to tell the target agent. Also wastes an expensive Claude CLI call on prompt generation when Python can do it deterministically for free.
+**Instead:** Extract ISSUES/IMPROVEMENTS sections programmatically in `build_reroute_prompt()`. Deterministic, free, instant.
+
+### Anti-Pattern 3: Running actual test suites in the test agent
+
+**What:** Having the test agent spawn `pytest`/`npm test` subprocesses.
+**Why bad:** Requires dependency installation, virtual environment management, security sandboxing. The execute agent already runs in a constrained subprocess. Adding another subprocess layer multiplies failure modes. The project under test may not even have a test framework set up yet.
+**Instead:** Static code review via Claude CLI. The test agent reads the code and checks for bugs, missing error handling, type mismatches, import issues. This is what Claude excels at without tooling.
+
+### Anti-Pattern 4: Modifying the Protocol for every new feature
+
+**What:** Adding methods to `TaskContext` for file writing, testing, section filtering, etc.
+**Why bad:** Every Protocol change requires updating all implementations (`WebTaskContext`, any future adapters). The Protocol should stay minimal -- it defines UI contract, not pipeline logic.
+**Instead:** Only modify Protocol when the change is inherently about UI interaction. The confidence gate (forcing user confirmation) is the one justified case. File writing and testing are pipeline concerns handled in `orchestrate_pipeline()`.
+
+### Anti-Pattern 5: Accumulating targeted re-route prompt alongside old handoffs
+
+**What:** Appending `build_reroute_prompt()` output to existing `accumulated_handoffs` instead of replacing it.
+**Why bad:** The agent receives old handoffs (describing the iteration that produced the issues) PLUS the targeted fix list. It must sort out which context is current. The old handoffs are noise -- they describe what was already tried and failed.
+**Instead:** `state.accumulated_handoffs = [reroute_prompt]` -- replace entirely. The targeted prompt contains everything needed.
+
+---
+
+## Scalability Considerations
+
+| Concern | Current (3 agents) | After (4 agents + file writer) | Note |
+|---------|--------------------|---------------------------------|------|
+| Context size | Unbounded handoff growth | 8K cap + windowing | Bounded handoffs prevent degradation |
+| CLI calls per cycle | 4 (plan+exec+review+decision) | 6 (plan+exec+test+review+2 decisions) | ~50% more CLI calls per full cycle |
+| Disk writes | None (code only in DB) | After each execute run | Git recovery for overwrites |
+| Decision quality | No system prompt, all sections | System prompt + filtered sections | Fewer tokens, better routing |
+| Agent additions | 3-place manual edit | 1-place registry edit + prompt file | Dynamic schema handles new agents |
 
 ---
 
@@ -690,18 +558,20 @@ This is a single-user system. Scaling is operational, not traffic-driven.
 
 All findings based on direct codebase analysis (HIGH confidence):
 
-- `src/server/app.py` — lifespan, router wiring
-- `src/server/routers/tasks.py` — TaskCreate model, create_task handler
-- `src/server/routers/views.py` — Jinja2Templates usage, routes to remove
-- `src/server/dependencies.py` — DI pattern for app.state extraction
-- `src/server/config.py` — Settings structure, env prefix
-- `src/db/pg_repository.py` — TaskRepository pattern to replicate
-- `src/db/pg_schema.py` — existing DDL + dataclass pattern
-- `src/db/migrations.py` — idempotent ALTER TABLE pattern
-- `src/context/assembler.py` — current sync implementation to extend async
-- `src/engine/manager.py` — TaskManager.submit() signature
-- `docs/project-router-spec.md` — full 808-line design specification
+- `src/pipeline/orchestrator.py` -- Main loop, state machine, handoff accumulation, decision handling
+- `src/agents/config.py` -- Agent registry pattern, `AgentConfig` dataclass, `resolve_pipeline_order()`
+- `src/agents/base.py` -- `AgentResult` dataclass, `BaseAgent` lifecycle
+- `src/pipeline/handoff.py` -- `build_handoff()` current implementation
+- `src/pipeline/protocol.py` -- `TaskContext` Protocol definition (5 methods)
+- `src/runner/runner.py` -- `stream_claude()`, `call_orchestrator_claude()` (missing system prompt)
+- `src/engine/context.py` -- `WebTaskContext` implementation (approval gates, streaming)
+- `src/agents/prompts/orchestrator_system.txt` -- Routing rules (unused due to runner bug)
+- `src/agents/prompts/execute_system.txt` -- CODE section format for file writer parser
+- `src/agents/prompts/review_system.txt` -- ISSUES/IMPROVEMENTS sections for re-route extraction
+- `src/parser/extractor.py` -- `extract_sections()` regex pattern
+- `src/git/autocommit.py` -- Staging patterns (`src/`, `tests/`, tracked files)
+- `docs/orchestration-improvements.md` -- 8-improvement analysis document
 
 ---
-*Architecture research for: AI Agent Console v2.1 Project Router integration*
-*Researched: 2026-03-13*
+*Architecture research for: AI Agent Console v2.3 Orchestration Improvements*
+*Researched: 2026-03-14*

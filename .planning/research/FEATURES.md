@@ -1,266 +1,196 @@
-# Feature Research
+# Feature Landscape
 
-**Domain:** AI agent workflow web platform — v2.1 Project Router milestone
-**Researched:** 2026-03-13
-**Confidence:** HIGH (spec fully defined in docs/project-router-spec.md; existing codebase inspected; patterns verified)
+**Domain:** Multi-agent AI pipeline orchestration improvements (v2.3)
+**Researched:** 2026-03-14
+**Confidence:** HIGH (existing codebase inspected; orchestration-improvements.md provides detailed spec; industry patterns verified via multiple sources)
 
 ## Context
 
-This research covers ONLY the new features being added in v2.1 Project Router. The v2.0 features
-(task CRUD, WebSocket streaming, approval gates, hybrid autonomy, parallelism, Docker deployment)
-are already shipped and validated. The existing codebase provides the following integration points
-this milestone builds on:
+This research covers ONLY the 8 new features for v2.3 Orchestration Improvements. The existing pipeline (3-agent Plan/Execute/Review, AI-driven orchestrator with JSON schema decisions, iterative review cycles with 3-iteration limit, structured handoffs, WebSocket streaming, supervised/autonomous modes, git auto-commit) is already shipped and validated.
 
-- `src/pipeline/project.py` — `create_project()` and `sanitize_project_name()` already exist
-- `src/context/assembler.py` — `assemble_workspace_context()` already exists (file scan + stack detection)
-- `src/server/routers/tasks.py` — `TaskCreate` currently takes only `prompt` + `mode`, no `project_id`
-- `src/db/pg_schema.py` — `tasks` table exists, no `project_id` column yet
-- `src/server/routers/views.py` — Jinja2 template routes serve current HTML pages (to be replaced)
-- `templates/` directory — currently holds Jinja2 HTML templates for server-rendered views
-
-The `templates/` directory is being repurposed from Jinja2 HTML templates to project scaffolding
-templates. The SPA approach eliminates server-rendered pages and the Jinja2 template engine role
-in views.py, freeing that namespace.
+Key integration points in existing code:
+- `src/pipeline/orchestrator.py` -- main orchestration loop, `OrchestratorState` with `accumulated_handoffs` list, `build_orchestrator_prompt()` with 500-char truncation, hardcoded `ORCHESTRATOR_SCHEMA` enum
+- `src/pipeline/handoff.py` -- `build_handoff()` concatenates all sections from `AgentResult`
+- `src/agents/config.py` -- `AGENT_REGISTRY` dict with `AgentConfig` dataclass, `resolve_pipeline_order()`
+- `src/runner/runner.py` -- `call_orchestrator_claude()` missing `--system-prompt-file` flag
+- `src/engine/context.py` -- `WebTaskContext` with `stream_output()`, `confirm_reroute()`, approval gates
+- `src/agents/prompts/` -- system prompt text files per agent + `orchestrator_system.txt` (exists but unused)
+- `src/git/autocommit.py` -- `auto_commit()` assumes files already exist on disk
 
 ---
 
-## Feature Landscape
+## Table Stakes
 
-### Table Stakes (Users Expect These)
+Features the pipeline needs to produce real, usable output. Without these, the system generates text but does not actually build anything.
 
-Features needed for the Project Router to function at all. Missing any of these makes the milestone
-incomplete.
+| Feature | Why Expected | Complexity | Dependencies on Existing | Notes |
+|---------|--------------|------------|--------------------------|-------|
+| File writer module | The EXECUTE agent generates full code in its CODE section but nothing writes it to disk. Without this, the pipeline is a text generator, not a code builder. The `auto_commit` already assumes files exist. This is the single most critical gap. | MEDIUM | Extends `orchestrator.py` (call writer after execute completes). Uses `AgentResult.sections["CODE"]` from `stream_output()`. Needs project path from `ctx.project_path`. | Parse markdown code blocks with file path annotations (`\`\`\`python # src/main.py`). Create directories with `os.makedirs(exist_ok=True)`. Write files. First iteration: write all files. Re-route iterations: write only files mentioned in ISSUES (patch mode). New file: `src/pipeline/file_writer.py`. |
+| Orchestrator system prompt fix | `call_orchestrator_claude()` in `runner.py` does not pass `--system-prompt-file`. The file `orchestrator_system.txt` exists but is never used. The orchestrator makes routing decisions without its role definition, meaning it operates on raw inference without instructions about what "approved" means or when to re-route. | LOW | Modifies `src/runner/runner.py` (add `--system-prompt-file` flag). Modifies `orchestrator.py` (pass prompt file path to the call). | This is a bug fix, not a feature. One-line change in the subprocess command construction. Should be done first because it immediately improves all subsequent orchestrator decisions. |
+| Bounded handoff windowing | `orchestrator.py:224-226` concatenates ALL handoffs from every agent across every iteration into `accumulated_handoffs`. After 3 cycles (9 agent runs), the prompt can exceed Claude's effective context or degrade response quality. Industry consensus: structured context objects with 200-500 tokens beat full forwarding at 5,000-20,000 tokens. | LOW | Modifies `orchestrator.py` only (handoff windowing logic in the main loop where `agent_prompt` is built). | Keep only the last complete cycle (plan+execute+review handoffs). Cap total handoff text at 8000 chars. Older handoffs discarded, not summarized (summarization adds an LLM call which costs time and a CLI process slot on a 2-concurrent-max VPS). Simple sliding window is the right approach here. |
+| Targeted re-route prompts | When review says "BACK TO EXECUTE", the execute agent receives the original prompt + all accumulated handoffs and must infer what went wrong. No focused message about what to fix. This causes the agent to re-read everything and often miss the specific issues. | LOW | Modifies `orchestrator.py` (build targeted prompt on re-route decision). Modifies `handoff.py` (add `build_reroute_prompt()` that extracts ISSUES and IMPROVEMENTS sections from review output). | Extract ISSUES and IMPROVEMENTS sections from the review agent's output. Build a focused prompt: "Fix these specific issues: 1. [issue] 2. [issue]. Only modify files that need changes." This replaces the full handoff dump on re-route paths only. |
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Project list with scan and auto-register | Users expect `~/projects/` folders to show up without manual DB entry. This is the entry point to every task. Missing = can't start using the feature. | LOW | `GET /projects` scans filesystem, reconciles with DB. Untracked folders auto-registered with basic metadata. Existing `assemble_workspace_context()` stack detection reused for the `stack` field in the response. |
-| Project creation with blank template | The minimum viable "new project" flow: name → folder → git init → DB record. No template complexity. | LOW | `POST /projects` with `template: "blank"`. Reuses existing `create_project()` from `src/pipeline/project.py`. Adds: CLAUDE.md creation, `.planning/README.md`, git init + first commit, DB insert. |
-| Project deletion (DB-only, preserve filesystem) | Users need to remove stale DB entries. NOT deleting the actual folder is an explicit safety design decision in the spec. | LOW | `DELETE /projects/{id}` removes DB record only. Filesystem untouched. Return 200 with confirmation. |
-| `project_id` required on task creation | Every task must know which project it runs in. Without this, context enrichment is impossible. This is the core contract change of v2.1. | LOW | Add `project_id: int` to `TaskCreate` model. Lookup project in DB, resolve path, assemble context, prepend to prompt. Update `last_used_at` timestamp after submit. |
-| Project context assembly | When a project is selected, load its full context so Claude gets oriented before the prompt. No context = v2.0 behavior (no improvement). | MEDIUM | `GET /projects/{id}/context` calls enhanced `assemble_full_context()`: workspace scan (existing) + CLAUDE.md (new, 2000 char limit) + `.planning/` docs (new, 500 char each) + git log (new, last 10 commits) + task history (new, last 5 tasks from DB). All limits are explicit to prevent prompt bloat on VPS-constrained RAM. |
-| Template list endpoint | Frontend needs to know what templates are available to populate the "create project" form. | LOW | `GET /templates` reads `templates/registry.yaml` and returns list. Builtin flag distinguishes protected templates from user-created ones. |
-| SPA frontend: project select view | The UI must show the project list as the landing state. Current Jinja2 views go away. | MEDIUM | Alpine.js `x-show` view switching pattern (state: `select` / `create` / `prompt` / `running`). `GET /projects` call on load. Project cards with name, stack, last-used timestamp. "+ New Project" button transitions to `create` state. |
-| SPA frontend: prompt view with project context | After project selection, user sees phase suggestion + context summary + prompt textarea. This is the primary task-creation UX. | MEDIUM | Transition to `prompt` state. `GET /projects/{id}/suggested-phase` and `GET /projects/{id}/context` fetched on project click. Phase suggestion displayed prominently. Context shown in collapsible section. Submit calls `POST /tasks` with `project_id`. |
-| SPA frontend: task running view | The existing streaming view needs to integrate into the SPA flow (currently a separate Jinja2-rendered page). | LOW | Transition to `running` state on task submit. WebSocket connection reuses existing `/ws/{task_id}` endpoint. Output stream rendering already works — port from `task_detail.html` into the SPA. |
+---
 
-### Differentiators (Competitive Advantage)
+## Differentiators
 
-Features that make this a meaningfully better tool than the v2.0 baseline.
+Features that elevate the pipeline from "functional" to "smart". Not expected in a basic agent pipeline, but provide meaningful improvement to output quality and developer experience.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Template system with Claude Code config bundled | Not just file scaffolding — the template includes `.claude/agents/`, `.claude/commands/`, and `CLAUDE.md` so Claude knows how to work with the project from prompt 1. No other scaffold tool does this. Cookiecutter and Yeoman scaffold code; this scaffolds the AI's working knowledge. | MEDIUM | Templates live in `templates/{id}/` with `registry.yaml` index. Files with `.j2` extension rendered via Jinja2 with 5 variables (`name`, `slug`, `description`, `date`, `author`). Static files copied as-is. 4 builtin templates: `blank`, `fastapi-pg`, `telegram-bot`, `cli-tool`. Each includes `.claude/` directory with domain-specific agents and commands. |
-| Phase suggestion engine | When you open an existing project, the system reads `.planning/STATE.md` and `ROADMAP.md` and tells you what to work on next. Reduces the mental overhead of "where did I leave off?" after switching between projects. | MEDIUM | `GET /projects/{id}/suggested-phase` parses markdown: (1) look for "Current Phase" heading in STATE.md, (2) look for "Next Phase" in STATE.md, (3) scan ROADMAP.md for first phase not marked COMPLETE, (4) scan `.planning/phases/` for first directory missing `SUMMARY.md`. Returns `{ phase_id, phase_name, status, reason }` plus full phase list. Falls back gracefully when `.planning/` doesn't exist. |
-| Phase-filtered context | When a phase is selected, context is narrowed to that phase's planning docs and relevant git commits. Avoids sending an entire project's history to Claude when only one phase's context matters. | MEDIUM | Context filter applied in `assemble_full_context()` when `phase_id` is provided: include `.planning/phases/{phase_id}/` docs, filter git log for commits prefixed with that phase ID, keep general context (CLAUDE.md, workspace) unchanged. |
-| Custom template CRUD | Users can define their own templates via API. POST inline file contents, PUT to update, DELETE to remove. Builtin templates are protected (403 on mutation attempts). | MEDIUM | `POST/PUT/DELETE /templates` endpoints. Files stored in `templates/{id}/` on filesystem. Registry updated in `registry.yaml`. Validation: builtin flag prevents mutation of the 4 core templates. File count in response confirms storage. |
-| n8n webhook hook points | Infrastructure for future automation without any implementation cost today. The `emit_event()` function is a no-op placeholder but is called at every meaningful lifecycle point. | LOW | `ProjectEvent` enum + `emit_event()` async stub in `src/pipeline/events.py`. Called at: project created, project deleted, task started, task completed, task failed, phase suggested. Config keys `n8n_webhook_url` and `n8n_events_enabled` pre-registered in `Settings` (empty = disabled). Zero runtime impact when unimplemented. |
-| SPA frontend: project creation with template picker | A visual template chooser is a significant UX upgrade over raw API calls. Shows template name, description, and whether it's builtin or custom. | LOW | `create` state in Alpine.js. `GET /templates` populates a card grid or radio list. Form: name field + description field + template selection. `POST /projects` on submit. Transition to `prompt` state on success. |
+| Feature | Value Proposition | Complexity | Dependencies on Existing | Notes |
+|---------|-------------------|------------|--------------------------|-------|
+| Smart section filtering for orchestrator | The orchestrator currently receives all sections truncated to 500 chars. The CODE section (irrelevant for routing) wastes tokens while DECISION (critical, usually short) is always within limit. Per-agent filtering means the orchestrator sees only what matters for its routing decision: after REVIEW, only DECISION/ISSUES/SUMMARY; after EXECUTE, only HANDOFF/TARGET; after PLAN, only HANDOFF/GOAL. | LOW | Modifies `build_orchestrator_prompt()` in `orchestrator.py`. Uses `state.current_agent` to determine which sections to include. Section names come from `AgentConfig.output_sections` in `config.py`. | Define a `ROUTING_SECTIONS` dict mapping agent name to list of section names relevant for routing. Filter `latest_sections` before building the prompt. Remove the blanket 500-char truncation for included sections (they are already concise by design). |
+| Confidence-based decision gating | The `confidence` field (0.0-1.0) from the orchestrator's JSON response is logged to DB but never used for control flow. A fallback text parse (confidence=0.3) is treated identically to a structured response (confidence=0.95). Using confidence as a gate means: high confidence proceeds automatically, low confidence pauses for user review even in autonomous mode. | LOW | Modifies `orchestrator.py` (confidence branching after decision parsing). Modifies `ctx` calls for low-confidence confirmation in `engine/context.py`. | Thresholds: >= 0.7 proceed automatically; 0.5-0.7 log warning, proceed; < 0.5 request user confirmation even in autonomous mode. Default mode becomes autonomous (no confirmations unless low confidence). This inverts the current default (supervised) to match the project goal of "confidence-based autonomy." |
+| Test agent (static code review) | No quality gate exists between execute and review. The review agent does both code review AND pipeline routing decision, conflating two concerns. A dedicated test agent between execute and review focuses solely on code quality: syntax validation, import checking, type consistency, structure verification. No subprocess execution -- static analysis only (safe for VPS). | MEDIUM | New file: `src/agents/prompts/test_system.txt`. Modifies `config.py` (add "test" to AGENT_REGISTRY with `next_agent="review"`; update execute's `next_agent` to "test"). Modifies `orchestrator_system.txt` (add test agent routing rules). | Output sections: TEST RESULTS, COVERAGE GAPS, FAILURES, SUGGESTIONS, HANDOFF. The test agent reads the CODE section from execute's handoff and evaluates without running anything. This is an LLM-as-reviewer pattern, not a subprocess runner. Industry data: AI code review catches 42-48% more bugs than human review alone. The review agent then focuses on architectural decisions and approval, not syntax. |
+| Dynamic schema/prompt from agent registry | The JSON schema in `orchestrator.py:59-77` hardcodes `["plan", "execute", "review", "approved"]`. The orchestrator system prompt also hardcodes agent names. Adding a new agent (like "test") requires changes in 3 places. Dynamic generation from `AGENT_REGISTRY` means adding an agent to the registry automatically updates the schema enum and the orchestrator's knowledge of available agents. | LOW | Modifies `orchestrator.py` (generate `ORCHESTRATOR_SCHEMA` dynamically from `AGENT_REGISTRY.keys() + ["approved"]`). Modifies `orchestrator_system.txt` (template with `{agent_list}` placeholder rendered at startup). | Generate enum: `agent_names = list(AGENT_REGISTRY.keys()) + ["approved"]`. Generate prompt section describing each agent's role from registry metadata. This makes the test agent addition zero-config from the orchestrator's perspective. |
 
-### Anti-Features (Commonly Requested, Often Problematic)
+---
 
-Features that seem like natural extensions but should be explicitly excluded from v2.1 scope.
+## Anti-Features
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Auto-detect project from prompt text | "The system should figure out which project I mean from my prompt" | Ambiguous when prompt could apply to multiple projects. Silent wrong-project selection causes task to run in the wrong codebase. Design spec explicitly chose manual selection for predictability. | Explicit project selection in UI. The project select view is the first step in the flow, not an optional step. |
-| Template template variables beyond the 5 defined | "I want `{{ db_name }}`, `{{ port }}`, `{{ author_email }}`" | Turns template creation into a form-builder problem. The 5 variables (`name`, `slug`, `description`, `date`, `author`) are sufficient for all 4 builtin templates and cover the common bootstrapping data. More variables require a variable discovery API and a dynamic form in the frontend. | Use the 5 defined variables. For project-specific config that varies, write it into the CLAUDE.md as instructions ("Replace `your-db-name` with your actual DB name"). |
-| Git clone from remote URL in template | "Templates should be fetchable from GitHub" | Network dependency during project creation. GitHub rate limits. Security surface (malicious templates). Binary files in git history. | Store templates on the local filesystem inside the Docker container. Builtin templates ship with the image. Custom templates created via API are stored in the container's `templates/` volume. |
-| Context size auto-tuning | "Let Claude decide how much context to include" | Unpredictable RAM usage on a VPS with 7.6GB total RAM and 2 concurrent Claude CLI processes. One oversized context prompt could exhaust memory mid-run. | Hard character limits per source: 2000 for CLAUDE.md, 500 per planning doc, 10 git commits, 5 recent tasks. These are spec-defined constants, not configurable. |
-| n8n webhook implementation in v2.1 | "Since we're adding hook points, why not implement them?" | Requires testing against a live n8n instance, webhook URL management, retry logic for failed deliveries, authentication between services. All out of scope per the project spec. | `emit_event()` is a documented no-op. The hook points are the deliverable. Implementation is a separate v2.2+ milestone. |
-| Project archiving / soft delete | "Projects shouldn't fully disappear, just be hidden" | Adds a third project state (active / archived / deleted) to the DB, the API, and the UI. The current two-state model (in DB = registered, not in DB = untracked) matches how the filesystem works. | `DELETE /projects/{id}` removes the DB record. The folder still exists on disk. Re-listing via `GET /projects` with the scan-and-register behavior will re-add it automatically if the folder is still there. |
-| Client-side routing (history API, hash routing) | "The SPA should have real URLs for each view" | Alpine.js is not a routing framework. History API management (back button behavior, direct URL access) in vanilla Alpine.js requires significant hand-rolled code that is fragile and hard to test. The 4-view flow is linear and sequential, not a general navigation graph. | `x-show` view state machine with `Alpine.store('view', 'select')`. No URL changes. Back navigation implemented as an explicit "Back" button that sets state to the previous view. |
-| Paginatable project list | "What if someone has hundreds of projects?" | VPS single-user context: `~/projects/` with hundreds of projects is not a realistic scenario. Adding pagination to the project list API and UI adds complexity that will never be exercised. | Return all projects in one `GET /projects` response. Filesystem scan is fast for single-user scale. If the list grows unwieldy, a search/filter box in Alpine.js is far simpler than API pagination. |
+Features that seem like natural extensions but should be explicitly excluded from v2.3 scope.
+
+| Anti-Feature | Why Tempting | Why Avoid | What to Do Instead |
+|--------------|-------------|-----------|-------------------|
+| LLM-based handoff summarization | "Summarize old handoffs instead of discarding them" | Adds an extra Claude CLI call per iteration. On a VPS with max 2 concurrent CLI processes (asyncio.Semaphore), this blocks the pipeline. The cost (time + process slot) exceeds the value of preserving old context. Google ADK uses this but assumes API access, not CLI subprocess constraints. | Simple sliding window: keep last cycle, discard older. 8000-char cap. The most recent cycle contains the most relevant context. |
+| Subprocess test execution (pytest, npm test) | "The test agent should actually run the tests" | Security risk: executing arbitrary generated code on the VPS. Resource risk: test suites can hang, consume RAM, or write to filesystem unexpectedly. The VPS runs production services (n8n, Evolution API). Subprocess execution is a fundamentally different trust model. | Static code review only. The test agent reads code and identifies issues through LLM analysis. No `subprocess.run()`. No `pytest`. If real test execution is needed, it belongs in a sandboxed Docker container in a future milestone. |
+| Diff-based file patching (search/replace blocks) | "On re-routes, apply diffs instead of full file rewrites" | Diff application is fragile. Aider's experience shows LLMs operate on potentially outdated views of files, making search blocks fail when files have been modified or contain similar sections. Full file rewrites are simpler and git provides the recovery mechanism. | Full file overwrite on every write. Git auto-commit after each approved cycle provides rollback. The file writer writes complete files, not patches. `git diff` shows what changed. |
+| Multi-file transaction (atomic writes) | "Either all files write successfully or none do" | Over-engineering for a single-user VPS tool. Partial writes are recoverable via git. Atomic multi-file writes require temp directories, rename operations, and rollback logic that adds complexity without matching a real failure mode (disk full is the only realistic scenario, and atomic writes don't help there). | Write files sequentially. If a write fails mid-way, the files already written are still valid. Git status shows what was written. The user can re-run the task. |
+| Agent priority/weight system | "Some agents should be preferred over others in routing" | The orchestrator already uses confidence scores and structured reasoning. Adding agent weights creates a second routing signal that conflicts with or overrides the AI's judgment. The whole point of AI-driven orchestration is that the LLM decides, not a weight table. | Use the confidence threshold system. If the orchestrator consistently makes bad routing decisions, fix the system prompt (improvement #4), not the routing mechanism. |
+| Review agent memory across tasks | "The review agent should remember issues from previous tasks on the same project" | Cross-task memory requires a vector store or summary DB, retrieval logic, and relevance filtering. The complexity is high and the value is low: each task is a discrete unit of work. Project-level patterns belong in CLAUDE.md, not in agent memory. | Project context assembly (already built in v2.1) provides project-level knowledge via CLAUDE.md and planning docs. Per-task context is sufficient. |
+| Configurable iteration limits per agent | "Let users set max iterations to 5 or 10 instead of 3" | More iterations without quality improvements just burns tokens. The 3-iteration limit is a safety valve, not a tuning knob. If 3 iterations don't converge, the prompt or the approach is wrong. | Keep the hardcoded 3-iteration limit. The confidence gating and targeted re-routes will improve convergence rate within 3 iterations, making higher limits unnecessary. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Project DB Table + ProjectRepository]
-    |-- required by --> [Project CRUD API]
-    |-- required by --> [project_id on TaskCreate]
-    |-- required by --> [Context Assembly endpoint]
-    |-- required by --> [Phase Suggestion endpoint]
+[System prompt fix (#4)]
+    |-- no dependencies, standalone bug fix
+    |-- improves ALL subsequent orchestrator decisions
+    |-- MUST be done first
 
-[Template Filesystem + registry.yaml]
-    |-- required by --> [GET /templates]
-    |-- required by --> [POST /projects (with template)]
-    |-- required by --> [Template CRUD API]
+[Bounded handoffs (#3)]
+    |-- no dependencies, modifies orchestrator.py only
+    |-- can be done in parallel with #4
 
-[Project CRUD API]
-    |-- required by --> [SPA: project select view]
-    |-- required by --> [SPA: project create view]
-    |-- required by --> [project_id on TaskCreate]
+[Targeted re-route prompts (#2)]
+    |-- requires: review agent output with ISSUES/IMPROVEMENTS sections (already exists)
+    |-- modifies: orchestrator.py (re-route path) + handoff.py (new function)
+    |-- benefits from: #4 (better orchestrator decisions on when to re-route)
 
-[Enhanced Context Assembler (assemble_full_context)]
-    |-- requires --> [Project DB Table] (for recent_tasks lookup)
-    |-- requires --> [existing assemble_workspace_context] (already exists)
-    |-- required by --> [GET /projects/{id}/context]
-    |-- required by --> [project_id on TaskCreate] (context prepended to prompt)
+[Smart section filtering (#5)]
+    |-- requires: AGENT_REGISTRY with output_sections (already exists)
+    |-- modifies: build_orchestrator_prompt() in orchestrator.py
+    |-- benefits from: #4 (system prompt tells orchestrator what sections mean)
 
-[Phase Suggestion Engine]
-    |-- requires --> [Project DB Table] (get project path)
-    |-- required by --> [SPA: prompt view] (display suggestion)
-    |-- enhances --> [Context Assembly] (phase-filtered context variant)
+[File writer (#1)]
+    |-- requires: stream_output() returning sections dict (already exists)
+    |-- requires: ctx.project_path (already exists)
+    |-- modifies: orchestrator.py (trigger write after execute completes)
+    |-- new file: src/pipeline/file_writer.py
+    |-- enables: auto_commit to actually commit real files
 
-[project_id on TaskCreate (tasks.py change)]
-    |-- requires --> [Project DB Table]
-    |-- requires --> [Enhanced Context Assembler]
-    |-- requires --> [Project CRUD API] (project must exist before task references it)
-    |-- affects --> [existing task tests] (all test task creation must provide project_id)
+[Confidence-based autonomy (#7)]
+    |-- requires: orchestrator decision with confidence field (already exists)
+    |-- modifies: orchestrator.py (decision handling block)
+    |-- modifies: engine/context.py (low-confidence confirmation flow)
+    |-- benefits from: #4 (better calibrated confidence with system prompt)
 
-[SPA frontend (static/index.html)]
-    |-- requires --> [Project CRUD API]
-    |-- requires --> [Template list endpoint]
-    |-- requires --> [Phase Suggestion endpoint]
-    |-- requires --> [Context Assembly endpoint]
-    |-- requires --> [project_id on TaskCreate]
-    |-- requires --> [existing /ws WebSocket endpoint] (already exists)
-    |-- replaces --> [src/server/routers/views.py Jinja2 routes]
-    |-- replaces --> [templates/task_list.html, templates/task_detail.html]
+[Dynamic schema/prompt (#8)]
+    |-- requires: AGENT_REGISTRY (already exists)
+    |-- modifies: orchestrator.py (schema generation)
+    |-- modifies: orchestrator_system.txt (template)
+    |-- MUST be done before or alongside #6 (test agent)
 
-[n8n event hook points]
-    |-- requires --> [Project CRUD API] (project.created, project.deleted hooks)
-    |-- requires --> [project_id on TaskCreate] (task.started hook)
-    |-- no blocking dependencies on other v2.1 features]
+[Test agent (#6)]
+    |-- requires: #8 (dynamic schema so test agent is auto-discovered)
+    |-- requires: #1 (file writer, so test agent reviews actual written files)
+    |-- new files: test_system.txt, config.py update
+    |-- modifies: execute config (next_agent: "test" instead of "review")
+```
 
-[DB Migration: projects table + tasks.project_id column]
-    |-- required by --> [everything DB-related above]
-    |-- must run FIRST before any service code uses new schema]
+### Critical Path
+
+```
+#4 (system prompt fix) ----+
+                            |
+#3 (bounded handoffs) -----+--> #2 (targeted re-routes) --> #1 (file writer)
+                            |                                      |
+#5 (section filtering) ----+                                      |
+                            |                                      v
+#7 (confidence gating) ----+            #8 (dynamic schema) --> #6 (test agent)
 ```
 
 ### Dependency Notes
 
-- **DB migration is the absolute first step.** The `projects` table and `ALTER TABLE tasks ADD COLUMN project_id` must exist before any service code can run. Existing tests use the tasks table; the migration must be additive and non-breaking (column is nullable or has default so existing tasks don't fail).
+- **System prompt fix (#4) is zero-risk, high-impact.** The file already exists. The flag just needs to be added to the CLI command. This should ship first because every other improvement benefits from the orchestrator actually knowing its role.
 
-- **`templates/` directory naming conflict.** Currently `templates/` holds Jinja2 HTML files (`task_list.html`, `task_detail.html`) rendered by `views.py`. The SPA milestone repurposes this directory for project scaffolding templates. The transition must either (a) move HTML templates to a new location before adding project templates, or (b) add project templates as subdirectories (`templates/blank/`, `templates/fastapi-pg/`) which coexist with HTML files until views.py is replaced. Option (b) is lower risk — subdirectories don't collide with flat `.html` files.
+- **File writer (#1) and test agent (#6) are the two features with new files.** Everything else modifies existing code. The file writer is higher priority because without it, the pipeline doesn't produce filesystem output -- the test agent can review code from sections even without files on disk.
 
-- **`project_id` required vs optional on TaskCreate.** Making it immediately required breaks all existing tests and any client using the current API. The safe migration path: make it optional in the Pydantic model with `None` default, fall back to `settings.project_path` when absent (current behavior), add required validation once the frontend always sends it.
+- **Dynamic schema (#8) MUST precede test agent (#6).** Adding "test" to the hardcoded enum and then immediately replacing the enum with dynamic generation is wasted work. Build dynamic generation first, then adding the test agent is just a registry entry.
 
-- **SPA replaces views.py but WebSocket endpoint is unchanged.** The existing `/ws/{task_id}` WebSocket endpoint and `ConnectionManager` are unchanged. The SPA just connects to the same endpoint. No changes to streaming infrastructure.
+- **Bounded handoffs (#3) and targeted re-routes (#2) are complementary.** Bounded handoffs reduce noise; targeted re-routes increase signal. Together they fix the context quality problem from both ends. However, they are independent changes and can be implemented separately.
 
-- **Phase suggestion requires `.planning/` docs to exist.** Projects created with `blank` template only have `.planning/README.md` — no STATE.md or ROADMAP.md. Phase suggestion must fail gracefully and return `null` suggestion rather than 500 errors.
-
----
-
-## MVP Definition
-
-### Launch With (v2.1 core)
-
-The minimum scope that delivers multi-project support end-to-end.
-
-- [ ] DB migration: `projects` table + `tasks.project_id` nullable FK — without this nothing works
-- [ ] `ProjectRepository` (get, list, insert, delete, update_last_used) — DB layer
-- [ ] `GET /projects` with filesystem scan and auto-register — project list
-- [ ] `POST /projects` with `blank` template only — project creation minimum viable
-- [ ] `DELETE /projects/{id}` — project removal
-- [ ] Enhanced `assemble_full_context()` — CLAUDE.md + planning docs + git log + task history
-- [ ] `GET /projects/{id}/context` — context endpoint
-- [ ] `GET /projects/{id}/suggested-phase` — phase parsing
-- [ ] `project_id` on `POST /tasks` (optional with fallback) — wires project to task
-- [ ] 4 builtin templates with `.claude/` config bundled — `blank`, `fastapi-pg`, `telegram-bot`, `cli-tool`
-- [ ] `GET /templates` — template list
-- [ ] SPA frontend: all 4 states (`select`, `create`, `prompt`, `running`) in `static/index.html`
-- [ ] `emit_event()` no-op placeholder at correct lifecycle points — n8n prep
-
-### Add After Core Works (v2.1 enhanced)
-
-- [ ] `POST /templates` custom template creation — add once builtin templates are validated
-- [ ] `PUT /templates/{id}` custom template update — add alongside POST
-- [ ] `DELETE /templates/{id}` custom template removal — add alongside PUT/POST
-- [ ] Phase-filtered context (filter context by selected phase) — add after basic context works
-- [ ] `project_id` made required on TaskCreate (after frontend always sends it) — cleanup
-
-### Defer to v2.2+
-
-- [ ] n8n webhook actual implementation (HTTP calls, retry, auth) — separate milestone
-- [ ] GitHub integration (clone, PR creation) — was already deferred from v2.0
-- [ ] Template sharing / export — only useful with multiple users or teams
+- **Confidence gating (#7) changes the default execution mode.** Currently supervised is the default. After #7, autonomous becomes the default with confidence-based fallback to user confirmation. This is a behavioral change that affects the user experience. The frontend already supports both modes -- this changes which one is active by default.
 
 ---
 
-## Feature Prioritization Matrix
+## MVP Recommendation
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| DB migration (projects + project_id) | HIGH | LOW | P1 |
-| ProjectRepository | HIGH | LOW | P1 |
-| GET /projects (scan + list) | HIGH | LOW | P1 |
-| POST /projects (blank template) | HIGH | LOW | P1 |
-| Enhanced assemble_full_context() | HIGH | MEDIUM | P1 |
-| GET /projects/{id}/context | HIGH | LOW | P1 |
-| GET /projects/{id}/suggested-phase | HIGH | MEDIUM | P1 |
-| project_id on POST /tasks | HIGH | LOW | P1 |
-| 4 builtin templates with .claude/ config | HIGH | MEDIUM | P1 |
-| GET /templates | HIGH | LOW | P1 |
-| SPA frontend (4 states) | HIGH | HIGH | P1 |
-| emit_event() placeholder | LOW | LOW | P1 |
-| DELETE /projects/{id} | MEDIUM | LOW | P1 |
-| POST /templates (custom) | MEDIUM | MEDIUM | P2 |
-| PUT /templates/{id} | MEDIUM | LOW | P2 |
-| DELETE /templates/{id} | MEDIUM | LOW | P2 |
-| Phase-filtered context | MEDIUM | MEDIUM | P2 |
-| project_id required (not optional) | LOW | LOW | P2 |
-| n8n webhook implementation | LOW | HIGH | P3 |
+### Phase 1: Foundation fixes (do first, lowest risk)
+1. **System prompt fix (#4)** -- bug fix, one-line change, immediate quality improvement
+2. **Bounded handoffs (#3)** -- prevents context blowup, simple sliding window
+3. **Targeted re-route prompts (#2)** -- focused feedback on re-routes
 
-**Priority key:**
-- P1: Required for v2.1 milestone completion
-- P2: Enhances v2.1, add in same milestone after P1 is stable
-- P3: Explicitly out of scope for v2.1
+### Phase 2: Core output capability
+4. **File writer (#1)** -- the pipeline finally produces real files
+5. **Smart section filtering (#5)** -- cleaner orchestrator inputs
+
+### Phase 3: Intelligence and extensibility
+6. **Confidence-based autonomy (#7)** -- default autonomous, smart fallback
+7. **Dynamic schema/prompt (#8)** -- extensible agent routing
+8. **Test agent (#6)** -- quality gate between execute and review
+
+### Defer to v2.4+
+- Subprocess test execution (sandboxed Docker)
+- Cross-task review memory
+- LLM-based handoff summarization
+- Diff-based file patching
 
 ---
 
-## How Each Feature Relates to Existing Code
+## Complexity Assessment
 
-| New Feature | Extends | Replaces | New File |
-|------------|---------|----------|----------|
-| Project DB table | `src/db/pg_schema.py` | — | — |
-| ProjectRepository | `src/db/pg_repository.py` | — | — |
-| DB migration | `src/db/migrations.py` | — | — |
-| assemble_full_context() | `src/context/assembler.py` | — | — |
-| suggest_next_phase() | `src/context/assembler.py` | — | — |
-| create_new_project() with template | `src/pipeline/project.py` | — | `src/pipeline/project_service.py` |
-| ProjectService | — | — | `src/pipeline/project_service.py` |
-| emit_event() / ProjectEvent | — | — | `src/pipeline/events.py` |
-| /projects router | — | — | `src/server/routers/projects.py` |
-| /templates router | — | — | `src/server/routers/templates.py` |
-| project_id on TaskCreate | `src/server/routers/tasks.py` | — | — |
-| app.py wiring | `src/server/app.py` | — | — |
-| n8n config keys | `src/server/config.py` | — | — |
-| get_project_service() dep | `src/server/dependencies.py` | — | — |
-| Template registry | — | — | `templates/registry.yaml` |
-| Builtin templates | — | `templates/task_list.html` etc. | `templates/blank/`, `templates/fastapi-pg/`, etc. |
-| SPA index.html | — | `src/server/routers/views.py` (Jinja2 routes) | `static/index.html` |
-
----
-
-## Complexity Assessment by Feature Area
-
-| Area | Complexity | Reason |
-|------|------------|--------|
-| DB schema + migration | LOW | Additive changes to existing schema. Single new table, one ALTER. |
-| ProjectRepository | LOW | Standard asyncpg CRUD, same patterns as existing AgentOutputRepository. |
-| assemble_full_context() | MEDIUM | 5 sources to aggregate, each with their own I/O (filesystem, subprocess for git, DB query). Character limits add truncation logic. |
-| suggest_next_phase() | MEDIUM | Parsing markdown without a schema is inherently fragile. Multiple fallback strategies needed for graceful degradation (STATE.md absent, no phases directory, no ROADMAP.md). |
-| Template engine (builtin) | MEDIUM | Jinja2 rendering is well-understood. The complexity is authoring the 4 template contents with `.claude/` agent and command files that are actually useful. |
-| Template CRUD API | MEDIUM | File I/O for creating/updating template directories + YAML mutation for registry. Error handling for invalid file paths and registry corruption. |
-| project_id wiring into tasks | LOW | Small model change and a few lines in the handler. The complexity is in migration compatibility (existing tasks have no project_id). |
-| SPA frontend (Alpine.js) | HIGH | 4 distinct views with state transitions, 6+ API calls, WebSocket integration, and no build step. Alpine.js `x-show` + `Alpine.store` handles multi-view cleanly but requires careful state management. The `running` view re-implements existing streaming output UI in the new SPA context. |
-| n8n hook points (no-op) | LOW | A stub function and enum definition. No network calls. |
+| Feature | Complexity | Reason |
+|---------|------------|--------|
+| System prompt fix (#4) | LOW | Add one flag to subprocess command, pass file path. |
+| Bounded handoffs (#3) | LOW | Replace list concatenation with sliding window in orchestrator loop. ~15 lines changed. |
+| Targeted re-route (#2) | LOW | New function `build_reroute_prompt()` in handoff.py, called from orchestrator re-route path. ~30 lines new code. |
+| Section filtering (#5) | LOW | Dict lookup + filter in `build_orchestrator_prompt()`. ~20 lines changed. |
+| Confidence gating (#7) | LOW | Add threshold checks after decision parsing. ~20 lines changed. Behavioral change needs frontend awareness. |
+| Dynamic schema (#8) | LOW | Generate enum from registry keys. Template the system prompt. ~25 lines changed. |
+| File writer (#1) | MEDIUM | Regex parsing of markdown code blocks, directory creation, file I/O, error handling for malformed output. New module ~100-150 lines. |
+| Test agent (#6) | MEDIUM | New system prompt (content design is the hard part), registry entry, orchestrator prompt update. ~50 lines code + system prompt authoring. |
 
 ---
 
 ## Sources
 
-- `docs/project-router-spec.md` (808 lines) — primary spec, HIGH confidence, authoritative for this project
-- `src/pipeline/project.py` — existing scaffolding primitives (create_project, sanitize_project_name)
-- `src/context/assembler.py` — existing context assembly (assemble_workspace_context)
-- `src/server/routers/tasks.py` — existing TaskCreate model (project_id integration point)
-- `src/db/pg_schema.py` — existing DB schema (tasks table to be extended)
-- Alpine.js x-show tab/view patterns — MEDIUM confidence (multiple sources confirm, pattern is idiomatic)
-- Jinja2 FileSystemLoader + Environment rendering — HIGH confidence (official Jinja2 docs pattern)
-- FastAPI StaticFiles mount for SPA serving — HIGH confidence (FastAPI official docs pattern)
+- `docs/orchestration-improvements.md` -- primary spec with 8 improvements, prioritized. HIGH confidence, authoritative.
+- `src/pipeline/orchestrator.py` -- existing orchestration loop, handoff accumulation, schema, prompt building. Inspected directly.
+- `src/pipeline/handoff.py` -- existing handoff builder, section concatenation. Inspected directly.
+- `src/agents/config.py` -- existing agent registry with AgentConfig dataclass. Inspected directly.
+- [JetBrains Research: Smarter Context Management for LLM-Powered Agents](https://blog.jetbrains.com/research/2025/12/efficient-context-management/) -- context compression approaches. MEDIUM confidence.
+- [How Agent Handoffs Work in Multi-Agent Systems](https://towardsdatascience.com/how-agent-handoffs-work-in-multi-agent-systems/) -- structured context objects (200-500 tokens) vs full forwarding (5,000-20,000 tokens). MEDIUM confidence.
+- [Google ADK Context Compaction](https://google.github.io/adk-docs/context/compaction/) -- sliding window summarization pattern. HIGH confidence (official docs).
+- [Ralph Orchestrator: Context Management](https://mikeyobrien.github.io/ralph-orchestrator/advanced/context-management/) -- fresh context per iteration pattern. MEDIUM confidence.
+- [Factory.ai: Evaluating Context Compression](https://factory.ai/news/evaluating-compression) -- anchored iterative summarization. MEDIUM confidence.
+- [Qodo Code Review Platform](https://devops.com/qodo-adds-multiple-ai-agent-to-code-review-platform/) -- 15+ automated agentic review workflows, specialized agents. MEDIUM confidence.
+- [llm-code-format (GitHub)](https://github.com/vizhub-core/llm-code-format) -- streaming markdown code block parser with file path extraction. MEDIUM confidence.
+- [parse-llm-code (PyPI)](https://pypi.org/project/parse-llm-code/) -- Python library for extracting code blocks from LLM output. MEDIUM confidence.
+- [Code Surgery: How AI Assistants Make Precise Edits](https://fabianhertwig.com/blog/coding-assistants-file-edits/) -- Aider's edit format patterns, search/replace fragility. MEDIUM confidence.
+- [AI Coding Agents 2026: Coherence Through Orchestration](https://mikemason.ca/writing/ai-coding-agents-jan-2026/) -- validation before commit pattern. MEDIUM confidence.
 
 ---
-*Feature research for: AI agent workflow web platform — v2.1 Project Router*
-*Researched: 2026-03-13*
+*Feature research for: AI Agent Workflow Console -- v2.3 Orchestration Improvements*
+*Researched: 2026-03-14*

@@ -1,303 +1,252 @@
-# Pitfalls Research
+# Domain Pitfalls
 
-**Domain:** Adding Project Router (multi-project, template scaffolding, SPA frontend) to existing FastAPI + Alpine.js web app
-**Researched:** 2026-03-13
-**Confidence:** HIGH
+**Domain:** Adding file writing, bounded context, test agent, dynamic routing, and confidence gating to existing multi-agent orchestration pipeline
+**Researched:** 2026-03-14
+**Confidence:** HIGH (based on direct codebase analysis of orchestrator.py, context.py, runner.py, config.py, handoff.py, extractor.py, autocommit.py)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Jinja2 Template Rendering with User-Controlled `.j2` Content (SSTI + Path Traversal)
+### Pitfall 1: File Writer Parses Code Blocks But Execute Agent Output Format Is Not Enforced
 
-**What goes wrong:**
-The template system stores user-created templates as `.j2` files in `templates/{id}/`. When a user calls `POST /templates` they supply file content inline, and when a project is created those files are rendered with `jinja2.Environment.from_string()` or similar. If user-supplied `.j2` content is ever passed to `from_string()` and rendered server-side, it is a Remote Code Execution vector. Separately, when copying template files to the project directory, a malicious filename like `../../.ssh/authorized_keys` or `../CLAUDE.md` in the incoming JSON escapes the project directory.
-
-**Why it happens:**
-- `from_string()` executes arbitrary Python via Jinja2's object-introspection chain (`__class__.__mro__[1].__subclasses__()`) even without sandbox
-- The `files` dict keys in `POST /templates` are used directly as filesystem paths without normalization
-- Developers conflate "Jinja2 for HTML rendering" (safe, predefined templates) with "Jinja2 for user content" (unsafe, arbitrary templates)
-- CVE-2025-27516 shows even Jinja2's SandboxedEnvironment has bypasses via the `|attr` filter prior to v3.1.6
-
-**How to avoid:**
-1. Never use `from_string()` with user-provided template content. Render only predefined, built-in `.j2` files. Custom template content should be copied verbatim (static, non-rendered) OR rendered in a `SandboxedEnvironment` after upgrading to Jinja2 >= 3.1.6.
-2. Canonicalize all file paths before writing: `resolved = (project_path / filename).resolve(); assert resolved.is_relative_to(project_path)`. Reject anything that escapes the target directory.
-3. Allowlist filename characters: reject filenames containing `..`, absolute paths (`/` prefix), or null bytes before any filesystem operation.
-4. For builtin templates: use `Environment(loader=FileSystemLoader(builtin_templates_dir))` and call `get_template(name)` — Jinja2's FileSystemLoader does normalize paths, but still validate `name` is a simple relative path with no `..` components.
-
-**Warning signs:**
-- Any code path calling `jinja2.Environment().from_string(user_input).render(...)`
-- Template file paths taken directly from user JSON without `.resolve()` check
-- Test that creates a template with `"../../etc/passwd": "content"` — if this creates or overwrites a file outside the project directory, the pitfall is present
-
-**Phase to address:**
-Template system phase (creating `src/pipeline/template_service.py` and `/templates` router). Must be addressed before any user-facing template creation endpoint is exposed.
-
----
-
-### Pitfall 2: DB Migration Breaks on Existing `tasks` Rows (NULL vs NOT NULL on `project_id`)
-
-**What goes wrong:**
-The spec adds `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id)`. Existing rows have no project, so `project_id` will be `NULL`. If any subsequent migration, constraint, or application code tries to enforce `NOT NULL` on `project_id` — a Pydantic model that requires it, a query that joins `tasks` to `projects` without `IS NULL` handling, or a future `ALTER TABLE tasks ALTER COLUMN project_id SET NOT NULL` — it crashes immediately (ALTER fails with constraint violation on existing rows) or silently drops legacy tasks (JOIN excludes NULL rows).
+**What goes wrong:** The file writer needs to extract file paths and code from the EXECUTE agent's output. The plan is to parse patterns like `` ```python # src/main.py ``. But `extract_sections()` in `src/parser/extractor.py` uses a regex (`SECTION_RE`) that matches section headers like `CODE:` -- it does not parse individual code blocks within a section. The CODE section content is a single blob of text. If the EXECUTE agent outputs code blocks with inconsistent path formats (`# src/main.py` vs `// File: src/main.py` vs `src/main.py:` vs no path at all), the file writer silently writes nothing or writes a single mega-file.
 
 **Why it happens:**
-- The migration is additive (`IF NOT EXISTS`) but existing data is not backfilled
-- `TaskCreate` currently passes `settings.project_path` — adding `project_id` to the Pydantic model without making it `Optional` breaks backwards compatibility
-- Adding a new column to the `Task` dataclass without defaulting it to `None` causes `asyncpg.Record`-to-dataclass mapping to fail on existing rows
-- `conftest.py`'s `pg_pool` teardown does `DELETE FROM tasks` but after adding `projects`, the FK means `DELETE FROM projects` must come after — otherwise teardown crashes
+- The EXECUTE agent's system prompt (`execute_system.txt`) requests structured output sections but does not enforce a specific code block format with file paths
+- Claude LLMs vary their code block annotation style between runs -- sometimes `# filename`, sometimes a comment in the language, sometimes a markdown header before the block
+- The parser works at the section level (CODE:, HANDOFF:, etc.) not at the code-block-within-section level
+- Developers test with a single file output and miss the multi-file parsing edge case
 
-**How to avoid:**
-1. Keep `project_id` permanently `NULLABLE` — tasks without a project are valid ("legacy" tasks before the router existed)
-2. Mark `project_id: Optional[int] = None` in the `Task` dataclass and `TaskCreate`/`TaskResponse` Pydantic models
-3. Add `project_id` to `TaskRepository.create()` and `TaskRepository.get()` queries explicitly — never rely on column order
-4. In `conftest.py`'s `pg_pool` teardown, add `DELETE FROM projects` after `DELETE FROM tasks` (reverse FK order)
-5. Run all existing tests immediately after adding the migration SQL to `migrations.py` — they must stay green
+**Consequences:** Pipeline completes, orchestrator approves, auto-commit runs -- but no files exist on disk. The git commit is empty. The user sees "approved" but nothing was written.
 
-**Warning signs:**
-- `NOT NULL` appearing anywhere near the `project_id` column in migration SQL
-- `TaskCreate` model with a required `project_id` field
-- Test failures in `test_task_schema_migration.py` or `test_pg_repository.py` after adding the migration
-- `asyncpg.exceptions.NotNullViolationError` on any existing test that inserts a task without a project
+**Prevention:**
+1. Update `execute_system.txt` to enforce a strict format: every code block MUST start with ```` ```language:path/to/file ```` (colon-separated language and path on the fence line). This is the most reliable LLM-parseable format.
+2. Build the file writer parser with multiple fallback patterns in priority order: (a) ```` ```lang:path ```` fence, (b) `# path` comment on first line of block, (c) section header before block. Log which pattern matched.
+3. Add a validation step: if file writer extracts zero files from a non-empty CODE section, log an error and report it back to the orchestrator as a failure -- do NOT silently approve.
+4. Write a dedicated test with 5+ real EXECUTE agent outputs (capture them from actual runs) to validate the parser handles real-world format variation.
 
-**Phase to address:**
-DB schema phase (adding `projects` table + `tasks.project_id`). Run the full existing test suite as the phase completion gate before writing any other code.
+**Detection:** After implementing the file writer, run the pipeline end-to-end and check: does `git diff --stat` show actual file changes after the execute phase? If not, the parser is not matching.
+
+**Phase to address:** File writer phase (improvement #1). The system prompt update and the parser must ship together -- parser without prompt update will fail on format variation.
 
 ---
 
-### Pitfall 3: Filesystem Scan Race Condition on `GET /projects` (Scan + Register on Read)
+### Pitfall 2: Bounded Handoff Windowing Breaks Re-Route Context
 
-**What goes wrong:**
-The spec says `GET /projects` scans `~/projects/` and auto-registers any folder not already in the DB. If two browser tabs or two concurrent API calls hit `GET /projects` simultaneously, both scans see the same unregistered folder and both try to `INSERT INTO projects ... UNIQUE slug`. The second INSERT fails with `UniqueViolationError` (slug and path are UNIQUE), returning a 500 error to the second caller.
+**What goes wrong:** The improvement plan says "keep only the last complete cycle (plan+execute+review)" and "cap total handoff size at 8000 chars". But `orchestrator.py:224-226` builds `agent_prompt` by joining ALL `state.accumulated_handoffs`. If you truncate to only the last cycle, a re-routed execute agent loses the original plan context from cycle 1. The execute agent receives: original user prompt + last review's issues -- but NOT the plan that established the architecture, file structure, and task breakdown. The execute agent makes contradictory decisions because it has no memory of the agreed plan.
 
 **Why it happens:**
-- Read-then-write patterns on UNIQUE constraints are not atomic without explicit locking or conflict handling
-- The scan is triggered on every `GET /projects` call, maximizing the probability of concurrent collisions
-- Single-user app assumption leads developers to skip concurrency analysis for GET endpoints
+- The handoff list is flat (`list[str]`) with no metadata about which cycle or agent produced each entry
+- "Last cycle" is ambiguous: does plan+execute+review count as one cycle, or is each agent invocation a cycle?
+- The iteration counter (`state.iteration_count`) increments only after review, so mid-cycle you cannot determine cycle boundaries from the counter alone
+- The plan handoff is the most critical context for execute, but it is also the oldest and first to be dropped by "keep last N" windowing
 
-**How to avoid:**
-1. Use `INSERT INTO projects (...) ON CONFLICT (slug) DO NOTHING` — if the slug already exists (from a concurrent insert), silently skip; the subsequent `SELECT` returns the existing row
-2. Alternatively: use `INSERT INTO projects (...) ON CONFLICT (path) DO UPDATE SET last_used_at = NOW()` — upsert semantics
-3. If simpler, do reconciliation only on explicit user action (`POST /projects/scan`) rather than on every `GET` — avoids the race entirely and keeps `GET /projects` as a pure DB read
+**Consequences:** Execute agent on re-route produces code that contradicts the original plan -- different file structure, different approach, missing components. Review flags new issues. The pipeline loops until the 3-iteration limit.
 
-**Warning signs:**
-- `asyncpg.exceptions.UniqueViolationError` appearing in logs during normal browsing with multiple tabs
-- `INSERT INTO projects` inside `GET /projects` without `ON CONFLICT` clause
-- No test for concurrent `GET /projects` calls
+**Prevention:**
+1. Always keep the FIRST plan handoff as a pinned prefix (never drop it). Window only subsequent handoffs.
+2. Tag each handoff with `(agent_name, cycle_number)` metadata so windowing can be cycle-aware: keep the original plan + last complete cycle.
+3. Implement the 8000 char cap as a soft limit on the windowed portion -- the pinned plan is exempt from the cap (but separately capped at 2000 chars with its own truncation).
+4. Structure: `agent_prompt = original_prompt + pinned_plan_handoff + last_cycle_handoffs + targeted_issues`
 
-**Phase to address:**
-`ProjectService.list_projects()` implementation. Use `ON CONFLICT DO NOTHING` as the default and document the idempotent design.
+**Detection:** Run a pipeline that goes through 2+ review cycles. Check the execute agent's prompt on cycle 2: does it contain the original plan's ARCHITECTURE and FILES TO CREATE sections? If not, windowing is too aggressive.
+
+**Phase to address:** Bounded handoffs phase (improvement #3). Must be designed together with targeted re-route prompts (improvement #2) since both modify how agent_prompt is assembled.
 
 ---
 
-### Pitfall 4: Git Subprocess Hanging Indefinitely (`git init` / `git commit` on Template Scaffolding)
+### Pitfall 3: Dynamic Schema Generation Creates Invalid Enum When Test Agent Is Added
 
-**What goes wrong:**
-`git init` and `git commit --allow-empty -m "Initial commit"` are invoked in `ProjectService.create_new_project()` via `asyncio.create_subprocess_exec`. If `git` is not on PATH inside the Docker container, the subprocess fails with a non-zero exit code that is silently swallowed. If `git commit` requires GPG signing (from a host `~/.gitconfig` mounted into the container), it hangs indefinitely waiting for the GPG agent. The FastAPI request never returns. The `asyncio.create_subprocess_exec` call for `git init` is a fire-and-forget with no timeout, unlike the existing `stream_claude` path which has retry logic.
+**What goes wrong:** Improvement #8 generates the orchestrator JSON schema enum dynamically from `AGENT_REGISTRY.keys()`. Improvement #6 adds "test" to the registry. The generated enum becomes `["plan", "execute", "review", "test", "approved"]`. But the orchestrator system prompt and the decision logic in `orchestrator.py:288` only handle `plan`, `execute`, and `approved` as re-route targets after review. If the orchestrator returns `{"next_agent": "test"}` when the current agent is `review`, the code falls through to the else branch (line 314: "Normal forward progression") and sets `current_agent = "test"` -- but there is no logic to handle test-to-review progression, and the test agent may re-run indefinitely if the orchestrator keeps routing back to test.
 
 **Why it happens:**
-- The app's Docker image is a Python base image — `git` is not installed by default
-- Host `~/.gitconfig` with `gpgsign = true` can bleed into the container if the home directory is volume-mounted
-- `asyncio.create_subprocess_exec` without a timeout relies on the subprocess to self-terminate
-- A known cpython issue (issue #125502) means `asyncio.run()` can hang with cancelled subprocesses
+- The schema enum and the decision handling logic are not co-located -- the enum is in `ORCHESTRATOR_SCHEMA` (line 59) and the routing logic is in the while loop (line 219)
+- Adding an agent to the registry does not automatically add routing rules for it
+- The `next_agent` field in `AgentConfig` defines a linear chain (execute->test->review) but the orchestrator's decision handler only knows about the special cases (approved, plan/execute after review)
+- The text fallback parser (`parse_decision_from_text`) has no case for "test" -- it would default to "review"
 
-**How to avoid:**
-1. Add `git` to the `Dockerfile` explicitly: `RUN apt-get install -y --no-install-recommends git`
-2. Wrap all git subprocess calls with `asyncio.wait_for(..., timeout=30.0)` — kill and raise on timeout
-3. Pass `-c commit.gpgsign=false` to the git commit call to prevent GPG hanging
-4. Set `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL` as env vars in the subprocess call — `git commit` needs them in a clean container environment
-5. Write a dedicated `async def git_init(path: str) -> None` helper with timeout + error handling; never call git inline
+**Consequences:** Orchestrator routes to test agent at unexpected times. Test agent runs after plan (nonsensical). Or test agent loops: test->orchestrator->test->orchestrator because the orchestrator has no rule saying "after test, go to review."
 
-**Warning signs:**
-- `git` missing from `Dockerfile` system dependencies
-- No `asyncio.wait_for` wrapping git subprocess calls
-- `POST /projects` takes > 30 seconds in the Docker container
-- `git` process visible in `docker exec <c> ps aux` without completing
+**Prevention:**
+1. When generating the dynamic enum, also generate the valid transitions as a constraint. Define allowed transitions per agent: `{"plan": ["execute"], "execute": ["test", "review"], "test": ["review", "execute"], "review": ["plan", "execute", "approved"]}`.
+2. Add a validation step after parsing the orchestrator decision: if `decision.next_agent` is not in the allowed transitions for `state.current_agent`, log a warning and use the `AgentConfig.next_agent` chain as fallback.
+3. Update the orchestrator system prompt to explicitly list valid transitions, not just available agents: "After EXECUTE, you may route to TEST or REVIEW. After TEST, you may route to REVIEW or back to EXECUTE."
+4. Update `parse_decision_from_text` to handle new agent names -- add "BACK TO TEST" pattern.
 
-**Phase to address:**
-`ProjectService.create_new_project()` implementation. Test the entire `POST /projects` flow inside the Docker container, not just locally.
+**Detection:** After adding the test agent, run a pipeline where the review says "needs fixes." Check: does the orchestrator ever route directly to "test" from "review"? That would skip execute and is likely wrong.
+
+**Phase to address:** Test agent phase (improvement #6) and dynamic schema phase (improvement #8) must be coordinated. Add the test agent to the registry AND update the transition rules in the same phase.
 
 ---
 
-### Pitfall 5: Context Size Explosion Breaks Claude CLI Invocation
+### Pitfall 4: File Writer Runs After Execute But Before Review -- Writes Potentially Broken Code to Disk
 
-**What goes wrong:**
-`assemble_full_context()` concatenates: workspace listing (up to 200 files), CLAUDE.md (truncated 2000 chars), up to 5 `.planning/` docs (500 chars each), git log (10 commits), and 5 recent tasks. The result is prepended to the user prompt before passing to Claude CLI. The problem is that the existing `assemble_workspace_context` is already called inside `orchestrate_pipeline` at agent invocation time. If the new `assemble_full_context` is also injected at `TaskManager.submit()` time and stored in `tasks.prompt`, both end up in the final Claude CLI invocation. The workspace context appears twice, inflating every prompt by ~2000 characters and doubling cost for context assembly.
+**What goes wrong:** The improvement doc says "trigger write after execute completes" in `orchestrator.py`. But the review agent has not yet validated the code. If the file writer writes execute output to disk, and review finds critical issues (wrong architecture, security bugs, syntax errors), those broken files are now on the filesystem. The auto-commit logic (`autocommit.py`) only runs after "approved" -- but if the workspace is a live project (e.g., the ai-agent-console itself), writing broken files mid-pipeline can break the running server.
 
 **Why it happens:**
-- Two separate call sites for context assembly (task creation vs. pipeline agent invocation) are not coordinated
-- The existing `assemble_workspace_context` in `src/context/assembler.py` is called inside the pipeline — adding a second call in the router creates duplication
-- Developers testing with small toy projects miss the explosion when working on large projects like `ai-agent-console` (200+ files, rich CLAUDE.md)
+- The natural insertion point is after `ctx.stream_output()` returns for execute -- this is where the output is freshly available
+- The improvement doc focuses on "parse EXECUTE output and write files" without considering the review gate
+- In autonomous mode, the pipeline moves fast -- execute writes files, review reads them, orchestrator approves -- but if review sends back to execute, the first iteration's files are already on disk and may conflict with the second iteration's files
 
-**How to avoid:**
-1. Define a single authoritative call site: inject context at `TaskManager.submit()` time, store in `tasks.prompt`, and remove the redundant `assemble_workspace_context` call from the pipeline agents
-2. Add a hard `MAX_CONTEXT_CHARS = 6000` guard in `assemble_full_context()` that truncates the combined output and logs a warning
-3. Test `assemble_full_context` on the `ai-agent-console` project itself to verify size stays within bounds
-4. When phase context is selected, limit `.planning/` docs to only that phase's directory, not all of `.planning/`
+**Consequences:** Broken code on disk between execute and review. If the project is the running server, it may crash. If auto-commit were to run mid-pipeline (it doesn't currently, but future changes might), broken code gets committed. On re-route iterations, old files from iteration 1 remain on disk unless explicitly cleaned up.
 
-**Warning signs:**
-- `tasks.prompt` in the DB exceeding 10000 characters for normal projects
-- "=== WORKSPACE CONTEXT ===" appearing twice in agent outputs
-- Cost per task increasing 2-3x after adding the context assembler
-- `assemble_workspace_context` called in both the `/tasks` router AND inside pipeline agents
+**Prevention:**
+1. Write files to a staging area first (e.g., `.agent-staging/` within the project), not directly to the project root. Only copy from staging to project root after review approves.
+2. OR: Accept the risk (simpler) but add a guard: only write files if the project path is NOT the ai-agent-console itself (the running server). For external projects, broken intermediate files are acceptable because git provides recovery.
+3. On re-route iterations, the file writer must overwrite ALL files from the new execute output, not merge with the previous iteration's files. Clear the staging area before each execute write.
+4. The auto-commit at the end of `orchestrate_pipeline` (line 320) must commit the FINAL state, not intermediate states. This is already correct in the current code -- but verify it stays that way.
 
-**Phase to address:**
-Context assembler enhancement phase. Add a size assertion as a required unit test: `assert len(assemble_full_context(...)) <= MAX_CONTEXT_CHARS`.
+**Detection:** Run a pipeline on a live project. After execute completes but before review, check: are there files on disk from execute? Are they syntactically valid? If you kill the pipeline mid-review, are broken files left on disk?
+
+**Phase to address:** File writer phase (improvement #1). Decision: staging area vs direct write should be made before implementation begins. Direct write is simpler and acceptable given git recovery -- but document the decision explicitly.
 
 ---
 
-### Pitfall 6: Alpine.js SPA State Stranded Between View Transitions (select → prompt → running)
+### Pitfall 5: `stream_output()` Does Not Pass System Prompt File -- All Agents Run Without Their System Prompts
 
-**What goes wrong:**
-The SPA has three states: project-select, prompt-entry, and task-running. These are managed by a `currentView` property in a top-level `x-data` component. If the user submits a task and then uses the browser back button, the browser navigates away from the single HTML page. On return, Alpine re-initializes from scratch, `currentView` resets to `select`, and all in-progress context (selected project, draft prompt) is lost. Separately, if the running task's WebSocket connection is open when the user navigates away and then back, a second WebSocket connection is opened to the same task ID, and the first is never closed — leaking connections and triggering duplicate message delivery.
+**What goes wrong:** Looking at `context.py:85`, `stream_output()` calls `stream_claude(prompt)` but does NOT pass the `system_prompt_file` parameter. The `stream_claude` function in `runner.py:36` accepts `system_prompt_file` as an optional kwarg, but `stream_output` never provides it. This means ALL agents (plan, execute, review) currently run without their system prompts. The system prompts exist in `src/agents/prompts/*.txt` and are referenced in `AGENT_REGISTRY`, but they are never used in the web execution path.
 
 **Why it happens:**
-- Alpine.js has no built-in router or browser history API integration
-- `x-data` state is destroyed when the DOM is replaced; there is no persistence layer by default
-- WebSocket cleanup on navigation requires explicit `ws.close()` in a `beforeunload` or `pagehide` handler — this is not automatic
-- Developers expect Alpine.js to behave like Vue/React with component lifecycle teardown
+- The `BaseAgent.run()` method (the TUI code path in `base.py:47`) correctly passes `system_prompt_file=self.config.system_prompt_file` to `invoke_claude_with_retry`
+- When the web engine (`WebTaskContext.stream_output`) was built for v2.0, it called `stream_claude` directly without looking up the agent config
+- The `stream_output` method signature takes `agent_name` as a string but never uses it to look up the `AgentConfig` for the system prompt path
+- The agents still produce structured output because the prompt itself contains enough context -- but they are not constrained by the system prompt's formatting rules
 
-**How to avoid:**
-1. The project-select → prompt → running flow is a three-step wizard on a single page, not three separate browser pages. Never call `window.location.href = ...` between wizard steps; only use it after task creation to navigate to the task view.
-2. Store the selected project in `Alpine.store('router', {...})` (global store registered before `Alpine.start()`) rather than local `x-data` — this survives component re-renders within the same page load.
-3. Add a `beforeunload` listener in `x-init` that calls `ws.close()` if a WebSocket is open.
-4. On the task-running view `x-init`, check `ws && ws.readyState === WebSocket.OPEN` before opening a new connection to avoid duplicates.
+**Consequences:** Agent outputs are less structured and less predictable. The orchestrator's section filtering (improvement #5) fails because sections are not consistently produced. The file writer's parsing fails because the execute agent does not follow the CODE section format. The review agent does not follow the DECISION section format. Everything appears to work in basic testing but degrades on complex tasks.
 
-**Warning signs:**
-- Browser back button from task-running view navigates to a different URL instead of staying on the SPA
-- Multiple WebSocket connections visible in browser devtools Network tab for the same task
-- `Alpine.store` not used anywhere — all state in isolated `x-data` scopes
-- Task prompt text is lost when the user clicks "back" within the wizard
+**Prevention:**
+1. Fix `stream_output` to look up the agent's system prompt: `config = get_agent_config(agent_name); await stream_claude(prompt, system_prompt_file=config.system_prompt_file)`
+2. This is a pre-existing bug that should be fixed BEFORE any v2.3 improvements, because all improvements depend on structured agent output
+3. Add a log line in `stream_output` that logs which system prompt file is being used -- makes debugging easier
+4. Add a test that verifies `stream_claude` is called with the correct system_prompt_file for each agent type
 
-**Phase to address:**
-SPA frontend phase. Establish the wizard state model before writing any HTML — document that `currentView` and `selectedProject` live in `Alpine.store`, not in individual component `x-data`.
+**Detection:** Check the Claude CLI process arguments in the Docker container logs. If `--system-prompt-file` is absent from agent calls (not just orchestrator calls), this bug is present.
+
+**Phase to address:** This is a prerequisite fix. Address it as the FIRST task in v2.3, before any other improvement. Without system prompts, structured output is unreliable, and improvements #1, #2, #5, #6 all depend on structured output.
 
 ---
 
-### Pitfall 7: Repurposing `src/templates/` for Project Scaffolding Breaks the Live Server
+## Moderate Pitfalls
 
-**What goes wrong:**
-The spec notes: "Full SPA replacing Jinja2 server-rendered pages" and "templates/ for project scaffolding — Jinja2 HTML templates removed, directory repurposed." Currently `src/server/routers/views.py` points `Jinja2Templates(directory=str(TEMPLATE_DIR))` at `src/templates/`. If `task_list.html` and `task_detail.html` are deleted before the SPA is fully functional, the server crashes on startup or on first request because `Jinja2Templates` cannot find its files.
+### Pitfall 6: Targeted Re-Route Prompt Extraction Depends on Section Names That Vary
 
-**Why it happens:**
-- The same `src/templates/` path serves two purposes that need to be migrated in strict sequence
-- Developers delete the old HTML files as part of "cleanup" before the replacement is wired up
-- The SPA migration and the template scaffolding system overlap in the same phase, creating a window where neither the old nor the new UI works
+**What goes wrong:** Improvement #2 extracts ISSUES and IMPROVEMENTS sections from review output to build targeted re-route prompts. But `extract_sections()` matches headers case-insensitively and normalizes to uppercase. If the review agent outputs "Issues Found:" vs "ISSUES:" vs "**Issues:**", all become "ISSUES FOUND" vs "ISSUES" vs "ISSUES" respectively. The re-route builder looks for `sections.get("ISSUES")` but gets `None` because the actual key is "ISSUES FOUND".
 
-**How to avoid:**
-Do the SPA migration and the directory repurposing as two atomic sub-steps in this exact order:
-1. Add new single `index.html` SPA entry point to `src/templates/`
-2. Update `views.py` to serve `index.html` statically (removing `Jinja2Templates`)
-3. Verify `GET /` returns 200 with Alpine.js present (smoke test)
-4. Only then delete old `task_list.html`, `task_detail.html`, `base.html`
-5. Only then rename/move `src/templates/` to its new scaffolding role
-
-Never delete step-4 files before step-3 is green.
-
-**Warning signs:**
-- `src/templates/` directory contains a mix of Jinja2 HTML (`*.html`) and `.j2` scaffolding files simultaneously
-- `views.py` still imports `Jinja2Templates` after the SPA transition is supposed to be complete
-- Server startup logs `TemplateNotFound: task_list.html` after any directory changes
-
-**Phase to address:**
-SPA frontend phase — must explicitly order the sub-steps and use the smoke test (`GET /` returns 200) as the gate between each step.
+**Prevention:**
+1. Use fuzzy matching for section lookup: check for keys containing "ISSUE" rather than exact match on "ISSUES"
+2. Alternatively, add all expected variants to the review system prompt and enforce exact names
+3. Build the re-route prompt from ANY section that is not SUMMARY or DECISION -- this catches ISSUES, IMPROVEMENTS, RISKS, and any unexpected section names
 
 ---
 
-### Pitfall 8: Breaking Existing Tests by Adding `project_id` to `TaskManager.submit()`
+### Pitfall 7: Confidence Threshold Creates Approval Gate Confusion in Autonomous Mode
 
-**What goes wrong:**
-`TaskManager.submit()` currently has the signature `submit(prompt, mode, project_path)`. Changing this to require `project_id` breaks every caller that currently passes only `project_path`. There are test files (`test_task_manager.py`, `test_server.py`, `test_task_endpoints.py`) that call `submit()` directly or via the `/tasks` API. If `project_id` is added as a required parameter, all those tests fail immediately.
+**What goes wrong:** Improvement #7 adds confidence-based gating: confidence < 0.5 asks for user confirmation even in autonomous mode. But `confirm_reroute()` in `context.py:173` auto-approves in non-supervised mode. If the confidence check triggers a confirmation request in autonomous mode, the `_wait_for_approval` method broadcasts an `approval_required` WebSocket event -- but the frontend may not have UI for unexpected approval gates in autonomous mode. The task hangs waiting for user input that the user does not expect.
 
-**Why it happens:**
-- The v2.0 `create_task` endpoint hardcodes `settings.project_path` — adding `project_id` changes the API contract
-- The task-project linking change and the DB migration happen in the same phase, so both changes land on `submit()` at once
-- No existing test covers "create task with project_id" before the feature is built — a required parameter would fail on all existing tests
-
-**How to avoid:**
-1. Add `project_id: Optional[int] = None` to `TaskManager.submit()` — defaults to None for backwards compatibility
-2. Update `TaskCreate` Pydantic model similarly: `project_id: Optional[int] = None`
-3. Run `pytest tests/ -x` immediately after any change to the `submit()` signature
-4. The new SPA-driven endpoint passes `project_id`; the old API behavior (no project) continues working with `project_id=None`
-
-**Warning signs:**
-- `TypeError: submit() missing required argument 'project_id'` in test runs
-- Any test in `test_task_manager.py` or `test_task_endpoints.py` fails after adding project support
-- `project_id` appears as a required (non-Optional) field in `TaskCreate`
-
-**Phase to address:**
-Task-project linking phase — immediately after adding the `project_id` column, update the `submit()` signature before writing any other code.
+**Prevention:**
+1. Confidence-based gating should NOT use the same `confirm_reroute` / `_wait_for_approval` mechanism. Instead, it should log a warning and proceed in autonomous mode, or switch the task to supervised mode with a WebSocket notification explaining why.
+2. Add a distinct WebSocket event type for low-confidence decisions (`low_confidence_warning`) separate from `approval_required`
+3. Define the behavior clearly: autonomous mode NEVER blocks. Low confidence in autonomous mode = log warning + proceed. Low confidence in supervised mode = require approval.
 
 ---
 
-## Technical Debt Patterns
+### Pitfall 8: Adding Test Agent to Pipeline Doubles Claude CLI Invocations and Cost
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Store `project_path` in tasks instead of `project_id` FK | No join needed, backwards compatible | Breaks when project is renamed/moved; no referential integrity | Never — the FK is the right model |
-| Skip `git init` in scaffolding to avoid subprocess risk | No hang risk | Claude CLI cannot use git tools in new projects; auto-commit phase breaks | Never — git is required for the agent workflow |
-| Render ALL `.j2` files with `from_string()` including custom templates | One rendering path, simpler code | RCE if any user-supplied template contains `{{ ''.__class__ }}` | Never |
-| Single hardcoded `~/projects` workspace root in `ProjectService` | Matches spec, simpler | Breaks if Docker volume mounts to a different path | Acceptable for v2.1 with env var override documented |
-| Skip `ON CONFLICT` in project scan INSERT | Simpler SQL | Silent 500 errors on concurrent requests to `GET /projects` | Never — always use `ON CONFLICT DO NOTHING` for UNIQUE columns |
-| Assemble context at API layer inside `create_task` endpoint | No new service layer needed | Context assembled at presentation layer, not testable in isolation; easy to duplicate in pipeline | Only if a standalone unit test for `assemble_full_context` exists |
+**What goes wrong:** The current pipeline runs 3 agents per cycle (plan + execute + review) plus 1 orchestrator call after each = 6 Claude CLI invocations minimum. Adding a test agent between execute and review adds 2 more calls per cycle (test agent + orchestrator decision after test) = 8 calls per cycle. With the 2-concurrent-process semaphore and 7.6GB RAM constraint, the pipeline takes 33% longer. On re-route iterations (3 max), total calls go from 18 to 24.
+
+**Prevention:**
+1. The test agent should be a lightweight static reviewer -- NOT a full Claude CLI invocation. Use a simpler analysis: run `python -m py_compile` or `ruff check` on the written files and format results as a handoff. Only escalate to Claude CLI if static checks fail and need interpretation.
+2. If the test agent must use Claude CLI, make it share the execute agent's system prompt with a test-specific addendum -- reducing prompt size and cost.
+3. Track cost per pipeline run and set an alert if single-task cost exceeds $0.50
 
 ---
 
-## Integration Gotchas
+### Pitfall 9: Handoff Size Cap Silently Truncates Critical Information
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| `asyncpg` + new `projects` table | Forget to add `projects` cleanup to `conftest.py` teardown — FK violation on `DELETE FROM tasks` | Add `DELETE FROM projects` after `DELETE FROM tasks` in reverse FK order in `conftest.py` |
-| Jinja2 FileSystemLoader | Using `get_template()` with user-supplied template name containing `../` — some loaders resolve this | Always validate the template name is a basename with no path separators before calling `get_template()` |
-| Alpine.js `Alpine.store()` | Registering stores inside `x-data` instead of before `Alpine.start()` — store unavailable to other components | Register all stores in a `<script>` block before Alpine boots: `document.addEventListener('alpine:init', () => Alpine.store('router', {...}))` |
-| `git commit` in Docker | `git commit` fails with "Please tell me who you are" — `user.email`/`user.name` not set in container | Pass `-c user.email=agent@localhost -c user.name=Agent` flags to the `git commit` command |
-| `migrations.py` FK ordering | `ALTER TABLE tasks ADD COLUMN project_id REFERENCES projects(id)` runs before `projects` table exists — FK reference fails | Create the `projects` table in `PG_SCHEMA_SQL` BEFORE the `ALTER TABLE tasks` migration; order matters |
-| `settings.project_path` deprecation | After adding project support, some code paths still read `settings.project_path` as a fallback — silently uses wrong directory | Audit all `settings.project_path` usages after migration; replace with explicit project lookup or keep only as a global default for legacy tasks |
+**What goes wrong:** The 8000 char cap on bounded handoffs (`improvement #3`) truncates by slicing: `handoff_context[:8000]`. If a handoff ends mid-sentence or mid-code-block, the receiving agent gets malformed context. Worse, the truncation point might fall inside a JSON structure or a file path, causing the agent to misinterpret the context.
+
+**Prevention:**
+1. Truncate at section boundaries, not character boundaries. Find the last complete `=== END HANDOFF ===` marker before the 8000 char limit.
+2. If individual handoffs exceed the cap, summarize them (extract only HANDOFF sections, drop CODE sections) rather than hard-truncating.
+3. Log when truncation occurs, including how many characters were dropped -- this helps debug quality issues.
 
 ---
 
-## Performance Traps
+### Pitfall 10: Dynamic Schema Generation Exposes Internal Agent Names to Claude CLI
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| `rglob("*")` on projects with `node_modules/` or `.venv/` | `GET /projects/{id}/context` takes 2-5 seconds | Verify `EXCLUDE_DIRS` from existing `assemble_workspace_context` is applied in the new `assemble_full_context` path — it is easy to omit when writing the new function | Any project with node_modules (~100k files) |
-| Assembling full context on every task creation | Cold-start latency on first task per project | Acceptable for single-user app; add a 30s in-memory cache keyed by `(project_id, mtime_of_CLAUDE.md)` if latency > 500ms | Always noticeable, rarely a blocker |
-| `GET /projects` runs filesystem scan on every request | List projects endpoint slow with many projects | Read only from DB on normal `GET /projects`; trigger scan explicitly via query param `?rescan=true` | Noticeably slow at > 20 projects in `~/projects/` |
-| Git log via subprocess on every context request | `GET /projects/{id}/context` always forks a process | Cache the last-10-commits in memory with a 60s TTL; invalidate on task completion | Negligible for single-user, but adds ~100ms per call due to subprocess fork |
+**What goes wrong:** Generating the enum from `AGENT_REGISTRY.keys()` means internal implementation names ("plan", "execute", "review", "test") become the values Claude must output. If someone renames an agent key in the registry (e.g., "execute" to "implement"), the orchestrator schema changes, the system prompt references change, and all hardcoded string comparisons in `orchestrator.py` break (`decision.next_agent == "execute"` no longer matches).
 
----
-
-## Security Mistakes
-
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Rendering user-supplied `.j2` content with `jinja2.Environment().from_string()` | RCE — attacker reads arbitrary files or executes commands via Python object introspection | Only render builtin templates server-side; use `SandboxedEnvironment` + Jinja2 >= 3.1.6 for any user-supplied content |
-| Accepting arbitrary file paths in `POST /templates` `files` dict keys | Path traversal — overwrite `~/.ssh/authorized_keys` or app source files | Resolve each path relative to target dir and assert: `(base / key).resolve().is_relative_to(base.resolve())` |
-| Scanning `~/projects/` without checking the resolved path is under `WORKSPACE_ROOT` | Symlink attack — a symlink in `~/projects/` pointing to `/etc/` causes `assemble_full_context` to read sensitive files | Resolve project path and assert it starts with `WORKSPACE_ROOT` before any file read |
-| Exposing `project.path` (full filesystem path) in API response | Leaks server filesystem layout; minimal risk for single-user app behind Basic Auth | Acceptable for this use case — document the deliberate decision |
+**Prevention:**
+1. When building the dynamic enum, also generate all string comparisons from the registry. Use constants: `EXECUTE_AGENT = "execute"` and reference the constant everywhere.
+2. Or: keep the schema enum values stable (always "plan", "execute", "review", "test", "approved") and only dynamically validate that each enum value has a corresponding registry entry at startup.
+3. Add a startup validation: `assert set(ORCHESTRATOR_SCHEMA_ENUM) - {"approved"} == set(AGENT_REGISTRY.keys())`
 
 ---
 
-## UX Pitfalls
+## Minor Pitfalls
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Phase suggestion uses rigid keyword matching on STATE.md | Suggestion wrong or absent for projects with non-standard STATE.md format | Use heuristic: scan all phases, find the first without `SUMMARY.md` or with status `!= complete`; return `suggestion: null` gracefully when `.planning/` does not exist |
-| Project deletion via `DELETE /projects/{id}` only removes DB row | User confused why the project reappears on next scan | Show explicit UI warning: "Removes from tracking only. Folder stays on disk and will reappear on next scan." |
-| Template list includes custom templates manually deleted from disk | `POST /projects` with a deleted custom template fails with cryptic 500 | On `GET /templates`, validate each template's directory exists; mark missing ones as `available: false` in the response |
-| No indication that the SPA is loading project context | User clicks a project and sees a blank prompt area while context assembles | Show a loading indicator on the prompt step while `GET /projects/{id}/context` is in flight |
+### Pitfall 11: File Writer Creates Directories But Does Not Handle Permission Errors
+
+**What goes wrong:** `os.makedirs(parent, exist_ok=True)` fails with `PermissionError` if the project path is inside a read-only Docker volume mount or a directory owned by a different user.
+
+**Prevention:** Wrap directory creation in try/except, log the specific path that failed, and surface the error to the user via WebSocket status update rather than silently failing.
+
+---
+
+### Pitfall 12: Orchestrator System Prompt Fix (Improvement #4) May Change Routing Behavior
+
+**What goes wrong:** The orchestrator has been making decisions WITHOUT its system prompt for the entire lifetime of the web app (see Pitfall 5 for agents, and the improvement doc confirms the same for the orchestrator call). Adding the system prompt now may change routing behavior -- decisions that previously approved may now re-route, or vice versa. The system prompt may be stale or contain rules that conflict with the current pipeline behavior.
+
+**Prevention:**
+1. Review `orchestrator_system.txt` content before enabling it. Ensure it matches the current pipeline reality (3 agents, not 4).
+2. Run the same test prompts with and without the system prompt and compare decisions. Log the before/after difference.
+3. Enable the system prompt as a separate, isolated change so behavior differences are attributable to this single change.
+
+---
+
+### Pitfall 13: Git Auto-Commit Only Stages `src/` and `tests/` -- File Writer May Write to Other Directories
+
+**What goes wrong:** `autocommit.py:34` only runs `git add` on `src/` and `tests/` patterns. If the file writer writes files to other directories (e.g., `config/`, `docs/`, `scripts/`, root-level files like `Dockerfile`), those files are never staged and never committed. The user sees "committed" but the new files are untracked.
+
+**Prevention:**
+1. After the file writer runs, collect the list of files it wrote. Pass this list to `auto_commit` and stage those specific files instead of using hardcoded patterns.
+2. Or: change auto-commit to `git add` all files the file writer created, using `git add <file1> <file2> ...` with the explicit file list.
+
+---
+
+## Phase-Specific Warnings
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| File writer | Parser finds zero files in CODE section (Pitfall 1) | Enforce strict code block format in execute system prompt; test with real outputs |
+| File writer | Writes broken code before review (Pitfall 4) | Accept direct-write with git recovery OR use staging area; document decision |
+| File writer | Auto-commit misses non-src files (Pitfall 13) | Pass written file list to auto-commit |
+| Targeted re-route | Section names vary (Pitfall 6) | Use fuzzy matching or "any section not SUMMARY/DECISION" |
+| Bounded handoffs | Drops original plan context (Pitfall 2) | Pin first plan handoff; window only subsequent cycles |
+| Bounded handoffs | Truncates mid-content (Pitfall 9) | Truncate at section boundaries, not character boundaries |
+| System prompt fix | Changes routing behavior (Pitfall 12) | Review prompt content; compare before/after decisions |
+| Section filtering | Depends on consistent section names (Pitfall 6) | Validate section names exist before filtering |
+| Test agent | Doubles pipeline cost (Pitfall 8) | Use static analysis first, Claude CLI only as fallback |
+| Test agent | Invalid transitions (Pitfall 3) | Define allowed transitions per agent; validate decisions |
+| Confidence gating | Blocks autonomous mode unexpectedly (Pitfall 7) | Never block in autonomous mode; log + proceed |
+| Dynamic schema | Enum includes agents without routing rules (Pitfall 3) | Generate transitions alongside enum |
+| Dynamic schema | Internal names leaked as contract (Pitfall 10) | Use constants; validate enum matches registry at startup |
+| ALL improvements | Agents run without system prompts (Pitfall 5) | FIX THIS FIRST -- prerequisite for all other improvements |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Template path traversal guard:** `POST /templates` rejects filenames containing `..` or starting with `/` — verify with test: `{"files": {"../../.ssh/test": "x"}}` returns 400 and creates no file outside the target directory
-- [ ] **Legacy tasks still visible:** After adding `project_id` column, `GET /tasks` returns all pre-migration tasks (rows with `project_id = NULL`) — verify with `test_pg_repository.py`
-- [ ] **Concurrent scan safety:** Two simultaneous `GET /projects` calls do not produce a 500 error — verify with an integration test using `asyncio.gather(client.get("/projects"), client.get("/projects"))`
-- [ ] **Git init in Docker:** `POST /projects` succeeds inside the actual Docker container, not just locally — verify `git` is in the container's PATH after Dockerfile change
-- [ ] **WebSocket cleanup:** Opening a task, using browser back to project select, then navigating to the same task again shows no duplicate WebSocket connections — verify in browser devtools Network tab
-- [ ] **Old tests still pass:** Running `pytest tests/ -x` after adding `project_id` to the `tasks` schema produces zero failures — verify before writing any other code
-- [ ] **Context size guard:** `assemble_full_context` on the `ai-agent-console` project (large codebase) produces output under `MAX_CONTEXT_CHARS` — verify with an explicit size assertion unit test
-- [ ] **SPA serves from `/`:** After removing Jinja2 templates, `GET /` returns 200 with Alpine.js script tag present — verify with the existing `test_server.py` smoke test
+- [ ] **System prompts actually used:** Check Docker logs for `--system-prompt-file` flag in Claude CLI process arguments for ALL agent calls (not just orchestrator)
+- [ ] **File writer produces files:** After a full pipeline run, `git diff --stat` shows actual file changes in the project directory
+- [ ] **Re-route keeps plan context:** On iteration 2+, the execute agent's prompt contains the original plan's ARCHITECTURE section
+- [ ] **Handoff truncation is clean:** No handoff ends mid-word or mid-code-block after the 8000 char cap
+- [ ] **Test agent does not loop:** Pipeline with test agent completes in <= 3 iterations without test->test cycling
+- [ ] **Confidence does not block autonomous:** An autonomous task with confidence=0.4 proceeds (with warning log) rather than hanging
+- [ ] **Dynamic schema matches registry:** Adding a new agent to AGENT_REGISTRY automatically appears in the orchestrator schema enum AND the system prompt
+- [ ] **Auto-commit includes all written files:** Files written to `config/`, `docs/`, or root directory are staged and committed, not just `src/` and `tests/`
+- [ ] **Old tests still pass:** `pytest tests/ -x` passes after each improvement phase, not just at the end
 
 ---
 
@@ -305,45 +254,21 @@ Task-project linking phase — immediately after adding the `project_id` column,
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| SSTI via user template content | HIGH | Disable `POST /templates` endpoint immediately; audit DB for stored malicious templates; rotate server credentials if exposure suspected; patch with `SandboxedEnvironment` |
-| `ALTER TABLE` migration fails on live DB | MEDIUM | The `IF NOT EXISTS` guard means the column was either added or not; check `\d tasks` in psql; if missing, re-run migration manually after verifying FK order |
-| Concurrent scan `UniqueViolationError` | LOW | Add `ON CONFLICT DO NOTHING` to INSERT — error is non-destructive (no data lost, just a failed request to one caller) |
-| Git subprocess hangs in production | MEDIUM | `docker exec <container> pkill git`; add `asyncio.wait_for` timeout to subprocess call; redeploy |
-| Old tests fail after `project_id` addition | LOW | Make `project_id` Optional in Task dataclass and `submit()` signature; re-run tests |
-| SPA broken after `src/templates/` repurposed | MEDIUM | `git stash` or revert the directory rename; restore the old Jinja2 HTML files; re-sequence the migration in the correct order |
-
----
-
-## Pitfall-to-Phase Mapping
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Jinja2 SSTI / path traversal in user templates | Template system phase | `POST /templates` with `{"files": {"../../.ssh/test": "x"}}` returns 400; no file created outside target dir |
-| NULL / NOT NULL on `project_id` migration | DB schema phase | `pytest tests/test_task_schema_migration.py tests/test_pg_repository.py` all pass after migration |
-| Concurrent scan UniqueViolationError | ProjectService phase | `asyncio.gather(GET /projects, GET /projects)` — no 500 errors |
-| Git subprocess hang | ProjectService / scaffolding phase | `POST /projects` inside Docker container completes in < 10s |
-| Context size explosion | Context assembler phase | Unit test: `len(assemble_full_context(ai_agent_console_path, ...)) < MAX_CONTEXT_CHARS` |
-| Alpine.js state / WebSocket leak | SPA frontend phase | Manual: wizard flow → back → forward shows no duplicate WS connections in devtools |
-| `src/templates/` repurposing breaks server | SPA frontend phase | Smoke test: `GET /` returns 200 after each sub-step of directory migration |
-| Breaking existing tests via `submit()` change | Task-project linking phase | `pytest tests/ -x` passes immediately after `submit()` signature change |
+| File writer produces no files | LOW | Check parser patterns; capture raw EXECUTE output from DB; test parser against it; fix patterns |
+| Bounded handoffs drop plan context | MEDIUM | Revert to full handoff concatenation (old behavior); redesign windowing with pinned plan |
+| Test agent routing loops | LOW | Remove test from AGENT_REGISTRY; revert to plan->execute->review chain; redesign transitions |
+| Autonomous mode blocks on confidence | LOW | Change confidence check to log-only in autonomous mode; redeploy |
+| System prompt changes routing | LOW | Remove `--system-prompt-file` from orchestrator call; revert to promptless behavior; review prompt content |
+| Auto-commit misses files | LOW | Run `git add` on the specific files manually; update auto-commit to accept file list |
 
 ---
 
 ## Sources
 
-- Codebase analysis: `src/db/pg_schema.py`, `src/db/migrations.py`, `src/server/routers/tasks.py`, `src/server/routers/views.py`, `src/context/assembler.py`, `src/pipeline/project.py`, `tests/conftest.py`
-- Design spec: `docs/project-router-spec.md` (808 lines, full API/DB/UX specification)
-- [Alpine.js pitfalls discussion — alpinejs/alpine #749](https://github.com/alpinejs/alpine/discussions/749)
-- [Alpine.js reactivity and DOM lifecycle issues — MindfulChase](https://www.mindfulchase.com/explore/troubleshooting-tips/front-end-frameworks/fixing-reactivity-and-dom-lifecycle-issues-in-alpine-js-applications.html)
-- [asyncio subprocess hang — cpython issue #125502](https://github.com/python/cpython/issues/125502)
-- [asyncio Process.communicate() unsafe to cancel — cpython issue #139373](https://github.com/python/cpython/issues/139373)
-- [Jinja2 SSTI exploitation — OnSecurity](https://onsecurity.io/article/server-side-template-injection-with-jinja2/)
-- [Prevent SSTI — Cobalt docs](https://docs.cobalt.io/bestpractices/prevent-ssti/)
-- [CVE-2025-27516 — Jinja2 sandbox bypass via |attr filter](https://www.ibm.com/support/pages/security-bulletin-there-vulnerability-jinja2-315-py3-none-anywhl-used-ibm-maximo-manage-application-ibm-maximo-application-suite-cve-2025-27516)
-- [PostgreSQL ALTER TABLE documentation](https://www.postgresql.org/docs/current/sql-altertable.html)
-- [Database race conditions — Doyensec blog 2024](https://blog.doyensec.com/2024/07/11/database-race-conditions.html)
-- [Alpine.js state management — alpinejs.dev](https://alpinejs.dev/essentials/state)
+- Direct codebase analysis: `src/pipeline/orchestrator.py` (343 lines), `src/engine/context.py` (200 lines), `src/runner/runner.py` (197 lines), `src/agents/config.py` (79 lines), `src/pipeline/handoff.py` (38 lines), `src/parser/extractor.py` (47 lines), `src/git/autocommit.py` (80 lines), `src/agents/base.py` (74 lines)
+- Improvement specification: `docs/orchestration-improvements.md` (8 improvements, prioritized)
+- Project context: `.planning/PROJECT.md` (v2.3 milestone definition)
 
 ---
-*Pitfalls research for: Project Router milestone — FastAPI + Alpine.js multi-project support*
-*Researched: 2026-03-13*
+*Pitfalls research for: v2.3 Orchestration Improvements -- file writing, bounded context, test agent, dynamic routing*
+*Researched: 2026-03-14*
