@@ -144,8 +144,8 @@ Plans:
   3. User can save modifications with a preview-before-save flow -- changes are visible before committing
 **Plans:** 2 plans
 Plans:
-- [ ] 27-01-PLAN.md — Command loader + settings loader modules with tests
-- [ ] 27-02-PLAN.md — Context assembly integration (commands + settings injection)
+- [ ] 30-01-PLAN.md — File content endpoint + collapsible tree view + content viewer
+- [ ] 30-02-PLAN.md — Inline textarea editor + preview-before-save flow
 
 ## Progress
 
@@ -183,4 +183,4 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 | 27. Commands & Settings Loaders | 2/2 | Complete    | 2026-03-14 | - |
 | 28. Orchestrator Dynamic Registry | 2/2 | Complete    | 2026-03-14 | - |
 | 29. AI Template Generation | 2/2 | Complete    | 2026-03-14 | - |
-| 30. Template Editor UI | v2.4 | 0/0 | Not started | - |
+| 30. Template Editor UI | v2.4 | 0/2 | Not started | - |
