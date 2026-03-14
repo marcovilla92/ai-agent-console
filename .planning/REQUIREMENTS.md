@@ -178,9 +178,49 @@ Requirements for Orchestration Improvements milestone. Each maps to roadmap phas
 - [x] **AUTO-03**: In supervised mode, low confidence (< 0.5) triggers user confirmation
 - [x] **AUTO-04**: Supervised mode remains available as opt-in option
 
+## v2.4 Requirements
+
+Requirements for Template System Overhaul milestone. Each maps to roadmap phases.
+
+### Agent Loading
+
+- [ ] **AGLD-01**: Il sistema scopre automaticamente tutti i file `.claude/agents/*.md` nella directory del progetto
+- [ ] **AGLD-02**: Il sistema parsa YAML frontmatter dagli agent MD con default sensati per file plain-text
+- [ ] **AGLD-03**: Il sistema crea un registry per-progetto isolato (copia mergiata, nessuna mutazione globale)
+- [ ] **AGLD-04**: Gli agenti core (plan/execute/test/review) non possono essere sovrascritti da agenti del progetto
+
+### Command Loading
+
+- [ ] **CMLD-01**: Il sistema scopre automaticamente tutti i file `.claude/commands/*.md` nella directory del progetto
+- [ ] **CMLD-02**: I comandi scoperti vengono iniettati nel contesto degli agenti del pipeline
+- [ ] **CMLD-03**: I comandi possono essere eseguiti come target di routing dall'orchestrator
+
+### Settings
+
+- [ ] **SETG-01**: Il sistema legge `.claude/settings.local.json` dalla directory del progetto
+- [ ] **SETG-02**: Le settings del progetto vengono mergiate con le settings globali (progetto sovrascrive dove specificato)
+
+### Orchestrator Integration
+
+- [ ] **ORCH-01**: Lo schema dell'orchestrator viene costruito dinamicamente per ogni task (`build_orchestrator_schema(registry)`)
+- [ ] **ORCH-02**: Il pipeline accetta un registry come parametro iniettato (non modulo-level constant)
+- [ ] **ORCH-03**: L'orchestrator può routare verso agenti specifici del progetto
+
+### AI Template Generation
+
+- [ ] **AIGEN-01**: L'utente può descrivere un progetto in linguaggio naturale e ricevere un template completo generato dall'AI
+- [ ] **AIGEN-02**: I file generati (agenti, comandi) vengono validati server-side prima della risposta
+- [ ] **AIGEN-03**: La generazione usa un semaforo separato dal pipeline (non consuma slot task)
+
+### Template Editor
+
+- [ ] **EDIT-01**: L'utente può visualizzare la struttura ad albero dei file di un template (preview)
+- [ ] **EDIT-02**: L'utente può modificare inline il contenuto di ogni file del template
+- [ ] **EDIT-03**: L'utente può salvare le modifiche (preview-before-save flow)
+
 ## Future Requirements
 
-Deferred to v2.4+. Tracked but not in current roadmap.
+Deferred to v2.5+. Tracked but not in current roadmap.
 
 ### Webhooks
 
@@ -202,6 +242,16 @@ Deferred to v2.4+. Tracked but not in current roadmap.
 - **ACTX-01**: LLM-based handoff summarization for older cycles
 - **ACTX-02**: Cross-task review memory via vector store
 
+### Command Execution (v2.5+)
+
+- **CMEX-01**: I comandi possono essere eseguiti come azioni autonome dall'utente
+- **CMEX-02**: Output dei comandi visibile nel dashboard
+
+### Template Management (v2.5+)
+
+- **TMPL-20**: Export/import template come ZIP
+- **TMPL-21**: Migrazione automatica template esistenti a formato frontmatter
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -209,11 +259,12 @@ Deferred to v2.4+. Tracked but not in current roadmap.
 | Multi-user / team features | Single-user with basic auth by design |
 | Multi-model support (OpenAI, Gemini) | Claude CLI only |
 | React/Vue/Svelte | Alpine.js + Tailwind CSS sufficient for single-user |
-| Diff-based file patching | Fragile with LLM output; full rewrites + git provides same recovery |
-| Subprocess test execution | Security risk on shared VPS; defer to sandboxed Docker in v2.4 |
-| Multi-file atomic writes | Over-engineering; partial writes recoverable via git |
-| Agent priority/weight system | Conflicts with AI-driven routing; confidence gating is sufficient |
-| Configurable iteration limits | 3-iteration limit is a safety valve; targeted re-routes improve convergence |
+| Marketplace/sharing template | Single-user tool, no multi-tenant infrastructure |
+| Import da repository esterni | Complessità eccessiva per v2.4 |
+| Template versioning | I template cambiano raramente; git è sufficiente |
+| Template chaining/composizione | Singolo template per progetto è sufficiente |
+| CodeMirror/Monaco editor | Textarea sufficiente per single-user tool |
+| Hot-reload agenti a runtime | Reload al task start è sufficiente |
 
 ## Traceability
 
@@ -338,6 +389,34 @@ Which phases cover which requirements. Updated during roadmap creation.
 - Complete: 21 ✓
 - Unmapped: 0 ✓
 
+### v2.4 (In Progress)
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| AGLD-01 | TBD | Pending |
+| AGLD-02 | TBD | Pending |
+| AGLD-03 | TBD | Pending |
+| AGLD-04 | TBD | Pending |
+| CMLD-01 | TBD | Pending |
+| CMLD-02 | TBD | Pending |
+| CMLD-03 | TBD | Pending |
+| SETG-01 | TBD | Pending |
+| SETG-02 | TBD | Pending |
+| ORCH-01 | TBD | Pending |
+| ORCH-02 | TBD | Pending |
+| ORCH-03 | TBD | Pending |
+| AIGEN-01 | TBD | Pending |
+| AIGEN-02 | TBD | Pending |
+| AIGEN-03 | TBD | Pending |
+| EDIT-01 | TBD | Pending |
+| EDIT-02 | TBD | Pending |
+| EDIT-03 | TBD | Pending |
+
+**Coverage:**
+- v2.4 requirements: 18 total
+- Mapped to phases: 0
+- Unmapped: 18 ⚠️
+
 ---
 *Requirements defined: 2026-03-14*
-*Last updated: 2026-03-14 after v2.3 completion*
+*Last updated: 2026-03-14 after v2.4 requirements definition*
