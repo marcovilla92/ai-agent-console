@@ -20,10 +20,10 @@ class TaskRepository:
 
     async def create(self, task: Task) -> int:
         return await self._pool.fetchval(
-            "INSERT INTO tasks (name, project_path, created_at, status, mode, prompt) "
-            "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+            "INSERT INTO tasks (name, project_path, created_at, status, mode, prompt, project_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
             task.name, task.project_path, task.created_at,
-            task.status, task.mode, task.prompt,
+            task.status, task.mode, task.prompt, task.project_id,
         )
 
     async def get(self, task_id: int) -> Optional[Task]:

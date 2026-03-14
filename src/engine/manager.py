@@ -55,11 +55,18 @@ class TaskManager:
         prompt: str,
         mode: str = "autonomous",
         project_path: str = ".",
+        project_id: Optional[int] = None,
+        enriched_prompt: Optional[str] = None,
     ) -> int:
         """Submit a new task for execution.
 
         Creates a DB row, starts an asyncio.Task for execution, and returns
         the task ID.
+
+        Args:
+            prompt: Original user prompt (stored in DB).
+            enriched_prompt: Context-enriched prompt for pipeline (transient).
+            project_id: Optional project FK for task-project linking.
         """
         now = datetime.now(timezone.utc)
         task = Task(
@@ -69,11 +76,14 @@ class TaskManager:
             status="queued",
             mode=mode,
             prompt=prompt,
+            project_id=project_id,
         )
         task_id = await self._repo.create(task)
 
+        # Use enriched prompt for pipeline if provided, else original
+        pipeline_prompt = enriched_prompt if enriched_prompt is not None else prompt
         handle = asyncio.create_task(
-            self._execute(task_id, prompt, mode, project_path),
+            self._execute(task_id, pipeline_prompt, mode, project_path),
             name=f"task-{task_id}",
         )
         ctx = WebTaskContext(
