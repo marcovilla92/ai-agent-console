@@ -34,3 +34,16 @@
 
 ---
 
+## v2.2 UI Redesign (In Progress)
+
+**Phases:** 4 (18-21) | **Plans:** TBD | **Timeline:** Started 2026-03-14
+
+**Goal:** Complete visual overhaul -- clean light theme, fixed sidebar navigation, KPI dashboard cards, expandable task lists, and modern design system with Tailwind CSS.
+
+**Phase overview:**
+1. Phase 18: Design System Foundation -- Tailwind CSS, color palette, component styles, transitions
+2. Phase 19: Sidebar Layout & Responsive Shell -- Fixed sidebar, responsive breakpoints, navigation
+3. Phase 20: Project & Template Views -- Project dashboard with KPI cards, task list, template grid
+4. Phase 21: Task Flow & Polish -- Task creation, running view, approval UI, global tasks page
+
+---

@@ -4,7 +4,8 @@
 
 - ✅ **v1.0 MVP** -- Phases 1-5 (shipped 2026-03-12)
 - ✅ **v2.0 Web Platform** -- Phases 6-11 (shipped 2026-03-13)
-- 🚧 **v2.1 Project Router** -- Phases 12-17 (in progress)
+- ✅ **v2.1 Project Router** -- Phases 12-17 (shipped 2026-03-14)
+- 🚧 **v2.2 UI Redesign** -- Phases 18-21 (in progress)
 
 ## Phases
 
@@ -33,109 +34,79 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
-### v2.1 Project Router
+<details>
+<summary>v2.1 Project Router (Phases 12-17) -- SHIPPED 2026-03-14</summary>
 
-- [x] **Phase 12: DB Foundation** - Projects table, tasks.project_id nullable FK, ProjectRepository CRUD (completed 2026-03-13)
-- [x] **Phase 13: Template System** - 4 builtin templates, registry.yaml, template CRUD API endpoints (completed 2026-03-13)
-- [x] **Phase 14: Context Assembly** - Full context aggregator, phase suggestion engine, context/phase API endpoints (completed 2026-03-13)
-- [x] **Phase 15: Project Service and API** - ProjectService with scaffold engine, events stub, project CRUD endpoints with auto-scan (completed 2026-03-14)
-- [x] **Phase 16: Task-Project Integration** - project_id on task creation, context prepend to prompt, last_used_at update (completed 2026-03-14)
-- [x] **Phase 17: SPA Frontend** - Alpine.js single-page app replacing Jinja2 templates with 4-state wizard (completed 2026-03-14)
+- [x] Phase 12: DB Foundation (1/1 plans) -- completed 2026-03-13
+- [x] Phase 13: Template System (2/2 plans) -- completed 2026-03-13
+- [x] Phase 14: Context Assembly (2/2 plans) -- completed 2026-03-13
+- [x] Phase 15: Project Service and API (2/2 plans) -- completed 2026-03-14
+- [x] Phase 16: Task-Project Integration (1/1 plans) -- completed 2026-03-14
+- [x] Phase 17: SPA Frontend (2/2 plans) -- completed 2026-03-14
+
+</details>
+
+### v2.2 UI Redesign
+
+- [ ] **Phase 18: Design System Foundation** - Tailwind CSS setup, color palette, component styles, transitions
+- [ ] **Phase 19: Sidebar Layout & Responsive Shell** - Fixed sidebar, responsive breakpoints, navigation
+- [ ] **Phase 20: Project & Template Views** - Project dashboard with KPI cards, task list, template grid
+- [ ] **Phase 21: Task Flow & Polish** - Task creation, running view, approval UI, global tasks page
 
 ## Phase Details
 
-### Phase 12: DB Foundation
-**Goal**: Projects exist as a database entity and tasks can optionally belong to a project, with all existing tasks and tests unbroken
-**Depends on**: Phase 11 (v2.0 complete)
-**Requirements**: DB-01, DB-02, DB-03
+### Phase 18: Design System Foundation
+**Goal**: The application has a consistent visual language -- Tailwind CSS replaces Pico CSS with a clean light theme, reusable component styles, and polished loading/transition states
+**Depends on**: Phase 17 (v2.1 complete)
+**Requirements**: DS-01, DS-02, DS-03, DS-04, DS-05
 **Success Criteria** (what must be TRUE):
-  1. Projects table exists in PostgreSQL with id, name, slug, path, description, created_at, last_used_at columns
-  2. Tasks table has a nullable project_id FK column -- existing tasks with NULL project_id continue to work
-  3. ProjectRepository can insert, get, list, delete, and update_last_used for project records
-  4. All existing tests pass unchanged (conftest teardown order updated for FK constraint)
-**Plans**: 1 plan
-Plans:
-- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
+  1. Pico CSS is removed and Tailwind CSS (CDN) is the sole styling framework -- all existing UI elements render correctly
+  2. The application uses a consistent light color palette with uniform typography and spacing across all views
+  3. Buttons, cards, badges, inputs, and modals follow reusable Tailwind utility patterns that look visually cohesive
+  4. Every async operation (API calls, page loads) shows a loading spinner or skeleton placeholder instead of blank space
+  5. View transitions use fade or slide animations -- switching between views feels smooth, not jarring
+**Plans**: TBD
 
-### Phase 13: Template System
-**Goal**: Users can browse, inspect, create, update, and delete project templates, with 4 builtin templates ready for scaffolding
-**Depends on**: Phase 12
-**Requirements**: TMPL-01, TMPL-02, TMPL-03, TMPL-04, TMPL-05, TMPL-06, TMPL-07, TMPL-08
+### Phase 19: Sidebar Layout & Responsive Shell
+**Goal**: Users navigate the application through a persistent sidebar that adapts gracefully across desktop, tablet, and mobile screen sizes
+**Depends on**: Phase 18
+**Requirements**: NAV-01, NAV-02, NAV-03, NAV-04, NAV-05, RES-01, RES-02, RES-03, RES-04, RES-05
 **Success Criteria** (what must be TRUE):
-  1. Four builtin templates (blank, fastapi-pg, telegram-bot, cli-tool) exist on disk with CLAUDE.md, .claude/ config, and source scaffolding files
-  2. GET /templates returns the full template list from registry.yaml with metadata
-  3. GET /templates/{id} returns template detail including file manifest
-  4. User can create, update, and delete custom templates via POST/PUT/DELETE /templates endpoints
-  5. Builtin templates reject modification and deletion with 403 Forbidden
-**Plans**: 2 plans
-Plans:
-- [ ] 13-01-PLAN.md -- Builtin templates on disk, registry.yaml, GET /templates endpoints, Dockerfile update
-- [ ] 13-02-PLAN.md -- Custom template CRUD (POST/PUT/DELETE), builtin protection (403), path traversal safety
+  1. A fixed sidebar on the left shows navigation links (Projects, Templates, Tasks) with the app name/logo at top -- it persists across all views
+  2. Active page is visually highlighted in the sidebar so users always know where they are
+  3. On desktop (>1024px), the sidebar is fully expanded with labels; on tablet (768-1024px), it collapses to icon-only; on mobile (<768px), it hides behind a hamburger toggle
+  4. Main content fills the remaining viewport width without horizontal scrolling at any breakpoint
+  5. All interactive elements (buttons, list items, nav links) have at least 44px tap targets on mobile for touch-friendliness
+**Plans**: TBD
 
-### Phase 14: Context Assembly
-**Goal**: The system can assemble rich project context from multiple sources and suggest the next development phase
-**Depends on**: Phase 12
-**Requirements**: CTX-01, CTX-02, CTX-03, CTX-04
+### Phase 20: Project & Template Views
+**Goal**: Users can browse projects and templates in clean card-based layouts, drill into a project dashboard with KPI metrics, and explore task history with expandable detail
+**Depends on**: Phase 19
+**Requirements**: PROJ-10, PROJ-11, PROJ-12, PROJ-13, PROJ-14, PROJ-15, PROJ-16, TMPL-10, TMPL-11, TMPL-12
 **Success Criteria** (what must be TRUE):
-  1. assemble_full_context() returns combined output from 5 sources: workspace summary, CLAUDE.md (2000 char limit), .planning/ docs (500 char each), git log (10 commits), and 5 recent tasks
-  2. Total assembled context respects MAX_CONTEXT_CHARS cap (6000 chars) to prevent prompt inflation
-  3. GET /projects/{id}/context returns the assembled context for a given project
-  4. suggest_next_phase() parses STATE.md and ROADMAP.md to identify the current phase and next action
-  5. GET /projects/{id}/suggested-phase returns the phase suggestion with name and description
-**Plans**: 2 plans
-Plans:
-- [ ] 14-01-PLAN.md -- Context assembly helpers, assemble_full_context(), suggest_next_phase() with TDD
-- [ ] 14-02-PLAN.md -- Projects router (GET context, GET suggested-phase), app wiring, integration tests
+  1. Project list page displays all projects as cards in a responsive grid, each showing name, description, stack badges, and last activity time
+  2. Clicking a project card opens a dashboard view with KPI cards (total tasks, running, completed, failed) and a task list below
+  3. Task rows in the project dashboard show status badge, prompt preview, timestamp, and duration -- clicking a row expands it to reveal full agent output
+  4. A prominent "New Task" button is visible in the project dashboard header
+  5. Template page displays templates as cards in a grid with name, description, stack info, and builtin/custom badge -- clicking a card shows file list and metadata
+**Plans**: TBD
 
-### Phase 15: Project Service and API
-**Goal**: Users can create projects from templates, list all projects with auto-discovered folders, and delete project records through the API
-**Depends on**: Phase 12, Phase 13, Phase 14
-**Requirements**: PROJ-01, PROJ-02, PROJ-03, PROJ-04, PROJ-05, EVT-01
+### Phase 21: Task Flow & Polish
+**Goal**: Users can create tasks, monitor running tasks with live output, handle approval gates, and browse all tasks across projects from a single page
+**Depends on**: Phase 20
+**Requirements**: TASK-20, TASK-21, TASK-22, TASK-23, TASK-24
 **Success Criteria** (what must be TRUE):
-  1. GET /projects returns all projects including auto-registered folders from ~/projects/ with detected stack and last_used_at
-  2. POST /projects creates a new project from a selected template with folder scaffolding and git init
-  3. DELETE /projects/{id} removes the project record from the database without touching the filesystem
-  4. Untracked folders in ~/projects/ are auto-registered on list with ON CONFLICT safety (no race condition errors)
-  5. emit_event() stub is called at project.created, project.deleted, task.started, task.completed, task.failed, phase.suggested lifecycle points (no-op, no network calls)
-**Plans**: 2 plans
-Plans:
-- [ ] 15-01-PLAN.md -- Events stub, detect_stack, upsert_by_path, ProjectService list/delete
-- [ ] 15-02-PLAN.md -- Router endpoints (GET/POST/DELETE /projects), template scaffolding, emit_event wiring
-
-### Phase 16: Task-Project Integration
-**Goal**: Task creation accepts a project context that enriches the prompt sent to Claude, linking tasks to projects
-**Depends on**: Phase 15
-**Requirements**: TASK-11, TASK-12, TASK-13
-**Success Criteria** (what must be TRUE):
-  1. POST /tasks accepts an optional project_id field -- omitting it still works (backward compatible)
-  2. When project_id is provided, assembled project context is prepended to the prompt before Claude receives it
-  3. Creating a task with a project_id updates that project's last_used_at timestamp
-  4. Existing tasks (project_id = NULL) remain visible and functional in the task list
-**Plans**: 1 plan
-Plans:
-- [ ] 16-01-PLAN.md -- project_id on TaskCreate, context prepend, last_used_at update, integration tests
-
-### Phase 17: SPA Frontend
-**Goal**: Users interact with the console through a single-page Alpine.js app with project selection, creation, prompt composition with phase suggestions, and streaming output
-**Depends on**: Phase 16
-**Requirements**: SPA-01, SPA-02, SPA-03, SPA-04, SPA-05, SPA-06
-**Success Criteria** (what must be TRUE):
-  1. A single static/index.html replaces all Jinja2 server-rendered pages -- old HTML templates and views.py are removed
-  2. Project selection view shows project list with stack badges, last_used_at, and a "New Project" button
-  3. Project creation view lets user enter name, description, and pick a template -- submitting scaffolds the project
-  4. Prompt view shows phase suggestion, context preview toggle, and prompt textarea -- submitting creates a task
-  5. Running view streams WebSocket output reusing existing WS logic, with x-show view switching preserving the connection
-**Plans**: 2 plans
-Plans:
-- [ ] 17-01-PLAN.md -- Alpine.js SPA with 4 views, Alpine.store, tests
-- [ ] 17-02-PLAN.md -- Server wiring (FileResponse), Jinja2 cleanup, Dockerfile update, browser verification
+  1. Task creation form provides project selector, prompt textarea, mode toggle (supervised/autonomous), and submit button -- all styled consistently with the design system
+  2. Running task view shows a status indicator, live-streaming output via WebSocket, and a cancel button
+  3. When a task hits an approval gate, a clear action card appears with approve/reject/continue buttons that are easy to identify and tap
+  4. Completed task view shows final status, full output log, and offers "back to project" and "new task" navigation actions
+  5. Global tasks page lists all tasks across all projects with status filtering (running, completed, failed, all)
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 12 -> 13 -> 14 -> 15 -> 16 -> 17
-
-Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
+Phases execute in numeric order: 18 -> 19 -> 20 -> 21
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -150,9 +121,13 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 9. Approval Gates | v2.0 | 1/1 | Complete | 2026-03-12 |
 | 10. Dashboard Frontend | v2.0 | 3/3 | Complete | 2026-03-13 |
 | 11. Docker Deployment | v2.0 | 1/1 | Complete | 2026-03-13 |
-| 12. DB Foundation | 1/1 | Complete    | 2026-03-13 | - |
-| 13. Template System | 2/2 | Complete    | 2026-03-13 | - |
-| 14. Context Assembly | 2/2 | Complete    | 2026-03-13 | - |
-| 15. Project Service and API | 2/2 | Complete    | 2026-03-14 | - |
-| 16. Task-Project Integration | 1/1 | Complete    | 2026-03-14 | - |
-| 17. SPA Frontend | 2/2 | Complete    | 2026-03-14 | - |
+| 12. DB Foundation | v2.1 | 1/1 | Complete | 2026-03-13 |
+| 13. Template System | v2.1 | 2/2 | Complete | 2026-03-13 |
+| 14. Context Assembly | v2.1 | 2/2 | Complete | 2026-03-13 |
+| 15. Project Service and API | v2.1 | 2/2 | Complete | 2026-03-14 |
+| 16. Task-Project Integration | v2.1 | 1/1 | Complete | 2026-03-14 |
+| 17. SPA Frontend | v2.1 | 2/2 | Complete | 2026-03-14 |
+| 18. Design System Foundation | v2.2 | 0/TBD | Not started | - |
+| 19. Sidebar Layout & Responsive Shell | v2.2 | 0/TBD | Not started | - |
+| 20. Project & Template Views | v2.2 | 0/TBD | Not started | - |
+| 21. Task Flow & Polish | v2.2 | 0/TBD | Not started | - |
