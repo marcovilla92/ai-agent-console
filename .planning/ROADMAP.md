@@ -87,7 +87,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   2. Agent markdown files with YAML frontmatter are parsed correctly; plain-text files without frontmatter load with sensible defaults (name from filename, broad transitions)
   3. Two concurrent tasks on different projects each see only their own project agents -- no cross-contamination between registries
   4. Core pipeline agents (plan, execute, test, review) cannot be overridden by a project agent file with the same name -- core agents always win
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 26-01-PLAN.md — Agent discovery module + AgentConfig extension + frontmatter parsing
 - [ ] 26-02-PLAN.md — Registry merge with core protection + per-project isolation
@@ -167,7 +167,7 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29 -> 30
 | 23. Core Output | v2.3 | 2/2 | Complete | 2026-03-14 |
 | 24. Pipeline Extension | v2.3 | 1/1 | Complete | 2026-03-14 |
 | 25. Autonomy Refinement | v2.3 | 1/1 | Complete | 2026-03-14 |
-| 26. Agent Loader Foundation | v2.4 | 0/2 | Not started | - |
+| 26. Agent Loader Foundation | 1/2 | In Progress|  | - |
 | 27. Commands & Settings Loaders | v2.4 | 0/0 | Not started | - |
 | 28. Orchestrator Dynamic Registry | v2.4 | 0/0 | Not started | - |
 | 29. AI Template Generation | v2.4 | 0/0 | Not started | - |
