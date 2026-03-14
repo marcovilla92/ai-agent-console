@@ -6,6 +6,9 @@
   <title>AI Agent Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <script>hljs.configure({ ignoreUnescapedHTML: true, languages: [] });</script>
   <script>
     tailwind.config = {
       theme: {
@@ -40,6 +43,21 @@
     .md-output table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
     .md-output th, .md-output td { border: 1px solid rgba(255,255,255,0.15); padding: 0.4em 0.6em; text-align: left; }
     .md-output th { background: rgba(255,255,255,0.05); color: #a5b4fc; }
+
+    /* File viewer — line numbers */
+    .file-viewer-gutter { counter-reset: line; user-select: none; -webkit-user-select: none; }
+    .file-viewer-gutter span { counter-increment: line; display: block; line-height: 1.65; }
+    .file-viewer-gutter span::before { content: counter(line); display: block; text-align: right; color: #475569; font-size: 0.7rem; }
+    /* File viewer — hljs override */
+    .file-viewer .hljs { background: transparent !important; padding: 0 !important; }
+    .file-viewer pre { margin: 0; }
+    .file-viewer code { line-height: 1.65 !important; font-size: 0.75rem !important; }
+    /* File viewer — search */
+    .file-search-match { background: rgba(250, 204, 21, 0.35); border-radius: 2px; }
+    .file-search-match-active { background: rgba(250, 204, 21, 0.7); outline: 1px solid #facc15; }
+    /* File viewer — word wrap */
+    .file-viewer-wrap pre { white-space: pre-wrap !important; word-break: break-all; }
+    .file-viewer-wrap .file-viewer-gutter { display: none; }
   </style>
 
   <script>
