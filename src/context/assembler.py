@@ -42,6 +42,20 @@ STACK_INDICATORS: dict[str, list[str]] = {
 }
 
 
+def detect_stack(project_path: str) -> str:
+    """Detect the tech stack of a project by checking for indicator files.
+
+    Returns comma-separated stack names (e.g. "Python, Docker") or "unknown".
+    """
+    root = Path(project_path)
+    stacks = [
+        name
+        for name, indicators in STACK_INDICATORS.items()
+        if any((root / f).exists() for f in indicators)
+    ]
+    return ", ".join(stacks) if stacks else "unknown"
+
+
 def assemble_workspace_context(project_path: str) -> str:
     """
     Return a formatted workspace context string for system prompt injection.
@@ -57,12 +71,6 @@ def assemble_workspace_context(project_path: str) -> str:
     """
     root = Path(project_path)
 
-    stacks = [
-        name
-        for name, indicators in STACK_INDICATORS.items()
-        if any((root / f).exists() for f in indicators)
-    ]
-
     def _iter_files():
         for p in root.rglob("*"):
             if any(excl in p.parts for excl in EXCLUDE_DIRS):
@@ -71,7 +79,7 @@ def assemble_workspace_context(project_path: str) -> str:
                 yield str(p.relative_to(root))
 
     files = list(itertools.islice(_iter_files(), MAX_FILES))
-    stack_str = ", ".join(stacks) if stacks else "unknown"
+    stack_str = detect_stack(project_path)
 
     lines = [
         "=== WORKSPACE CONTEXT ===",

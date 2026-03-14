@@ -126,6 +126,19 @@ class ProjectRepository:
             for r in rows
         ]
 
+    async def upsert_by_path(self, project: Project) -> Optional[int]:
+        """Insert a project if path doesn't exist, otherwise do nothing.
+
+        Returns the new id if inserted, None if path already exists.
+        """
+        return await self._pool.fetchval(
+            "INSERT INTO projects (name, slug, path, description, created_at) "
+            "VALUES ($1, $2, $3, $4, $5) "
+            "ON CONFLICT (path) DO NOTHING RETURNING id",
+            project.name, project.slug, project.path,
+            project.description, project.created_at,
+        )
+
     async def delete(self, project_id: int) -> None:
         await self._pool.execute("DELETE FROM projects WHERE id = $1", project_id)
 
