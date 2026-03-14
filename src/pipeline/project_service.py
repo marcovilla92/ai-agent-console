@@ -1,22 +1,80 @@
 """
 ProjectService -- business logic for project lifecycle operations.
 
-Provides list_projects (with auto-registration of untracked workspace folders)
+Provides create_project (with template scaffolding + git init),
+list_projects (with auto-registration of untracked workspace folders),
 and delete_project (DB-only, does not touch filesystem).
 """
+import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import asyncpg
+from jinja2 import Template
 
 from src.context.assembler import detect_stack
 from src.db.pg_repository import ProjectRepository
 from src.db.pg_schema import Project
 from src.pipeline.events import ProjectEvent, emit_event
+from src.pipeline.project import sanitize_project_name
+from src.server.routers.templates import TEMPLATES_ROOT, EXCLUDE_DIRS
 
 log = logging.getLogger(__name__)
+
+
+def scaffold_from_template(
+    template_id: str, target_dir: Path, context: dict
+) -> None:
+    """Copy template files into target_dir, rendering .j2 files with Jinja2.
+
+    Raises ValueError if template_id is not found.
+    """
+    template_dir = TEMPLATES_ROOT / template_id
+    if not template_dir.is_dir():
+        raise ValueError(f"Template '{template_id}' not found at {template_dir}")
+
+    for src_file in sorted(template_dir.rglob("*")):
+        if not src_file.is_file():
+            continue
+        if any(part in EXCLUDE_DIRS for part in src_file.parts):
+            continue
+        rel = src_file.relative_to(template_dir)
+        if src_file.suffix == ".j2":
+            # Render Jinja2 template, strip .j2 extension
+            dest = target_dir / rel.with_suffix("")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmpl = Template(src_file.read_text(encoding="utf-8"))
+            dest.write_text(tmpl.render(**context), encoding="utf-8")
+        else:
+            dest = target_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, dest)
+
+
+async def git_init_project(project_path: str) -> None:
+    """Initialize a git repo and make an initial commit.
+
+    Swallows errors -- git failure should not prevent project creation.
+    """
+    try:
+        for cmd in [
+            ["git", "init"],
+            ["git", "add", "."],
+            ["git", "-c", "user.name=Console", "-c", "user.email=console@local",
+             "commit", "-m", "Initial scaffolding"],
+        ]:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=10.0)
+    except Exception as exc:
+        log.warning("git init failed for %s: %s", project_path, exc)
 
 
 class ProjectService:
@@ -35,6 +93,53 @@ class ProjectService:
             self._workspace = Path(workspace_root)
         else:
             self._workspace = self.WORKSPACE_ROOT
+
+    async def create_project(
+        self, name: str, description: str = "", template: str = "blank"
+    ) -> Project:
+        """Create a new project: scaffold from template, git init, insert DB record.
+
+        Raises FileExistsError if the project folder already exists.
+        Raises ValueError if the template is not found.
+        """
+        slug = sanitize_project_name(name)
+        project_dir = self._workspace / slug
+
+        if project_dir.exists():
+            raise FileExistsError(f"Project folder already exists: {project_dir}")
+
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        # Scaffold from template
+        context = {
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "author": "ubuntu",
+        }
+        scaffold_from_template(template, project_dir, context)
+
+        # git init + initial commit
+        await git_init_project(str(project_dir))
+
+        # Insert DB record
+        now = datetime.now(timezone.utc)
+        project = Project(
+            name=name,
+            slug=slug,
+            path=str(project_dir),
+            description=description,
+            created_at=now,
+        )
+        project.id = await self._repo.insert(project)
+
+        # Emit event
+        await emit_event(
+            ProjectEvent.PROJECT_CREATED,
+            {"id": project.id, "name": name, "path": str(project_dir)},
+        )
+        return project
 
     async def list_projects(self) -> list[dict]:
         """Scan workspace, auto-register untracked folders, return enriched list.

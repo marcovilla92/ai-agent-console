@@ -1,10 +1,12 @@
 """
-Projects router with context assembly and phase suggestion endpoints.
+Projects router with CRUD and context/phase suggestion endpoints.
 
-Exposes the assembler and phase suggestion logic from the context module
-as REST endpoints for the SPA frontend.
+Exposes project listing, creation, deletion, plus the assembler and phase
+suggestion logic from the context module as REST endpoints for the SPA frontend.
 """
 from __future__ import annotations
+
+from datetime import datetime
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,10 +14,42 @@ from pydantic import BaseModel
 
 from src.context.assembler import assemble_full_context, suggest_next_phase
 from src.db.pg_repository import ProjectRepository
+from src.pipeline.project_service import ProjectService
 from src.server.dependencies import get_pool, verify_credentials
 
 
 # --- Pydantic response models ---
+
+
+class ProjectSummary(BaseModel):
+    id: int
+    name: str
+    slug: str
+    path: str
+    description: str
+    stack: str
+    created_at: str | None
+    last_used_at: str | None
+
+
+class ProjectListResponse(BaseModel):
+    projects: list[ProjectSummary]
+    count: int
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    template: str = "blank"
+
+
+class ProjectCreateResponse(BaseModel):
+    id: int
+    name: str
+    slug: str
+    path: str
+    description: str
+    created_at: datetime
 
 
 class RecentTaskResponse(BaseModel):
@@ -53,6 +87,57 @@ project_router = APIRouter(
     tags=["projects"],
     dependencies=[Depends(verify_credentials)],
 )
+
+
+# --- Collection endpoints (MUST be before /{project_id}/ routes) ---
+
+
+@project_router.get("", response_model=ProjectListResponse)
+async def list_projects(pool: asyncpg.Pool = Depends(get_pool)):
+    """Return all projects with stack detection and auto-registration."""
+    svc = ProjectService(pool)
+    projects = await svc.list_projects()
+    return ProjectListResponse(projects=projects, count=len(projects))
+
+
+@project_router.post("", response_model=ProjectCreateResponse, status_code=201)
+async def create_project(
+    req: ProjectCreateRequest,
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Create a new project from a template with folder scaffolding and git init."""
+    svc = ProjectService(pool)
+    try:
+        project = await svc.create_project(req.name, req.description, req.template)
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="Project folder already exists")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return ProjectCreateResponse(
+        id=project.id,
+        name=project.name,
+        slug=project.slug,
+        path=project.path,
+        description=project.description,
+        created_at=project.created_at,
+    )
+
+
+@project_router.delete("/{project_id}")
+async def delete_project(
+    project_id: int,
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Delete a project record from the database (filesystem untouched)."""
+    svc = ProjectService(pool)
+    try:
+        await svc.delete_project(project_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"status": "deleted", "id": project_id}
+
+
+# --- Per-project endpoints ---
 
 
 @project_router.get("/{project_id}/context", response_model=ContextResponse)

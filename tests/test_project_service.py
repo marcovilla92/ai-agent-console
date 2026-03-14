@@ -1,6 +1,8 @@
-"""Tests for ProjectEvent, detect_stack, upsert_by_path, and ProjectService."""
+"""Tests for ProjectEvent, detect_stack, upsert_by_path, ProjectService, and project endpoints."""
 import pytest
+import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from src.pipeline.events import ProjectEvent, emit_event
@@ -240,3 +242,195 @@ class TestDeleteProject:
         svc = ProjectService(pg_pool)
         with pytest.raises(ValueError):
             await svc.delete_project(99999)
+
+
+# ---------------------------------------------------------------------------
+# TestCreateProject (integration, requires pg_pool)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateProject:
+    """Tests for ProjectService.create_project()."""
+
+    @pytest.mark.asyncio
+    async def test_create_project_scaffolds_from_blank(self, pg_pool, tmp_path):
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        project = await svc.create_project("My API", "A test project", "blank")
+
+        # Verify folder exists
+        project_dir = tmp_path / "my-api"
+        assert project_dir.is_dir()
+
+        # Verify CLAUDE.md rendered from template (no .j2 extension)
+        claude_md = project_dir / "CLAUDE.md"
+        assert claude_md.is_file()
+        content = claude_md.read_text()
+        assert "My API" in content
+        assert "A test project" in content
+
+        # Verify .planning dir copied from template
+        assert (project_dir / ".planning" / "README.md").is_file()
+
+        # Verify git initialized
+        assert (project_dir / ".git").is_dir()
+
+        # Verify DB record
+        assert project.id is not None
+        assert project.name == "My API"
+        assert project.slug == "my-api"
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        await repo.delete(project.id)
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_create_project_duplicate_raises(self, pg_pool, tmp_path):
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        project = await svc.create_project("Duplicate Test", "first", "blank")
+
+        with pytest.raises(FileExistsError):
+            await svc.create_project("Duplicate Test", "second", "blank")
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        await repo.delete(project.id)
+        shutil.rmtree(tmp_path / "duplicate-test", ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_create_project_invalid_template_raises(self, pg_pool, tmp_path):
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        with pytest.raises(ValueError, match="Template .* not found"):
+            await svc.create_project("Bad Template", "", "nonexistent-template-xyz")
+
+    @pytest.mark.asyncio
+    async def test_create_project_emits_event(self, pg_pool, tmp_path):
+        svc = ProjectService(pg_pool, workspace_root=tmp_path)
+        with patch("src.pipeline.project_service.emit_event", new_callable=AsyncMock) as mock_emit:
+            project = await svc.create_project("Event Test", "", "blank")
+            mock_emit.assert_called()
+            # Find the PROJECT_CREATED call
+            calls = [c for c in mock_emit.call_args_list if c[0][0] == ProjectEvent.PROJECT_CREATED]
+            assert len(calls) == 1
+            assert calls[0][0][1]["name"] == "Event Test"
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        await repo.delete(project.id)
+        shutil.rmtree(tmp_path / "event-test", ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# TestProjectEndpoints (integration, requires pg_pool + httpx)
+# ---------------------------------------------------------------------------
+
+
+class TestProjectEndpoints:
+    """Tests for GET/POST/DELETE /projects endpoints via httpx."""
+
+    @pytest.fixture
+    def auth(self):
+        """HTTP Basic auth tuple for test requests."""
+        return ("admin", "changeme")
+
+    @pytest.fixture
+    async def client(self, pg_pool):
+        """Async httpx client with test app (no lifespan)."""
+        import httpx
+        from contextlib import asynccontextmanager
+        from unittest.mock import AsyncMock as AM
+        from fastapi import FastAPI
+        from src.server.routers.projects import project_router
+        from src.server.routers.templates import template_router
+
+        @asynccontextmanager
+        async def noop_lifespan(app):
+            yield
+
+        app = FastAPI(lifespan=noop_lifespan)
+        app.state.pool = pg_pool
+        app.state.connection_manager = AM()
+        app.state.task_manager = AM()
+        app.include_router(project_router)
+        app.include_router(template_router)
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as c:
+            yield c
+
+    @pytest.mark.asyncio
+    async def test_get_projects_returns_list(self, client, auth):
+        resp = await client.get("/projects", auth=auth)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "projects" in data
+        assert "count" in data
+        assert isinstance(data["projects"], list)
+
+    @pytest.mark.asyncio
+    async def test_post_project_returns_201(self, client, auth, pg_pool, tmp_path):
+        # We need to patch the workspace root so it uses tmp_path
+        with patch.object(ProjectService, "WORKSPACE_ROOT", tmp_path):
+            resp = await client.post(
+                "/projects",
+                json={"name": "Endpoint Test", "description": "test desc", "template": "blank"},
+                auth=auth,
+            )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "Endpoint Test"
+        assert data["slug"] == "endpoint-test"
+        assert "id" in data
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        await repo.delete(data["id"])
+        shutil.rmtree(tmp_path / "endpoint-test", ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_post_project_duplicate_returns_409(self, client, auth, pg_pool, tmp_path):
+        with patch.object(ProjectService, "WORKSPACE_ROOT", tmp_path):
+            resp1 = await client.post(
+                "/projects",
+                json={"name": "Dup Endpoint", "template": "blank"},
+                auth=auth,
+            )
+            assert resp1.status_code == 201
+
+            resp2 = await client.post(
+                "/projects",
+                json={"name": "Dup Endpoint", "template": "blank"},
+                auth=auth,
+            )
+            assert resp2.status_code == 409
+
+        # Cleanup
+        repo = ProjectRepository(pg_pool)
+        await repo.delete(resp1.json()["id"])
+        shutil.rmtree(tmp_path / "dup-endpoint", ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_delete_project_returns_200(self, client, auth, pg_pool):
+        # Insert directly via repo
+        repo = ProjectRepository(pg_pool)
+        project = Project(
+            name="del-ep-test",
+            slug="del-ep-test",
+            path="/tmp/del-ep-test-unique",
+            description="",
+            created_at=datetime.now(timezone.utc),
+        )
+        pid = await repo.insert(project)
+
+        resp = await client.delete(f"/projects/{pid}", auth=auth)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "deleted"
+        assert data["id"] == pid
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_returns_404(self, client, auth):
+        resp = await client.delete("/projects/99999", auth=auth)
+        assert resp.status_code == 404
