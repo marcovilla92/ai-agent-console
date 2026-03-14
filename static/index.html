@@ -60,10 +60,10 @@
     var _authHeader = null;
     function setAuth(username, password) {
       _authHeader = 'Basic ' + btoa(username + ':' + password);
-      sessionStorage.setItem('auth_header', _authHeader);
+      localStorage.setItem('auth_header', _authHeader);
     }
     function getAuth() {
-      if (!_authHeader) _authHeader = sessionStorage.getItem('auth_header');
+      if (!_authHeader) _authHeader = localStorage.getItem('auth_header');
       return _authHeader;
     }
     function apiFetch(url, opts) {
@@ -119,12 +119,12 @@
               this.loadProjects();
             } else {
               _authHeader = null;
-              sessionStorage.removeItem('auth_header');
+              localStorage.removeItem('auth_header');
               this.loginError = 'Credenziali non valide';
             }
           } catch(e) {
             _authHeader = null;
-            sessionStorage.removeItem('auth_header');
+            localStorage.removeItem('auth_header');
             this.loginError = 'Errore di connessione';
           }
         },
@@ -584,17 +584,9 @@
           var auth = getAuth();
           var token = auth ? auth.replace('Basic ', '') : null;
           if (!token) {
-            try {
-              var loc = new URL(window.location.href);
-              if (loc.username) {
-                token = btoa(decodeURIComponent(loc.username) + ':' + decodeURIComponent(loc.password));
-              }
-            } catch(e) {}
-            if (!token) {
-              var user = prompt('Username:');
-              var pass = prompt('Password:');
-              token = btoa(user + ':' + pass);
-            }
+            /* No credentials — redirect to login */
+            this.authenticated = false;
+            return;
           }
           var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
           var url = proto + '//' + location.host + '/ws/tasks/' + taskId + '?token=' + token;
