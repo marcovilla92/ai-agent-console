@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.2
-milestone_name: UI Redesign
-status: completed
-stopped_at: All 4 phases complete -- v2.2 UI Redesign shipped
-last_updated: "2026-03-14T16:00:00.000Z"
-last_activity: 2026-03-14 -- v2.2 UI Redesign complete
+milestone: v2.3
+milestone_name: Orchestration Improvements
+status: active
+stopped_at: null
+last_updated: "2026-03-14T17:00:00.000Z"
+last_activity: 2026-03-14 -- Milestone v2.3 started
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,16 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-14)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** v2.2 UI Redesign -- COMPLETE
+**Current focus:** v2.3 Orchestration Improvements
 
 ## Current Position
 
-Phase: 21 of 21 (Task Flow & Polish)
-Plan: complete
-Status: All phases complete
-Last activity: 2026-03-14 -- v2.2 UI Redesign shipped
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-14 — Milestone v2.3 started
 
 ## Performance Metrics
 
@@ -53,6 +51,10 @@ Progress: [██████████] 100%
 - [v2.2]: Project dashboard view with KPI cards between select and prompt views
 - [v2.2]: statusClass() helper for dynamic status badge colors
 - [v2.2]: Page-based navigation (projects/templates/tasks) with sub-views
+- [v2.3]: File writer overwrites always, git for recovery
+- [v2.3]: Test agent does static code review, no subprocess execution
+- [v2.3]: Autonomous mode is default, no confirmations even with low confidence
+- [v2.3]: Supervised mode remains as opt-in option
 
 ### Pending Todos
 
@@ -66,5 +68,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: v2.2 UI Redesign complete
+Stopped at: Defining requirements for v2.3
 Resume file: None

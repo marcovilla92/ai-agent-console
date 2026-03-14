@@ -8,19 +8,19 @@ A web-based multi-agent platform that orchestrates AI workflows using Claude CLI
 
 The orchestrator must reliably coordinate agents through iterative cycles — taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
 
-## Current Milestone: v2.2 UI Redesign
+## Current Milestone: v2.3 Orchestration Improvements
 
-**Goal:** Complete visual overhaul — clean light theme, fixed sidebar navigation, KPI dashboard cards, expandable task lists, and modern design system with Tailwind CSS.
+**Goal:** Make the agent pipeline produce real output end-to-end — file writing, smarter re-routing, bounded context, full autonomy by default, and a test agent for code review.
 
 **Target features:**
-- Fixed sidebar navigation (Projects, Templates, Tasks)
-- Clean light theme with modern typography and spacing
-- Fully responsive design (desktop, tablet, phone) — sidebar collapses on mobile
-- Project dashboard with KPI cards (status at a glance) + expandable task list
-- Template browser with card grid layout
-- Streamlined task creation and improved streaming output view
-- Tailwind CSS design system replacing Pico CSS
-- Loading states and smooth transitions
+- File writer: parse EXECUTE output and write files to disk (overwrite, git for recovery)
+- Targeted re-route prompts with extracted ISSUES on review feedback loops
+- Bounded handoffs: keep last cycle only, cap size at 8000 chars
+- Fix missing orchestrator system prompt on decision calls
+- Smart section filtering per agent type for orchestrator routing
+- Test agent (static code review, no subprocess) between execute and review
+- Confidence-based autonomy: default autonomous, no confirmations; supervised stays as option
+- Dynamic schema/prompt generation from agent registry
 
 ## Requirements
 
@@ -46,12 +46,14 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 
 ### Active
 
-- [ ] Complete UI redesign with clean light theme and Tailwind CSS
-- [ ] Fixed sidebar navigation with responsive collapse
-- [ ] KPI dashboard cards per project
-- [ ] Expandable task list with status badges and output preview
-- [ ] Template browser with card grid layout
-- [ ] Fully responsive design (desktop, tablet, phone)
+- [ ] File writer module that writes EXECUTE output to disk
+- [ ] Targeted re-route prompts extracting ISSUES/IMPROVEMENTS from review
+- [ ] Bounded handoff windowing (last cycle + 8000 char cap)
+- [ ] Orchestrator system prompt passed on decision calls
+- [ ] Smart section filtering for orchestrator routing
+- [ ] Test agent (static code review) in pipeline
+- [ ] Confidence-based decision gating (autonomous default, no confirmations)
+- [ ] Dynamic schema/prompt from agent registry
 
 ### Out of Scope
 
@@ -69,11 +71,13 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 
 v1.0 shipped as TUI with 4,524 LOC Python, 160 tests, 5 phases.
 v2.0 shipped as web platform: FastAPI + asyncpg + Alpine.js, 6 phases (06-11), deployed on Coolify.
+v2.1 shipped project router: projects, templates, context assembly, phase suggestions, SPA. 6 phases (12-17).
+v2.2 shipped UI redesign: Tailwind CSS, sidebar nav, KPI cards, responsive design. 4 phases (18-21).
 App live at console.amcsystem.uk with WebSocket streaming, approval gates, task parallelism.
 
 VPS: OVH 4-core, 7.6GB RAM, Ubuntu 24.04, Coolify 4.0.
 Existing services: PostgreSQL 16, n8n (amcsystem.uk), Evolution API (evo.amcsystem.uk).
-Design spec: docs/project-router-spec.md (808 lines, full API/DB/UX spec for v2.1).
+Orchestration analysis: docs/orchestration-improvements.md (8 improvements, prioritized).
 
 ## Constraints
 
@@ -103,4 +107,4 @@ Design spec: docs/project-router-spec.md (808 lines, full API/DB/UX spec for v2.
 | Manual project selection (no auto-detect) | Explicit user choice, predictable behavior | — Pending |
 
 ---
-*Last updated: 2026-03-14 after v2.2 milestone start*
+*Last updated: 2026-03-14 after v2.3 milestone start*
