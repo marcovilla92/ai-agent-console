@@ -8,18 +8,19 @@ A web-based multi-agent platform that orchestrates AI workflows using Claude CLI
 
 The orchestrator must reliably coordinate agents through iterative cycles — taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
 
-## Current Milestone: v2.1 Project Router
+## Current Milestone: v2.2 UI Redesign
 
-**Goal:** Multi-project support with template scaffolding, context assembly, phase suggestion, and a reworked SPA frontend replacing Jinja2 server-rendered pages.
+**Goal:** Complete visual overhaul — clean light theme, fixed sidebar navigation, KPI dashboard cards, expandable task lists, and modern design system with Tailwind CSS.
 
 **Target features:**
-- Project CRUD (create/list/delete) with auto-registration of ~/projects/ folders
-- Template system: 4 builtin templates (blank, fastapi-pg, telegram-bot, cli-tool) + custom CRUD via API
-- Enhanced context assembler (workspace + CLAUDE.md + .planning/ + git log + task history)
-- Phase suggestion engine parsing STATE.md/ROADMAP.md
-- Task creation requires project_id, context prepended to prompt
-- Full SPA frontend (Alpine.js): project select → prompt with phase suggestion → streaming
-- n8n webhook hook points (emit_event placeholder, not implemented)
+- Fixed sidebar navigation (Projects, Templates, Tasks)
+- Clean light theme with modern typography and spacing
+- Fully responsive design (desktop, tablet, phone) — sidebar collapses on mobile
+- Project dashboard with KPI cards (status at a glance) + expandable task list
+- Template browser with card grid layout
+- Streamlined task creation and improved streaming output view
+- Tailwind CSS design system replacing Pico CSS
+- Loading states and smooth transitions
 
 ## Requirements
 
@@ -45,13 +46,12 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 
 ### Active
 
-- [ ] Project CRUD with auto-registration of ~/projects/ folders
-- [ ] Template system (builtin + custom CRUD)
-- [ ] Enhanced context assembler per project
-- [ ] Phase suggestion from .planning/ docs
-- [ ] Task creation with project_id and context enrichment
-- [ ] SPA frontend replacing Jinja2 server-rendered pages
-- [ ] n8n webhook hook points (placeholder)
+- [ ] Complete UI redesign with clean light theme and Tailwind CSS
+- [ ] Fixed sidebar navigation with responsive collapse
+- [ ] KPI dashboard cards per project
+- [ ] Expandable task list with status badges and output preview
+- [ ] Template browser with card grid layout
+- [ ] Fully responsive design (desktop, tablet, phone)
 
 ### Out of Scope
 
@@ -60,7 +60,7 @@ The orchestrator must reliably coordinate agents through iterative cycles — ta
 - Direct API calls — CLI handles auth, tools, MCP, permissions
 - Voice input — keyboard-first is the value proposition
 - Message queues (Celery/Redis/RabbitMQ) — asyncio semaphore sufficient for single user
-- React/Vue/Svelte — Alpine.js sufficient for single-user dashboard
+- React/Vue/Svelte — Alpine.js + Tailwind CSS sufficient for single-user dashboard
 - TUI maintenance — v2.0 replaces TUI with web interface
 - GitHub integration (clone, push, PR) — deferred from v2.0, not needed for project router
 - n8n webhook implementation — only hook points/placeholders in v2.1
@@ -78,7 +78,7 @@ Design spec: docs/project-router-spec.md (808 lines, full API/DB/UX spec for v2.
 ## Constraints
 
 - **Runtime**: Claude CLI via subprocess — Pro Max subscription, no API key
-- **Framework**: Python + FastAPI backend, Alpine.js + Pico CSS frontend
+- **Framework**: Python + FastAPI backend, Alpine.js + Tailwind CSS frontend
 - **Platform**: OVH VPS (Ubuntu 24.04), Docker via Coolify, Traefik proxy
 - **Storage**: PostgreSQL 16 (existing instance), workspace volumes for cloned repos
 - **Concurrency**: Max 2 Claude CLI processes (asyncio.Semaphore) — RAM constraint
@@ -103,4 +103,4 @@ Design spec: docs/project-router-spec.md (808 lines, full API/DB/UX spec for v2.
 | Manual project selection (no auto-detect) | Explicit user choice, predictable behavior | — Pending |
 
 ---
-*Last updated: 2026-03-13 after v2.1 milestone start*
+*Last updated: 2026-03-14 after v2.2 milestone start*

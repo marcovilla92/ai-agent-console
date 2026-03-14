@@ -20,3 +20,17 @@
 
 ---
 
+## v2.1 Project Router (Shipped: 2026-03-14)
+
+**Phases:** 6 (12-17) | **Plans:** 10 | **Timeline:** 2 days (2026-03-13 → 2026-03-14)
+
+**Key accomplishments:**
+1. Projects table with auto-registration of ~/projects/ folders
+2. Template system: 4 builtin templates + custom CRUD API
+3. Context assembler (workspace + CLAUDE.md + .planning/ + git log + task history)
+4. Phase suggestion engine parsing STATE.md/ROADMAP.md
+5. Task-project integration with context enrichment
+6. Alpine.js SPA replacing Jinja2 server-rendered pages
+
+---
+
