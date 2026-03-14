@@ -7,6 +7,7 @@ and delete_project (DB-only, does not touch filesystem).
 """
 import asyncio
 import logging
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,7 +93,9 @@ class ProjectService:
         if workspace_root is not None:
             self._workspace = Path(workspace_root)
         else:
-            self._workspace = self.WORKSPACE_ROOT
+            # Check APP_PROJECT_PATH env var before falling back to ~/projects
+            env_path = os.environ.get("APP_PROJECT_PATH", "")
+            self._workspace = Path(env_path) if env_path else self.WORKSPACE_ROOT
 
     async def create_project(
         self, name: str, description: str = "", template: str = "blank"
