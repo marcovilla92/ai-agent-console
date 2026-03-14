@@ -3,7 +3,9 @@ Task management REST endpoints.
 
 Provides CRUD and cancel operations for tasks, protected by HTTP Basic Auth.
 """
+import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -31,6 +33,7 @@ class TaskCreate(BaseModel):
     prompt: str
     mode: str = "autonomous"
     project_id: Optional[int] = None
+    enriched_prompt: Optional[str] = None
 
 
 class TaskResponse(BaseModel):
@@ -127,7 +130,7 @@ async def create_task(
     """
     settings = get_settings()
     project_path = settings.project_path
-    enriched_prompt: str | None = None
+    enriched_prompt: str | None = body.enriched_prompt
 
     if body.project_id is not None:
         # Validate project exists
@@ -144,7 +147,7 @@ async def create_task(
             ctx = await assemble_full_context(project.path, pool)
             prefix = format_context_prefix(ctx)
             if prefix:
-                enriched_prompt = prefix + body.prompt
+                enriched_prompt = prefix + (enriched_prompt or body.prompt)
         except Exception:
             log.warning(
                 "Context assembly failed for project %d, using original prompt",
@@ -248,6 +251,83 @@ async def get_task_outputs(
         ],
         count=len(outputs),
     )
+
+
+class FileChangeResponse(BaseModel):
+    """Response model for a single file change."""
+    path: str
+    status: str  # 'added', 'modified', 'deleted', 'renamed'
+
+
+class FileChangesListResponse(BaseModel):
+    """Response model for listing file changes."""
+    files: list[FileChangeResponse]
+    count: int
+
+
+@task_router.get("/{task_id}/changes", response_model=FileChangesListResponse)
+async def get_task_file_changes(
+    task_id: int,
+    manager: TaskManager = Depends(get_task_manager),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Get files changed during a task execution.
+
+    Strategy:
+    1. git diff --name-status for uncommitted changes in the working tree
+    2. git log --since/--until for commits made during the task window
+    """
+    task = await manager.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    project_path = task.project_path
+    if not os.path.isdir(os.path.join(project_path, ".git")):
+        return FileChangesListResponse(files=[], count=0)
+
+    seen: dict[str, str] = {}
+    status_map = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}
+
+    async def _run_git(*args: str) -> str:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", *args, cwd=project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            return stdout.decode("utf-8", errors="replace").strip()
+        except (asyncio.TimeoutError, Exception):
+            return ""
+
+    def _parse_name_status(raw: str) -> None:
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t", 1)
+            if len(parts) < 2:
+                continue
+            git_status = parts[0][0] if parts[0] else ""
+            file_path = parts[-1]
+            if file_path not in seen:
+                seen[file_path] = status_map.get(git_status, "modified")
+
+    # 1. Uncommitted changes (staged + unstaged)
+    raw_diff = await _run_git("diff", "HEAD", "--name-status")
+    _parse_name_status(raw_diff)
+
+    # 2. Committed changes during the task time window
+    log_args = ["log", "--name-status", "--pretty=format:", "--no-pager"]
+    if task.created_at:
+        log_args.append(f"--since={task.created_at.isoformat()}")
+    if task.completed_at:
+        log_args.append(f"--until={task.completed_at.isoformat()}")
+    raw_log = await _run_git(*log_args)
+    _parse_name_status(raw_log)
+
+    files = [FileChangeResponse(path=p, status=s) for p, s in seen.items()]
+    return FileChangesListResponse(files=files, count=len(files))
 
 
 @task_router.post("/{task_id}/approve", response_model=ApprovalResponse)

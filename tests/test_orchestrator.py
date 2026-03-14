@@ -314,3 +314,239 @@ class TestDynamicSystemPromptBuilder:
         assert "Project-specific specialist agents:" in result
         assert "DB-MIGRATOR" in result
         assert "Handles database migrations" in result
+
+
+# --- Phase 28-02: Registry threading through pipeline ---
+
+
+class TestWebTaskContextRegistry:
+    """WebTaskContext stores registry and uses it for agent resolution."""
+
+    def test_init_accepts_registry(self):
+        """WebTaskContext.__init__ accepts registry kwarg and stores it."""
+        from src.engine.context import WebTaskContext
+        from src.agents.config import AgentConfig
+
+        reg = {"custom": AgentConfig(name="custom", system_prompt_file="", source="project")}
+        ctx = WebTaskContext(task_id=1, pool=MagicMock(), mode="autonomous", registry=reg)
+        assert ctx._registry is reg
+
+    def test_init_default_registry_is_none(self):
+        """WebTaskContext without registry kwarg defaults to None."""
+        from src.engine.context import WebTaskContext
+
+        ctx = WebTaskContext(task_id=1, pool=MagicMock(), mode="autonomous")
+        assert ctx._registry is None
+
+    @pytest.mark.asyncio
+    async def test_stream_output_uses_registry_for_agent_resolution(self):
+        """stream_output passes registry to get_agent_config."""
+        from src.engine.context import WebTaskContext
+        from src.agents.config import AgentConfig
+
+        reg = {
+            "db-migrator": AgentConfig(
+                name="db-migrator",
+                system_prompt_file="",
+                system_prompt_inline="You are a DB migration specialist.",
+                source="project",
+            ),
+        }
+        ctx = WebTaskContext(task_id=1, pool=MagicMock(), mode="autonomous", registry=reg)
+
+        with patch("src.engine.context.get_agent_config") as mock_get:
+            mock_get.return_value = reg["db-migrator"]
+            with patch("src.engine.context.stream_claude") as mock_stream:
+                async def _fake_stream(*a, **kw):
+                    yield "output text"
+                mock_stream.return_value = _fake_stream()
+                # Mock the DB persist
+                with patch("src.engine.context.AgentOutputRepository"):
+                    await ctx.stream_output("db-migrator", "migrate the DB", {})
+
+            mock_get.assert_called_once_with("db-migrator", registry=reg)
+
+    @pytest.mark.asyncio
+    async def test_stream_output_uses_inline_prompt(self):
+        """stream_output uses system_prompt kwarg when config has system_prompt_inline."""
+        from src.engine.context import WebTaskContext
+        from src.agents.config import AgentConfig
+
+        reg = {
+            "db-migrator": AgentConfig(
+                name="db-migrator",
+                system_prompt_file="",
+                system_prompt_inline="You are a DB migration specialist.",
+                source="project",
+            ),
+        }
+        ctx = WebTaskContext(task_id=1, pool=MagicMock(), mode="autonomous", registry=reg)
+
+        with patch("src.engine.context.get_agent_config", return_value=reg["db-migrator"]):
+            with patch("src.engine.context.stream_claude") as mock_stream:
+                async def _fake_stream(*a, **kw):
+                    yield "output text"
+                mock_stream.return_value = _fake_stream()
+                with patch("src.engine.context.AgentOutputRepository"):
+                    await ctx.stream_output("db-migrator", "migrate the DB", {})
+
+                # Verify system_prompt (inline) was used, not system_prompt_file
+                call_kwargs = mock_stream.call_args
+                assert call_kwargs.kwargs.get("system_prompt") == "You are a DB migration specialist."
+                assert call_kwargs.kwargs.get("system_prompt_file") is None
+
+    @pytest.mark.asyncio
+    async def test_stream_output_uses_file_prompt_for_core_agents(self):
+        """stream_output uses system_prompt_file for core agents (no inline)."""
+        from src.engine.context import WebTaskContext
+        from src.agents.config import AgentConfig
+
+        reg = {
+            "plan": AgentConfig(
+                name="plan",
+                system_prompt_file="/path/to/plan.txt",
+                source="default",
+            ),
+        }
+        ctx = WebTaskContext(task_id=1, pool=MagicMock(), mode="autonomous", registry=reg)
+
+        with patch("src.engine.context.get_agent_config", return_value=reg["plan"]):
+            with patch("src.engine.context.stream_claude") as mock_stream:
+                async def _fake_stream(*a, **kw):
+                    yield "output text"
+                mock_stream.return_value = _fake_stream()
+                with patch("src.engine.context.AgentOutputRepository"):
+                    await ctx.stream_output("plan", "create a plan", {})
+
+                call_kwargs = mock_stream.call_args
+                assert call_kwargs.kwargs.get("system_prompt_file") == "/path/to/plan.txt"
+                assert call_kwargs.kwargs.get("system_prompt") is None
+
+
+class TestOrchestrateWithRegistry:
+    """orchestrate_pipeline with registry threads it through schema, decision, and validation."""
+
+    @pytest.mark.asyncio
+    async def test_registry_passed_to_schema_builder(self):
+        """orchestrate_pipeline builds schema from provided registry."""
+        from src.agents.config import AgentConfig, DEFAULT_REGISTRY
+
+        custom_reg = dict(DEFAULT_REGISTRY)
+        custom_reg["db-migrator"] = AgentConfig(
+            name="db-migrator",
+            system_prompt_file="",
+            description="DB migrations",
+            source="project",
+        )
+
+        ctx = MagicMock()
+        ctx.mode = "autonomous"
+        ctx.project_path = "."
+
+        # stream_output returns sections
+        async def fake_stream(*a, **kw):
+            return {"DECISION": "APPROVED"}
+        ctx.stream_output = AsyncMock(side_effect=fake_stream)
+        ctx.update_status = AsyncMock()
+        ctx.confirm_reroute = AsyncMock(return_value=True)
+        ctx.handle_halt = AsyncMock(return_value="approve")
+
+        # Mock the decision call to return "approved"
+        decision_json = json.dumps({
+            "result": json.dumps({
+                "next_agent": "approved",
+                "reasoning": "Looks good",
+                "confidence": 0.9,
+            })
+        })
+
+        with patch("src.pipeline.orchestrator.call_orchestrator_claude", new_callable=AsyncMock, return_value=decision_json) as mock_call:
+            with patch("src.pipeline.orchestrator.build_orchestrator_schema") as mock_schema:
+                mock_schema.return_value = ORCHESTRATOR_SCHEMA
+                with patch("src.pipeline.orchestrator.build_orchestrator_system_prompt", return_value="dynamic prompt"):
+                    await orchestrate_pipeline(ctx, "test prompt", None, 1, registry=custom_reg)
+
+                # Verify schema was built with the custom registry
+                mock_schema.assert_called_with(custom_reg)
+
+    @pytest.mark.asyncio
+    async def test_registry_none_uses_default(self):
+        """orchestrate_pipeline with registry=None falls back to DEFAULT_REGISTRY."""
+        ctx = MagicMock()
+        ctx.mode = "autonomous"
+        ctx.project_path = "."
+
+        async def fake_stream(*a, **kw):
+            return {"DECISION": "APPROVED"}
+        ctx.stream_output = AsyncMock(side_effect=fake_stream)
+        ctx.update_status = AsyncMock()
+        ctx.confirm_reroute = AsyncMock(return_value=True)
+
+        decision_json = json.dumps({
+            "result": json.dumps({
+                "next_agent": "approved",
+                "reasoning": "Done",
+                "confidence": 0.95,
+            })
+        })
+
+        with patch("src.pipeline.orchestrator.call_orchestrator_claude", new_callable=AsyncMock, return_value=decision_json):
+            with patch("src.pipeline.orchestrator.build_orchestrator_schema") as mock_schema:
+                mock_schema.return_value = ORCHESTRATOR_SCHEMA
+                with patch("src.pipeline.orchestrator.build_orchestrator_system_prompt", return_value="prompt"):
+                    state = await orchestrate_pipeline(ctx, "test", None, 1)
+
+                # Should have been called (with the default registry copy)
+                mock_schema.assert_called()
+                call_reg = mock_schema.call_args[0][0]
+                # Should contain core agents
+                assert "plan" in call_reg
+                assert "execute" in call_reg
+
+
+class TestProjectAgentRouting:
+    """When orchestrator routes to a project agent, stream_output receives that agent name."""
+
+    @pytest.mark.asyncio
+    async def test_project_agent_receives_correct_name(self):
+        """Routing to db-migrator calls stream_output with 'db-migrator'."""
+        from src.agents.config import AgentConfig, DEFAULT_REGISTRY
+
+        custom_reg = dict(DEFAULT_REGISTRY)
+        custom_reg["db-migrator"] = AgentConfig(
+            name="db-migrator",
+            system_prompt_file="",
+            system_prompt_inline="You are a DB migration specialist.",
+            description="DB migrations",
+            source="project",
+            allowed_transitions=("plan", "execute", "test", "review", "approved"),
+        )
+
+        ctx = MagicMock()
+        ctx.mode = "autonomous"
+        ctx.project_path = "."
+
+        call_count = 0
+        async def fake_stream(agent_name, prompt, sections):
+            nonlocal call_count
+            call_count += 1
+            return {"DECISION": "APPROVED", "HANDOFF": "done"}
+        ctx.stream_output = AsyncMock(side_effect=fake_stream)
+        ctx.update_status = AsyncMock()
+        ctx.confirm_reroute = AsyncMock(return_value=True)
+
+        # First call: routes to db-migrator, second call: approved
+        responses = iter([
+            json.dumps({"result": json.dumps({"next_agent": "db-migrator", "reasoning": "Need migration", "confidence": 0.9})}),
+            json.dumps({"result": json.dumps({"next_agent": "approved", "reasoning": "Done", "confidence": 0.95})}),
+        ])
+
+        with patch("src.pipeline.orchestrator.call_orchestrator_claude", new_callable=AsyncMock, side_effect=lambda *a, **kw: next(responses)):
+            with patch("src.pipeline.orchestrator.build_orchestrator_schema", return_value=ORCHESTRATOR_SCHEMA):
+                with patch("src.pipeline.orchestrator.build_orchestrator_system_prompt", return_value="prompt"):
+                    with patch("src.pipeline.orchestrator.validate_transition", side_effect=lambda f, t, **kw: t):
+                        state = await orchestrate_pipeline(ctx, "migrate db", None, 1, registry=custom_reg)
+
+        # stream_output should have been called with "db-migrator" at some point
+        agent_names = [call.args[0] for call in ctx.stream_output.call_args_list]
+        assert "db-migrator" in agent_names

@@ -19,7 +19,7 @@ import asyncpg
 
 from src.db.pg_repository import OrchestratorDecisionRepository, TaskRepository
 from src.db.pg_schema import OrchestratorDecisionRecord
-from src.agents.config import AgentConfig, ROUTING_SECTIONS, build_agent_descriptions, build_agent_enum, validate_transition
+from src.agents.config import AgentConfig, DEFAULT_REGISTRY, ROUTING_SECTIONS, build_agent_descriptions, build_agent_enum, validate_transition
 from src.pipeline.file_writer import process_execute_output
 from src.pipeline.handoff import build_handoff, build_reroute_prompt
 from src.pipeline.protocol import TaskContext
@@ -232,16 +232,27 @@ def parse_decision_from_text(raw: str) -> OrchestratorDecision:
 async def get_orchestrator_decision(
     state: OrchestratorState,
     latest_sections: dict[str, str],
+    schema: str | None = None,
+    system_prompt: str | None = None,
 ) -> OrchestratorDecision:
     """
     Call Claude CLI to analyze output and decide next agent.
 
     Parses JSON response from Claude CLI. Falls back to text extraction
     if JSON parsing fails.
+
+    Args:
+        schema: JSON schema string. Defaults to ORCHESTRATOR_SCHEMA.
+        system_prompt: Inline system prompt. If provided, uses --system-prompt
+            instead of --system-prompt-file.
     """
     prompt = build_orchestrator_prompt(state, latest_sections)
 
-    raw = await call_orchestrator_claude(prompt, ORCHESTRATOR_SCHEMA, ORCHESTRATOR_PROMPT_FILE)
+    effective_schema = schema or ORCHESTRATOR_SCHEMA
+    if system_prompt:
+        raw = await call_orchestrator_claude(prompt, effective_schema, system_prompt=system_prompt)
+    else:
+        raw = await call_orchestrator_claude(prompt, effective_schema, system_prompt_file=ORCHESTRATOR_PROMPT_FILE)
 
     try:
         response = json.loads(raw)
@@ -292,6 +303,7 @@ async def orchestrate_pipeline(
     prompt: str,
     pool: asyncpg.Pool | None = None,
     session_id: int | None = None,
+    registry: dict[str, AgentConfig] | None = None,
 ) -> OrchestratorState:
     """
     AI-driven orchestration loop replacing the fixed sequential pipeline.
@@ -304,9 +316,18 @@ async def orchestrate_pipeline(
         prompt: The user's task prompt.
         pool: asyncpg connection pool for persistence (optional).
         session_id: Task/session ID for DB logging (optional).
+        registry: Agent registry for dynamic schema/prompt building.
+            Defaults to a copy of DEFAULT_REGISTRY.
     """
+    if registry is None:
+        registry = dict(DEFAULT_REGISTRY)
+
+    # Build per-task schema and system prompt from registry
+    schema = build_orchestrator_schema(registry)
+    orch_system_prompt = build_orchestrator_system_prompt(registry)
+
     state = OrchestratorState(session_id=session_id, original_prompt=prompt)
-    log.info("orchestrate_pipeline: started prompt_len=%d session_id=%s", len(prompt), session_id)
+    log.info("orchestrate_pipeline: started prompt_len=%d session_id=%s registry_agents=%s", len(prompt), session_id, list(registry.keys()))
 
     while not state.halted and not state.approved:
         log.info("orchestrate_pipeline: === LOOP iteration=%d agent=%s ===", state.iteration_count, state.current_agent)
@@ -363,9 +384,9 @@ async def orchestrate_pipeline(
 
         # 5. Call Claude CLI for routing decision
         log.info("orchestrate_pipeline: requesting routing decision...")
-        decision = await get_orchestrator_decision(state, sections)
+        decision = await get_orchestrator_decision(state, sections, schema=schema, system_prompt=orch_system_prompt)
         # Validate routing transition
-        validated = validate_transition(state.current_agent, decision.next_agent)
+        validated = validate_transition(state.current_agent, decision.next_agent, registry=registry)
         if validated != decision.next_agent:
             log.warning("orchestrate_pipeline: transition %s->%s invalid, using %s",
                         state.current_agent, decision.next_agent, validated)

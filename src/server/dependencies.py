@@ -14,7 +14,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from src.engine.manager import TaskManager
 from src.server.config import get_settings
 
-security = HTTPBasic()
+security = HTTPBasic(auto_error=False)
 
 
 async def get_pool(request: Request) -> asyncpg.Pool:
@@ -23,13 +23,18 @@ async def get_pool(request: Request) -> asyncpg.Pool:
 
 
 def verify_credentials(
-    credentials: HTTPBasicCredentials = Depends(security),
+    credentials: HTTPBasicCredentials | None = Depends(security),
 ) -> str:
     """Verify HTTP Basic Auth credentials.
 
     Returns the username on success.
-    Raises 401 with WWW-Authenticate: Basic header on failure.
+    Raises 401 without WWW-Authenticate header (to prevent browser popup).
     """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
     settings = get_settings()
     username_ok = secrets.compare_digest(
         credentials.username.encode("utf-8"),
@@ -42,8 +47,7 @@ def verify_credentials(
     if not (username_ok and password_ok):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
+            detail="Not authenticated",
         )
     return credentials.username
 

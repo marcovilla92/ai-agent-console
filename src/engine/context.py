@@ -44,12 +44,14 @@ class WebTaskContext:
         mode: str,
         project_path: str = ".",
         connection_manager: Optional[ConnectionManager] = None,
+        registry: dict | None = None,
     ) -> None:
         self._task_id = task_id
         self._pool = pool
         self._mode = mode
         self._project_path = project_path
         self._connection_manager = connection_manager
+        self._registry = registry
         self.proc: Optional[asyncio.subprocess.Process] = None
         self._approval_event: Optional[asyncio.Event] = None
         self._approval_decision: Optional[str] = None
@@ -85,11 +87,18 @@ class WebTaskContext:
         """
         from datetime import datetime, timezone
 
-        system_prompt = None
+        system_prompt_file = None
+        system_prompt_inline = None
         try:
-            config = get_agent_config(agent_name)
-            system_prompt = config.system_prompt_file
-            log.info("stream_output: agent=%s system_prompt=%s", agent_name, system_prompt)
+            config = get_agent_config(agent_name, registry=self._registry)
+            if config.system_prompt_inline:
+                system_prompt_inline = config.system_prompt_inline
+                log.info("stream_output: agent=%s using inline system_prompt (len=%d)", agent_name, len(system_prompt_inline))
+            elif config.system_prompt_file:
+                system_prompt_file = config.system_prompt_file
+                log.info("stream_output: agent=%s using system_prompt_file=%s", agent_name, system_prompt_file)
+            else:
+                log.info("stream_output: agent=%s no system prompt configured", agent_name)
         except KeyError:
             log.warning("stream_output: no config for agent %r, running without system prompt", agent_name)
 
@@ -98,7 +107,7 @@ class WebTaskContext:
         def _capture_proc(p):
             self.proc = p
 
-        async for event in stream_claude(prompt, system_prompt_file=system_prompt, on_process=_capture_proc):
+        async for event in stream_claude(prompt, system_prompt=system_prompt_inline, system_prompt_file=system_prompt_file, on_process=_capture_proc):
             if isinstance(event, str):
                 raw_parts.append(event)
                 if self._connection_manager:

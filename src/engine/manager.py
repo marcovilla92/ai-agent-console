@@ -130,7 +130,7 @@ class TaskManager:
                     task_id, "completed",
                     completed_at=datetime.now(timezone.utc),
                 )
-                await emit_event(ProjectEvent.TASK_COMPLETED, {"task_id": task_id})
+                await emit_event(ProjectEvent.TASK_COMPLETED, {"task_id": task_id, "name": prompt[:80]})
                 if self._connection_manager:
                     await self._connection_manager.send_status(task_id, "completed")
         except asyncio.CancelledError:
@@ -146,6 +146,7 @@ class TaskManager:
                     task_id, "cancelled",
                     completed_at=datetime.now(timezone.utc),
                 )
+                await emit_event(ProjectEvent.TASK_CANCELLED, {"task_id": task_id, "name": prompt[:80]})
                 if self._connection_manager:
                     await self._connection_manager.send_status(task_id, "cancelled")
             raise
@@ -156,7 +157,7 @@ class TaskManager:
                 error=str(exc),
                 completed_at=datetime.now(timezone.utc),
             )
-            await emit_event(ProjectEvent.TASK_FAILED, {"task_id": task_id, "error": str(exc)})
+            await emit_event(ProjectEvent.TASK_FAILED, {"task_id": task_id, "name": prompt[:80], "error": str(exc)})
             if self._connection_manager:
                 await self._connection_manager.send_status(task_id, "failed")
         finally:
