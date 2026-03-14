@@ -19,7 +19,7 @@ import asyncpg
 
 from src.db.pg_repository import OrchestratorDecisionRepository, TaskRepository
 from src.db.pg_schema import OrchestratorDecisionRecord
-from src.agents.config import ROUTING_SECTIONS
+from src.agents.config import ROUTING_SECTIONS, build_agent_descriptions, build_agent_enum, validate_transition
 from src.pipeline.file_writer import process_execute_output
 from src.pipeline.handoff import build_handoff, build_reroute_prompt
 from src.pipeline.protocol import TaskContext
@@ -60,25 +60,30 @@ class OrchestratorState:
 
 # --- JSON Schema for Claude CLI --json-schema flag ---
 
-ORCHESTRATOR_SCHEMA = json.dumps({
-    "type": "object",
-    "properties": {
-        "next_agent": {
-            "type": "string",
-            "enum": ["plan", "execute", "review", "approved"],
+def _build_orchestrator_schema() -> str:
+    """Build orchestrator JSON schema dynamically from agent registry."""
+    return json.dumps({
+        "type": "object",
+        "properties": {
+            "next_agent": {
+                "type": "string",
+                "enum": build_agent_enum(),
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "One-line explanation of the routing decision",
+            },
+            "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+            },
         },
-        "reasoning": {
-            "type": "string",
-            "description": "One-line explanation of the routing decision",
-        },
-        "confidence": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1,
-        },
-    },
-    "required": ["next_agent", "reasoning", "confidence"],
-})
+        "required": ["next_agent", "reasoning", "confidence"],
+    })
+
+
+ORCHESTRATOR_SCHEMA = _build_orchestrator_schema()
 
 ORCHESTRATOR_PROMPT_FILE = str(
     Path(__file__).parent.parent / "agents" / "prompts" / "orchestrator_system.txt"
@@ -321,6 +326,17 @@ async def orchestrate_pipeline(
         # 5. Call Claude CLI for routing decision
         log.info("orchestrate_pipeline: requesting routing decision...")
         decision = await get_orchestrator_decision(state, sections)
+        # Validate routing transition
+        validated = validate_transition(state.current_agent, decision.next_agent)
+        if validated != decision.next_agent:
+            log.warning("orchestrate_pipeline: transition %s->%s invalid, using %s",
+                        state.current_agent, decision.next_agent, validated)
+            decision = OrchestratorDecision(
+                next_agent=validated,
+                reasoning=f"(corrected from {decision.next_agent}) {decision.reasoning}",
+                confidence=decision.confidence,
+                full_response=decision.full_response,
+            )
         state.decisions.append(decision)
         log.info("orchestrate_pipeline: decision next=%s confidence=%.2f reasoning=%s",
                  decision.next_agent, decision.confidence, decision.reasoning)
