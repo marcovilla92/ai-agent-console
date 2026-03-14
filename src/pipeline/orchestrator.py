@@ -19,7 +19,7 @@ import asyncpg
 
 from src.db.pg_repository import OrchestratorDecisionRepository, TaskRepository
 from src.db.pg_schema import OrchestratorDecisionRecord
-from src.agents.config import ROUTING_SECTIONS, build_agent_descriptions, build_agent_enum, validate_transition
+from src.agents.config import AgentConfig, ROUTING_SECTIONS, build_agent_descriptions, build_agent_enum, validate_transition
 from src.pipeline.file_writer import process_execute_output
 from src.pipeline.handoff import build_handoff, build_reroute_prompt
 from src.pipeline.protocol import TaskContext
@@ -60,14 +60,18 @@ class OrchestratorState:
 
 # --- JSON Schema for Claude CLI --json-schema flag ---
 
-def _build_orchestrator_schema() -> str:
-    """Build orchestrator JSON schema dynamically from agent registry."""
+def build_orchestrator_schema(registry: dict[str, AgentConfig] | None = None) -> str:
+    """Build orchestrator JSON schema dynamically from agent registry.
+
+    Args:
+        registry: Agent registry to build enum from. Defaults to DEFAULT_REGISTRY.
+    """
     return json.dumps({
         "type": "object",
         "properties": {
             "next_agent": {
                 "type": "string",
-                "enum": build_agent_enum(),
+                "enum": build_agent_enum(registry),
             },
             "reasoning": {
                 "type": "string",
@@ -83,11 +87,44 @@ def _build_orchestrator_schema() -> str:
     })
 
 
-ORCHESTRATOR_SCHEMA = _build_orchestrator_schema()
+# Backward-compatible constant (uses DEFAULT_REGISTRY)
+ORCHESTRATOR_SCHEMA = build_orchestrator_schema()
 
 ORCHESTRATOR_PROMPT_FILE = str(
     Path(__file__).parent.parent / "agents" / "prompts" / "orchestrator_system.txt"
 )
+
+
+def build_orchestrator_system_prompt(registry: dict[str, AgentConfig] | None = None) -> str:
+    """Build a dynamic orchestrator system prompt that includes project agent descriptions.
+
+    Reads the base prompt from ORCHESTRATOR_PROMPT_FILE, then appends a section
+    listing project-specific and command-sourced agents if any exist in the registry.
+
+    Args:
+        registry: Agent registry. Defaults to DEFAULT_REGISTRY (no project agents).
+    """
+    base_text = Path(ORCHESTRATOR_PROMPT_FILE).read_text(encoding="utf-8")
+
+    if registry is None:
+        return base_text
+
+    # Filter for project/command agents
+    project_agents = {
+        name: cfg for name, cfg in registry.items()
+        if cfg.source in ("project", "command")
+    }
+
+    if not project_agents:
+        return base_text
+
+    lines = ["\n\nProject-specific specialist agents:"]
+    for name, cfg in project_agents.items():
+        desc = cfg.description or f"Agent: {name}"
+        lines.append(f"- {name.upper()}: {desc}")
+
+    return base_text + "\n".join(lines)
+
 
 MAX_HANDOFF_ENTRIES = 3  # One complete cycle: plan + execute + review
 MAX_HANDOFF_CHARS = 8000  # Cap on windowed portion (excludes pinned plan)

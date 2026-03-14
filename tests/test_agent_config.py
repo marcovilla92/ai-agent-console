@@ -12,6 +12,7 @@ from src.agents.config import (
     build_agent_enum,
     get_agent_config,
     get_project_registry,
+    inject_commands_as_agents,
     merge_registries,
     resolve_pipeline_order,
     validate_transition,
@@ -268,3 +269,79 @@ class TestRegistryAwareFunctions:
             "b": AgentConfig(name="b", system_prompt_file="", next_agent=None),
         }
         assert resolve_pipeline_order("a", registry=custom) == ["a", "b"]
+
+
+# --- Phase 28: inject_commands_as_agents ---
+
+
+class TestInjectCommandsAsAgents:
+    """inject_commands_as_agents converts CommandInfo dicts into AgentConfig entries."""
+
+    def test_adds_cmd_prefixed_entries(self, tmp_path):
+        """Commands are added with cmd- prefix and source='command'."""
+        from src.commands.loader import CommandInfo
+
+        cmd_file = tmp_path / "migrate.md"
+        cmd_file.write_text("Run database migrations")
+
+        commands = {
+            "migrate": CommandInfo(
+                name="migrate",
+                description="Run database migrations",
+                file_path=str(cmd_file),
+            ),
+        }
+        result = inject_commands_as_agents(dict(DEFAULT_REGISTRY), commands)
+        assert "cmd-migrate" in result
+        cfg = result["cmd-migrate"]
+        assert cfg.source == "command"
+        assert cfg.name == "cmd-migrate"
+        assert "database migrations" in cfg.description.lower()
+
+    def test_does_not_overwrite_existing(self, tmp_path):
+        """Existing agent with same cmd-name is not overwritten."""
+        from src.commands.loader import CommandInfo
+
+        cmd_file = tmp_path / "plan.md"
+        cmd_file.write_text("Some plan command")
+
+        # Pre-populate registry with cmd-plan
+        reg = dict(DEFAULT_REGISTRY)
+        reg["cmd-plan"] = AgentConfig(
+            name="cmd-plan", system_prompt_file="", source="default",
+        )
+        commands = {
+            "plan": CommandInfo(
+                name="plan",
+                description="A plan command",
+                file_path=str(cmd_file),
+            ),
+        }
+        result = inject_commands_as_agents(reg, commands)
+        assert result["cmd-plan"].source == "default"  # original preserved
+
+    def test_empty_commands_returns_unchanged(self):
+        """Empty commands dict returns registry unchanged (copy)."""
+        reg = dict(DEFAULT_REGISTRY)
+        result = inject_commands_as_agents(reg, {})
+        assert result == reg
+        assert result is not reg  # new dict
+
+    def test_does_not_mutate_input(self, tmp_path):
+        """Input registry is not mutated."""
+        from src.commands.loader import CommandInfo
+
+        cmd_file = tmp_path / "deploy.md"
+        cmd_file.write_text("Deploy to production")
+
+        original = dict(DEFAULT_REGISTRY)
+        original_len = len(original)
+        commands = {
+            "deploy": CommandInfo(
+                name="deploy",
+                description="Deploy to production",
+                file_path=str(cmd_file),
+            ),
+        }
+        inject_commands_as_agents(original, commands)
+        assert len(original) == original_len

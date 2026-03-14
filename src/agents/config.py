@@ -193,6 +193,58 @@ def get_agent_config(
     return reg[name]
 
 
+def inject_commands_as_agents(
+    registry: dict[str, "AgentConfig"],
+    commands: dict,
+) -> dict[str, "AgentConfig"]:
+    """Convert discovered project commands into routing-target AgentConfig entries.
+
+    Each command becomes an agent with name ``cmd-{command_name}``.
+    Commands whose prefixed name collides with an existing registry entry
+    are skipped (with a warning).
+
+    Args:
+        registry: Current agent registry (not mutated).
+        commands: Dict mapping command name to CommandInfo objects.
+
+    Returns:
+        New registry dict with command agents added.
+    """
+    from pathlib import Path as _Path
+
+    result = dict(registry)
+
+    for cmd_name, cmd in commands.items():
+        agent_name = f"cmd-{cmd_name}"
+        if agent_name in result:
+            log.warning(
+                "Command agent %r collides with existing agent -- skipped",
+                agent_name,
+            )
+            continue
+
+        # Read command file content for inline prompt
+        try:
+            content = _Path(cmd.file_path).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            log.warning("Could not read command file %s -- skipped", cmd.file_path)
+            continue
+
+        result[agent_name] = AgentConfig(
+            name=agent_name,
+            system_prompt_file="",
+            system_prompt_inline=content,
+            description=f"Command: {cmd.description[:100]}",
+            output_sections=[],
+            next_agent=None,
+            allowed_transitions=("plan", "execute", "test", "review", "approved"),
+            source="command",
+            file_path=cmd.file_path,
+        )
+
+    return result
+
+
 def resolve_pipeline_order(
     start_agent: str = "plan",
     registry: dict[str, AgentConfig] | None = None,

@@ -13,6 +13,8 @@ from src.pipeline.orchestrator import (
     OrchestratorDecision,
     OrchestratorState,
     build_orchestrator_prompt,
+    build_orchestrator_schema,
+    build_orchestrator_system_prompt,
     get_orchestrator_decision,
     log_decision,
     orchestrate_pipeline,
@@ -253,3 +255,62 @@ class TestLogDecision:
         assert len(rows) == 1
         assert rows[0].next_agent == "execute"
         assert rows[0].reasoning == "plan complete"
+
+
+# --- Phase 28: Dynamic schema and system prompt builders ---
+
+
+class TestDynamicSchemaBuilder:
+    """build_orchestrator_schema(registry) produces correct JSON schemas."""
+
+    def test_with_project_agent_includes_name(self):
+        """Registry with a project agent 'db-migrator' appears in enum."""
+        from src.agents.config import AgentConfig, DEFAULT_REGISTRY
+
+        custom_reg = dict(DEFAULT_REGISTRY)
+        custom_reg["db-migrator"] = AgentConfig(
+            name="db-migrator",
+            system_prompt_file="",
+            description="Handles database migrations",
+            source="project",
+        )
+        schema_json = build_orchestrator_schema(custom_reg)
+        schema = json.loads(schema_json)
+        enum_values = schema["properties"]["next_agent"]["enum"]
+        assert "db-migrator" in enum_values
+
+    def test_default_registry_matches_constant(self):
+        """build_orchestrator_schema() with no args matches ORCHESTRATOR_SCHEMA."""
+        from src.agents.config import DEFAULT_REGISTRY
+
+        fresh = build_orchestrator_schema(DEFAULT_REGISTRY)
+        assert json.loads(fresh) == json.loads(ORCHESTRATOR_SCHEMA)
+
+
+class TestDynamicSystemPromptBuilder:
+    """build_orchestrator_system_prompt(registry) returns correct prompts."""
+
+    def test_default_registry_returns_base_text(self):
+        """Default registry (no project agents) returns base prompt unchanged."""
+        from src.agents.config import DEFAULT_REGISTRY
+
+        result = build_orchestrator_system_prompt(DEFAULT_REGISTRY)
+        assert "workflow orchestrator" in result.lower()
+        # No project agents section
+        assert "Project-specific specialist agents:" not in result
+
+    def test_project_agent_appended(self):
+        """Registry with project agent appends description section."""
+        from src.agents.config import AgentConfig, DEFAULT_REGISTRY
+
+        custom_reg = dict(DEFAULT_REGISTRY)
+        custom_reg["db-migrator"] = AgentConfig(
+            name="db-migrator",
+            system_prompt_file="",
+            description="Handles database migrations",
+            source="project",
+        )
+        result = build_orchestrator_system_prompt(custom_reg)
+        assert "Project-specific specialist agents:" in result
+        assert "DB-MIGRATOR" in result
+        assert "Handles database migrations" in result
