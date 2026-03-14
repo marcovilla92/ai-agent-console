@@ -90,7 +90,7 @@ class TestAutonomousLowConfidence:
 
         call_count = 0
 
-        async def fake_decision(state, sections):
+        async def fake_decision(state, sections, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
