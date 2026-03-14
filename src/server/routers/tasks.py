@@ -277,6 +277,66 @@ async def approve_task(
     return ApprovalResponse(status="ok", decision=body.decision)
 
 
+@task_router.post("/{task_id}/retry", response_model=TaskResponse)
+async def retry_task(
+    task_id: int,
+    manager: TaskManager = Depends(get_task_manager),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Retry an interrupted, cancelled, or failed task.
+
+    Re-submits the original prompt to the pipeline with fresh context.
+    """
+    task = await manager.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status not in ("interrupted", "cancelled", "failed"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry task with status '{task.status}'",
+        )
+
+    # Re-enrich prompt if project-linked
+    enriched_prompt: str | None = None
+    project_path = task.project_path
+    if task.project_id:
+        try:
+            project_repo = ProjectRepository(pool)
+            project = await project_repo.get(task.project_id)
+            if project:
+                project_path = project.path
+                ctx = await assemble_full_context(project.path, pool)
+                prefix = format_context_prefix(ctx)
+                if prefix:
+                    enriched_prompt = prefix + task.prompt
+                await project_repo.update_last_used(task.project_id)
+        except Exception:
+            log.warning("Context assembly failed for retry of task %d", task_id, exc_info=True)
+
+    new_task_id = await manager.submit(
+        prompt=task.prompt,
+        mode=task.mode,
+        project_path=project_path,
+        project_id=task.project_id,
+        enriched_prompt=enriched_prompt,
+    )
+    new_task = await manager.get(new_task_id)
+    if new_task is None:
+        raise HTTPException(status_code=500, detail="Task retry failed")
+    return TaskResponse(
+        id=new_task.id,
+        name=new_task.name,
+        project_path=new_task.project_path,
+        status=new_task.status,
+        mode=new_task.mode,
+        prompt=new_task.prompt,
+        created_at=new_task.created_at,
+        completed_at=new_task.completed_at,
+        error=new_task.error,
+        project_id=new_task.project_id,
+    )
+
+
 @task_router.post("/{task_id}/cancel", response_model=TaskResponse)
 async def cancel_task(
     task_id: int,
