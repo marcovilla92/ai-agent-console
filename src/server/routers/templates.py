@@ -422,7 +422,7 @@ async def generate_template(req: GenerateTemplateRequest):
                     prompt=prompt,
                     schema=TEMPLATE_GEN_SCHEMA,
                     system_prompt=system_prompt_text,
-                    extra_args=["--max-turns", "1"],
+                    extra_args=["--max-turns", "3"],
                 ),
                 timeout=600,
             )
@@ -462,8 +462,14 @@ async def generate_template(req: GenerateTemplateRequest):
             else:
                 data = response
             log.warning("AI generation extracted data type=%s keys=%s", type(data).__name__, list(data.keys()) if isinstance(data, dict) else str(data)[:200])
+            # Check for max_turns error (Claude wanted more turns)
+            if isinstance(data, dict) and data.get("subtype") == "error_max_turns":
+                raise ValueError("Claude needed more turns to generate — try a simpler description")
             if not isinstance(data, dict):
                 raise ValueError(f"Expected dict, got {type(data).__name__}: {str(data)[:200]}")
+            # Check we got actual template data, not just metadata
+            if "files" not in data and "name" not in data and "type" in data:
+                raise ValueError(f"Got metadata wrapper instead of template data. Keys: {list(data.keys())}")
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
             log.error("AI generation produced invalid response: %s", exc)
             raise HTTPException(
