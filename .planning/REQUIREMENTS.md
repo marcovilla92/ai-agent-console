@@ -43,9 +43,9 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ### Project Management
 
-- [ ] **PROJ-01**: User can list all projects (GET /projects) with auto-scan of ~/projects/
-- [ ] **PROJ-02**: User can create a new project from a template (POST /projects) with folder scaffolding + git init
-- [ ] **PROJ-03**: User can delete a project record (DELETE /projects/{id}) without removing filesystem
+- [x] **PROJ-01**: User can list all projects (GET /projects) with auto-scan of ~/projects/
+- [x] **PROJ-02**: User can create a new project from a template (POST /projects) with folder scaffolding + git init
+- [x] **PROJ-03**: User can delete a project record (DELETE /projects/{id}) without removing filesystem
 - [x] **PROJ-04**: System auto-registers untracked folders found in ~/projects/ with ON CONFLICT safety
 - [x] **PROJ-05**: Project list shows detected stack and last_used_at
 
@@ -152,9 +152,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CTX-02 | Phase 14 | Complete |
 | CTX-03 | Phase 14 | Complete |
 | CTX-04 | Phase 14 | Complete |
-| PROJ-01 | Phase 15 | Pending |
-| PROJ-02 | Phase 15 | Pending |
-| PROJ-03 | Phase 15 | Pending |
+| PROJ-01 | Phase 15 | Complete |
+| PROJ-02 | Phase 15 | Complete |
+| PROJ-03 | Phase 15 | Complete |
 | PROJ-04 | Phase 15 | Complete |
 | PROJ-05 | Phase 15 | Complete |
 | EVT-01 | Phase 15 | Complete |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Project Router
 status: in_progress
-stopped_at: Completed 15-01-PLAN.md -- Project service and events
-last_updated: "2026-03-14T00:10:26Z"
-last_activity: 2026-03-14 -- Completed 15-01 Project service and events
+stopped_at: Completed 15-02-PLAN.md -- Project router endpoints + events wiring
+last_updated: "2026-03-14T00:36:26Z"
+last_activity: 2026-03-14 -- Completed 15-02 Project router endpoints
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 7
-  completed_plans: 6
-  percent: 85
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -21,26 +21,26 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 15 in progress - Project Service and API (v2.1 Project Router)
+**Current focus:** Phase 15 complete - Project Service and API (v2.1 Project Router)
 
 ## Current Position
 
 Phase: 15 of 17 (Project Service and API)
-Plan: 01 of 02 (complete)
-Status: Phase 15 in progress
-Last activity: 2026-03-14 -- Completed 15-01 Project service and events
+Plan: 02 of 02 (complete)
+Status: Phase 15 complete
+Last activity: 2026-03-14 -- Completed 15-02 Project router endpoints
 
-Progress: [████████░░] 85%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 23 (v1.0: 16, v2.0: 10, v2.1: 6)
+- Total plans completed: 24 (v1.0: 16, v2.0: 10, v2.1: 7)
 - Average duration: 5min
-- Total execution time: ~1.6 hours
+- Total execution time: ~1.7 hours
 
 **Recent Trend:**
-- Last 5 plans: 5min, 4min, 5min, 4min, 4min
+- Last 5 plans: 4min, 5min, 4min, 4min, 4min
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -71,6 +71,10 @@ Progress: [████████░░] 85%
 - [15-01]: ProjectService filters list_all by workspace_root prefix for test isolation
 - [15-01]: detect_stack extracted as standalone function from assembler
 - [15-01]: workspace_root override param in ProjectService for testability
+- [15-02]: scaffold_from_template uses Jinja2 Template directly for simplicity
+- [15-02]: git init errors swallowed with log.warning -- creation succeeds without git
+- [15-02]: Router routes reordered: collection endpoints before parametric routes
+- [15-02]: Endpoint tests use minimal FastAPI app with noop_lifespan
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:10:26Z
-Stopped at: Completed 15-01-PLAN.md -- Project service and events
+Last session: 2026-03-14T00:36:26Z
+Stopped at: Completed 15-02-PLAN.md -- Project router endpoints + events wiring
 Resume file: None
