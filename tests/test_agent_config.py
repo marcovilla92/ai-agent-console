@@ -47,7 +47,7 @@ def test_execute_config_sections():
     cfg = get_agent_config("execute")
     assert "TARGET" in cfg.output_sections
     assert "CODE" in cfg.output_sections
-    assert cfg.next_agent == "review"
+    assert cfg.next_agent == "test"
 
 
 def test_review_config_sections():
@@ -63,13 +63,13 @@ def test_agent_config_is_frozen():
 
 
 def test_resolve_pipeline_order_default():
-    """Default start walks plan -> execute -> review."""
-    assert resolve_pipeline_order() == ["plan", "execute", "review"]
+    """Default start walks plan -> execute -> test -> review."""
+    assert resolve_pipeline_order() == ["plan", "execute", "test", "review"]
 
 
 def test_resolve_pipeline_order_from_execute():
-    """Starting from execute walks execute -> review."""
-    assert resolve_pipeline_order("execute") == ["execute", "review"]
+    """Starting from execute walks execute -> test -> review."""
+    assert resolve_pipeline_order("execute") == ["execute", "test", "review"]
 
 
 def test_resolve_pipeline_order_unknown_agent():
