@@ -550,3 +550,56 @@ class TestProjectAgentRouting:
         # stream_output should have been called with "db-migrator" at some point
         agent_names = [call.args[0] for call in ctx.stream_output.call_args_list]
         assert "db-migrator" in agent_names
+
+
+class TestCommandRouting:
+    """Commands injected as agents are routable through the pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_command_agent_receives_correct_name(self):
+        """Routing to cmd-deploy calls stream_output with 'cmd-deploy'."""
+        from src.agents.config import AgentConfig, DEFAULT_REGISTRY
+
+        custom_reg = dict(DEFAULT_REGISTRY)
+        custom_reg["cmd-deploy"] = AgentConfig(
+            name="cmd-deploy",
+            system_prompt_file="",
+            system_prompt_inline="Deploy instructions: run deploy.sh",
+            description="Command: Deploy to production",
+            source="command",
+            allowed_transitions=("plan", "execute", "test", "review", "approved"),
+        )
+
+        ctx = MagicMock()
+        ctx.mode = "autonomous"
+        ctx.project_path = "."
+
+        async def fake_stream(agent_name, prompt, sections):
+            return {"DECISION": "APPROVED", "HANDOFF": "done"}
+        ctx.stream_output = AsyncMock(side_effect=fake_stream)
+        ctx.update_status = AsyncMock()
+        ctx.confirm_reroute = AsyncMock(return_value=True)
+
+        # First call: routes to cmd-deploy, second call: approved
+        responses = iter([
+            json.dumps({"result": json.dumps({"next_agent": "cmd-deploy", "reasoning": "Need deploy", "confidence": 0.9})}),
+            json.dumps({"result": json.dumps({"next_agent": "approved", "reasoning": "Done", "confidence": 0.95})}),
+        ])
+
+        with patch("src.pipeline.orchestrator.call_orchestrator_claude", new_callable=AsyncMock, side_effect=lambda *a, **kw: next(responses)):
+            with patch("src.pipeline.orchestrator.build_orchestrator_schema", return_value=ORCHESTRATOR_SCHEMA):
+                with patch("src.pipeline.orchestrator.build_orchestrator_system_prompt", return_value="prompt"):
+                    with patch("src.pipeline.orchestrator.validate_transition", side_effect=lambda f, t, **kw: t):
+                        state = await orchestrate_pipeline(ctx, "deploy app", None, 1, registry=custom_reg)
+
+        agent_names = [call.args[0] for call in ctx.stream_output.call_args_list]
+        assert "cmd-deploy" in agent_names
+
+    def test_build_registry_helper(self):
+        """TaskManager._build_registry returns a registry with core agents."""
+        from src.engine.manager import TaskManager
+
+        registry = TaskManager._build_registry("/nonexistent/path")
+        assert "plan" in registry
+        assert "execute" in registry
+        assert "review" in registry

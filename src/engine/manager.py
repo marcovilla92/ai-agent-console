@@ -87,17 +87,39 @@ class TaskManager:
             self._execute(task_id, pipeline_prompt, mode, project_path),
             name=f"task-{task_id}",
         )
+        registry = self._build_registry(project_path)
         ctx = WebTaskContext(
             task_id=task_id,
             pool=self._pool,
             mode=mode,
             project_path=project_path,
             connection_manager=self._connection_manager,
+            registry=registry,
         )
         self._running[task_id] = RunningTask(
             handle=handle, task_id=task_id, ctx=ctx,
         )
         return task_id
+
+    @staticmethod
+    def _build_registry(project_path: str) -> dict:
+        """Build a per-project agent registry with command injection.
+
+        Falls back to a copy of DEFAULT_REGISTRY if discovery fails.
+        """
+        try:
+            from src.agents.config import get_project_registry, inject_commands_as_agents, DEFAULT_REGISTRY
+            from src.commands.loader import discover_project_commands
+
+            registry = get_project_registry(project_path)
+            commands = discover_project_commands(project_path)
+            if commands:
+                registry = inject_commands_as_agents(registry, commands)
+            return registry
+        except Exception:
+            from src.agents.config import DEFAULT_REGISTRY
+            log.warning("Failed to build project registry for %s, using defaults", project_path, exc_info=True)
+            return dict(DEFAULT_REGISTRY)
 
     async def _execute(
         self,
@@ -113,18 +135,22 @@ class TaskManager:
                 await self._repo.update_status(task_id, "running")
                 await emit_event(ProjectEvent.TASK_STARTED, {"task_id": task_id})
 
+                # Build per-project registry with command injection
+                registry = self._build_registry(project_path)
+
                 ctx = WebTaskContext(
                     task_id=task_id,
                     pool=self._pool,
                     mode=mode,
                     project_path=project_path,
                     connection_manager=self._connection_manager,
+                    registry=registry,
                 )
                 # Update the running task's ctx reference
                 if task_id in self._running:
                     self._running[task_id].ctx = ctx
 
-                await orchestrate_pipeline(ctx, prompt, self._pool, task_id)
+                await orchestrate_pipeline(ctx, prompt, self._pool, task_id, registry=registry)
 
                 await self._repo.update_status(
                     task_id, "completed",
@@ -268,12 +294,14 @@ class TaskManager:
                 self._execute(task_id, pipeline_prompt, row["mode"], row["project_path"]),
                 name=f"task-{task_id}-resume",
             )
+            registry = self._build_registry(row["project_path"])
             ctx = WebTaskContext(
                 task_id=task_id,
                 pool=self._pool,
                 mode=row["mode"],
                 project_path=row["project_path"],
                 connection_manager=self._connection_manager,
+                registry=registry,
             )
             self._running[task_id] = RunningTask(
                 handle=handle, task_id=task_id, ctx=ctx,
