@@ -71,6 +71,7 @@ async def stream_claude(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        limit=10 * 1024 * 1024,  # 10 MB line buffer (default 64KB too small for large JSON lines)
     )
     log.info("stream_claude: process started pid=%s", proc.pid)
 

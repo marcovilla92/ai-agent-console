@@ -520,10 +520,10 @@
         },
 
         /* --- Open a running task from Task History --- */
-        openRunningTask(task) {
+        async openRunningTask(task) {
           this.activeTaskId = task.id;
           this.logText = '';
-          this.taskStatus = 'running';
+          this.taskStatus = task.status || 'running';
           this.currentAgent = null;
           this.currentStep = null;
           this.currentNextAction = null;
@@ -542,6 +542,38 @@
             else if (secs < 3600) { self2.taskElapsed = Math.floor(secs / 60) + 'm ' + (secs % 60) + 's'; }
             else { self2.taskElapsed = Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm'; }
           }, 1000);
+          /* Hydrate historical outputs before connecting WS */
+          try {
+            var res = await apiFetch('/tasks/' + task.id + '/outputs');
+            if (res.ok) {
+              var data = await res.json();
+              var outputs = data.outputs || [];
+              var logParts = [];
+              var stages = ['plan', 'execute', 'test', 'review'];
+              for (var i = 0; i < outputs.length; i++) {
+                var o = outputs[i];
+                logParts.push(o.raw_output);
+                var agentName = o.agent_type;
+                var alreadyInHistory = self2.pipelineHistory.some(function(h) { return h.agent === agentName; });
+                if (!alreadyInHistory) {
+                  var isLast = (i === outputs.length - 1);
+                  self2.pipelineHistory.push({
+                    agent: agentName,
+                    state: isLast && self2.taskStatus === 'running' ? 'active' : 'done',
+                    startedAt: o.created_at,
+                    completedAt: isLast && self2.taskStatus === 'running' ? null : o.created_at
+                  });
+                }
+              }
+              self2.logText = logParts.join('\n\n');
+              /* Set current agent to the last active one */
+              if (outputs.length > 0 && self2.taskStatus === 'running') {
+                self2.currentAgent = outputs[outputs.length - 1].agent_type;
+              }
+            }
+          } catch(e) {
+            console.warn('Failed to hydrate task history:', e);
+          }
           this.connectWS(task.id);
         },
 
