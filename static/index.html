@@ -83,7 +83,17 @@
           }
         } catch(e) {}
       }
-      return fetch(url, opts);
+      return fetch(url, opts).then(function(resp) {
+        /* If 401, credentials are invalid/missing — force re-login */
+        if (resp.status === 401) {
+          _authHeader = null;
+          localStorage.removeItem('auth_header');
+          if (Alpine && Alpine.store && Alpine.store('app')) {
+            Alpine.store('app').authenticated = false;
+          }
+        }
+        return resp;
+      });
     }
 
     function statusClass(status) {
