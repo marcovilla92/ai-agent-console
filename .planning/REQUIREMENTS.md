@@ -69,9 +69,9 @@ Requirements for Project Router milestone. Each maps to roadmap phases.
 
 ### Task Integration
 
-- [ ] **TASK-11**: TaskCreate accepts optional project_id, falls back to settings.project_path
-- [ ] **TASK-12**: Task creation prepends assembled project context to prompt
-- [ ] **TASK-13**: Task creation updates project last_used_at
+- [x] **TASK-11**: TaskCreate accepts optional project_id, falls back to settings.project_path
+- [x] **TASK-12**: Task creation prepends assembled project context to prompt
+- [x] **TASK-13**: Task creation updates project last_used_at
 
 ### Event System
 
@@ -158,9 +158,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROJ-04 | Phase 15 | Complete |
 | PROJ-05 | Phase 15 | Complete |
 | EVT-01 | Phase 15 | Complete |
-| TASK-11 | Phase 16 | Pending |
-| TASK-12 | Phase 16 | Pending |
-| TASK-13 | Phase 16 | Pending |
+| TASK-11 | Phase 16 | Complete |
+| TASK-12 | Phase 16 | Complete |
+| TASK-13 | Phase 16 | Complete |
 | SPA-01 | Phase 17 | Pending |
 | SPA-02 | Phase 17 | Pending |
 | SPA-03 | Phase 17 | Pending |

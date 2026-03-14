@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Project Router
-status: completed
-stopped_at: Completed 15-02-PLAN.md -- Project router endpoints + events wiring
+status: in_progress
+stopped_at: Completed 16-01-PLAN.md -- Task-project integration with context enrichment
 last_updated: "2026-03-14T01:12:39.494Z"
-last_activity: 2026-03-14 -- Completed 15-02 Project router endpoints
+last_activity: 2026-03-14 -- Completed 16-01 Task-project integration
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 7
-  completed_plans: 7
+  completed_phases: 5
+  total_plans: 8
+  completed_plans: 8
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** The orchestrator must reliably coordinate agents through iterative cycles -- taking a rough idea and producing complete, usable code output with zero manual agent management. Tasks persist and stream across devices.
-**Current focus:** Phase 15 complete - Project Service and API (v2.1 Project Router)
+**Current focus:** Phase 16 complete - Task-Project Integration (v2.1 Project Router)
 
 ## Current Position
 
-Phase: 15 of 17 (Project Service and API)
-Plan: 02 of 02 (complete)
-Status: Phase 15 complete
-Last activity: 2026-03-14 -- Completed 15-02 Project router endpoints
+Phase: 16 of 17 (Task-Project Integration)
+Plan: 01 of 01 (complete)
+Status: Phase 16 complete
+Last activity: 2026-03-14 -- Completed 16-01 Task-project integration
 
 Progress: [██████████] 100%
 
@@ -75,6 +75,9 @@ Progress: [██████████] 100%
 - [15-02]: git init errors swallowed with log.warning -- creation succeeds without git
 - [15-02]: Router routes reordered: collection endpoints before parametric routes
 - [15-02]: Endpoint tests use minimal FastAPI app with noop_lifespan
+- [16-01]: Enriched prompt is transient -- original stored in DB, enriched sent to pipeline only
+- [16-01]: Context assembly failure gracefully falls back to original prompt
+- [16-01]: format_context_prefix truncates to MAX_CONTEXT_CHARS (6000)
 
 ### Pending Todos
 
@@ -91,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:36:26Z
-Stopped at: Completed 15-02-PLAN.md -- Project router endpoints + events wiring
+Last session: 2026-03-14T01:46:21Z
+Stopped at: Completed 16-01-PLAN.md -- Task-project integration with context enrichment
 Resume file: None

@@ -39,7 +39,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 13: Template System** - 4 builtin templates, registry.yaml, template CRUD API endpoints (completed 2026-03-13)
 - [x] **Phase 14: Context Assembly** - Full context aggregator, phase suggestion engine, context/phase API endpoints (completed 2026-03-13)
 - [x] **Phase 15: Project Service and API** - ProjectService with scaffold engine, events stub, project CRUD endpoints with auto-scan (completed 2026-03-14)
-- [ ] **Phase 16: Task-Project Integration** - project_id on task creation, context prepend to prompt, last_used_at update
+- [x] **Phase 16: Task-Project Integration** - project_id on task creation, context prepend to prompt, last_used_at update (completed 2026-03-14)
 - [ ] **Phase 17: SPA Frontend** - Alpine.js single-page app replacing Jinja2 templates with 4-state wizard
 
 ## Phase Details
@@ -153,5 +153,5 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 13. Template System | 2/2 | Complete    | 2026-03-13 | - |
 | 14. Context Assembly | 2/2 | Complete    | 2026-03-13 | - |
 | 15. Project Service and API | 2/2 | Complete    | 2026-03-14 | - |
-| 16. Task-Project Integration | v2.1 | 0/1 | Not started | - |
+| 16. Task-Project Integration | 1/1 | Complete   | 2026-03-14 | - |
 | 17. SPA Frontend | v2.1 | 0/1 | Not started | - |
