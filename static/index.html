@@ -580,7 +580,9 @@
         /* --- Running View (WebSocket) --- */
         connectWS(taskId) {
           var self = this;
-          var token = sessionStorage.getItem('ws_token');
+          /* Reuse auth_header (Basic <base64>) already set at login */
+          var auth = getAuth();
+          var token = auth ? auth.replace('Basic ', '') : null;
           if (!token) {
             try {
               var loc = new URL(window.location.href);
@@ -593,7 +595,6 @@
               var pass = prompt('Password:');
               token = btoa(user + ':' + pass);
             }
-            sessionStorage.setItem('ws_token', token);
           }
           var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
           var url = proto + '//' + location.host + '/ws/tasks/' + taskId + '?token=' + token;
