@@ -107,6 +107,10 @@ class GenerateTemplateRequest(BaseModel):
     stack: str | None = None  # Optional stack hint
 
 
+class TemplateFilesResponse(BaseModel):
+    files: dict[str, str]  # {relative_path: content}
+
+
 class GenerateTemplateResponse(BaseModel):
     id: str
     name: str
@@ -215,6 +219,26 @@ async def get_template(template_id: str):
         builtin=entry["builtin"],
         files=files,
     )
+
+
+@template_router.get("/{template_id}/files", response_model=TemplateFilesResponse)
+async def get_template_files(template_id: str):
+    """Return all file contents for a template as a flat dict."""
+    data = load_registry()
+    _get_entry_or_404(data, template_id)
+    template_dir = TEMPLATES_ROOT / template_id
+    files: dict[str, str] = {}
+    for file_path in sorted(template_dir.rglob("*")):
+        if not file_path.is_file():
+            continue
+        if any(part in EXCLUDE_DIRS for part in file_path.parts):
+            continue
+        rel = str(file_path.relative_to(template_dir))
+        try:
+            files[rel] = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            files[rel] = "[binary file]"
+    return TemplateFilesResponse(files=files)
 
 
 @template_router.post(
