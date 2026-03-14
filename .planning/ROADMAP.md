@@ -125,9 +125,10 @@ Plans:
   3. Project creation view lets user enter name, description, and pick a template -- submitting scaffolds the project
   4. Prompt view shows phase suggestion, context preview toggle, and prompt textarea -- submitting creates a task
   5. Running view streams WebSocket output reusing existing WS logic, with x-show view switching preserving the connection
-**Plans**: 1 plan
+**Plans**: 2 plans
 Plans:
-- [ ] 17-01-PLAN.md -- Alpine.js SPA with 4-state wizard, project selection, creation, prompt, streaming
+- [ ] 17-01-PLAN.md -- Alpine.js SPA with 4 views, Alpine.store, tests
+- [ ] 17-02-PLAN.md -- Server wiring (FileResponse), Jinja2 cleanup, Dockerfile update, browser verification
 
 ## Progress
 
@@ -154,4 +155,4 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 14. Context Assembly | 2/2 | Complete    | 2026-03-13 | - |
 | 15. Project Service and API | 2/2 | Complete    | 2026-03-14 | - |
 | 16. Task-Project Integration | 1/1 | Complete    | 2026-03-14 | - |
-| 17. SPA Frontend | v2.1 | 0/1 | Not started | - |
+| 17. SPA Frontend | v2.1 | 0/2 | Not started | - |
