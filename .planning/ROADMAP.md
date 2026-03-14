@@ -113,7 +113,7 @@ Plans:
   4. Existing tasks (project_id = NULL) remain visible and functional in the task list
 **Plans**: 1 plan
 Plans:
-- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
+- [ ] 16-01-PLAN.md -- project_id on TaskCreate, context prepend, last_used_at update, integration tests
 
 ### Phase 17: SPA Frontend
 **Goal**: Users interact with the console through a single-page Alpine.js app with project selection, creation, prompt composition with phase suggestions, and streaming output
@@ -127,7 +127,7 @@ Plans:
   5. Running view streams WebSocket output reusing existing WS logic, with x-show view switching preserving the connection
 **Plans**: 1 plan
 Plans:
-- [ ] 12-01-PLAN.md -- Schema DDL, Project dataclass, ProjectRepository CRUD, migration wiring, tests
+- [ ] 17-01-PLAN.md -- Alpine.js SPA with 4-state wizard, project selection, creation, prompt, streaming
 
 ## Progress
 
@@ -153,5 +153,5 @@ Note: Phases 13 and 14 can execute in parallel (both depend only on Phase 12).
 | 13. Template System | 2/2 | Complete    | 2026-03-13 | - |
 | 14. Context Assembly | 2/2 | Complete    | 2026-03-13 | - |
 | 15. Project Service and API | 2/2 | Complete    | 2026-03-14 | - |
-| 16. Task-Project Integration | v2.1 | 0/0 | Not started | - |
-| 17. SPA Frontend | v2.1 | 0/0 | Not started | - |
+| 16. Task-Project Integration | v2.1 | 0/1 | Not started | - |
+| 17. SPA Frontend | v2.1 | 0/1 | Not started | - |
