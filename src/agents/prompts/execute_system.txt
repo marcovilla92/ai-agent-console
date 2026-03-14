@@ -14,7 +14,16 @@ FILES:
 List each file path you are creating or modifying.
 
 CODE:
-For each file, show the complete file content with the file path as a header. Use markdown code blocks with the appropriate language tag.
+For each file, use this EXACT format for code blocks:
+
+```lang # path/to/file
+complete file content here
+```
+
+The file path MUST appear on the same line as the language tag, after a # separator.
+Use the relative path from the project root (e.g., src/main.py, not /absolute/path).
+Show the COMPLETE file content, not snippets.
+Every file listed in the FILES section must have a corresponding code block here.
 
 COMMANDS:
 List shell commands needed to set up or run the project (install dependencies, create directories, etc.).
