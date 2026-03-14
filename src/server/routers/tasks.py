@@ -6,7 +6,8 @@ Provides CRUD and cancel operations for tasks, protected by HTTP Basic Auth.
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Literal, Optional
 
 import asyncpg
@@ -18,6 +19,7 @@ from src.db.pg_repository import AgentOutputRepository, ProjectRepository
 from src.engine.manager import TaskManager
 from src.server.config import get_settings
 from src.server.dependencies import get_pool, get_task_manager, verify_credentials
+from src.server.routers.projects import _resolve_project_dir
 
 log = logging.getLogger(__name__)
 
@@ -281,7 +283,7 @@ async def get_task_file_changes(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    project_path = task.project_path
+    project_path = str(_resolve_project_dir(task.project_path))
     if not os.path.isdir(os.path.join(project_path, ".git")):
         return FileChangesListResponse(files=[], count=0)
 
@@ -317,14 +319,36 @@ async def get_task_file_changes(
     raw_diff = await _run_git("diff", "HEAD", "--name-status")
     _parse_name_status(raw_diff)
 
+    # Also check staged but not yet committed
+    raw_staged = await _run_git("diff", "--cached", "--name-status")
+    _parse_name_status(raw_staged)
+
     # 2. Committed changes during the task time window
+    #    Widen window by 60s each side to handle timezone/clock skew
     log_args = ["log", "--name-status", "--pretty=format:", "--no-pager"]
     if task.created_at:
-        log_args.append(f"--since={task.created_at.isoformat()}")
+        widened_start = task.created_at - timedelta(seconds=60)
+        log_args.append(f"--since={widened_start.isoformat()}")
     if task.completed_at:
-        log_args.append(f"--until={task.completed_at.isoformat()}")
+        widened_end = task.completed_at + timedelta(seconds=60)
+        log_args.append(f"--until={widened_end.isoformat()}")
     raw_log = await _run_git(*log_args)
     _parse_name_status(raw_log)
+
+    # 3. If nothing found, check commits in the task window using show
+    if not seen:
+        commit_count = await _run_git("rev-list", "--count", "HEAD")
+        if commit_count.isdigit() and int(commit_count) <= 3:
+            # Small repo — list all tracked files from HEAD as "added"
+            raw_show = await _run_git("show", "--name-status", "--pretty=format:", "HEAD")
+            _parse_name_status(raw_show)
+        # Also try untracked files as fallback
+        if not seen:
+            raw_untracked = await _run_git("ls-files", "--others", "--exclude-standard")
+            for line in raw_untracked.splitlines():
+                line = line.strip()
+                if line and line not in seen:
+                    seen[line] = "added"
 
     files = [FileChangeResponse(path=p, status=s) for p, s in seen.items()]
     return FileChangesListResponse(files=files, count=len(files))
