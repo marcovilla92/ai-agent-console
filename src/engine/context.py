@@ -21,6 +21,7 @@ import asyncpg
 from src.db.pg_repository import AgentOutputRepository
 from src.db.pg_schema import AgentOutput
 from src.parser.extractor import extract_sections
+from src.agents.config import get_agent_config
 from src.runner.runner import stream_claude
 
 if TYPE_CHECKING:
@@ -80,9 +81,17 @@ class WebTaskContext:
         """
         from datetime import datetime, timezone
 
+        system_prompt = None
+        try:
+            config = get_agent_config(agent_name)
+            system_prompt = config.system_prompt_file
+            log.info("stream_output: agent=%s system_prompt=%s", agent_name, system_prompt)
+        except KeyError:
+            log.warning("stream_output: no config for agent %r, running without system prompt", agent_name)
+
         raw_parts: list[str] = []
 
-        async for event in stream_claude(prompt):
+        async for event in stream_claude(prompt, system_prompt_file=system_prompt):
             if isinstance(event, str):
                 raw_parts.append(event)
                 if self._connection_manager:

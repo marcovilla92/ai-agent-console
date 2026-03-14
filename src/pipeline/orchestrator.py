@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 import asyncpg
 
@@ -75,6 +76,10 @@ ORCHESTRATOR_SCHEMA = json.dumps({
     },
     "required": ["next_agent", "reasoning", "confidence"],
 })
+
+ORCHESTRATOR_PROMPT_FILE = str(
+    Path(__file__).parent.parent / "agents" / "prompts" / "orchestrator_system.txt"
+)
 
 
 # --- Prompt building ---
@@ -149,7 +154,7 @@ async def get_orchestrator_decision(
     """
     prompt = build_orchestrator_prompt(state, latest_sections)
 
-    raw = await call_orchestrator_claude(prompt, ORCHESTRATOR_SCHEMA)
+    raw = await call_orchestrator_claude(prompt, ORCHESTRATOR_SCHEMA, ORCHESTRATOR_PROMPT_FILE)
 
     try:
         response = json.loads(raw)
